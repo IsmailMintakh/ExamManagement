@@ -1,31 +1,132 @@
-name: Deploy to Hostinger
+name: Deploy to Hostinger via FTP
 
+# Triggers on every push to main, plus manual run from the Actions tab.
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:        # also allow manual trigger from GitHub UI
+  workflow_dispatch:
 
+# Don't deploy two commits in parallel — newer push waits for in-flight to finish.
 concurrency:
-  # Don't deploy twice in parallel — newer push cancels in-flight deploy
   group: deploy-production
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: SSH deploy
+  build-and-deploy:
+    name: Build & FTP upload
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
-      - name: Trigger deploy on Hostinger
-        uses: appleboy/ssh-action@v1.0.3
+      # ──────────────────────────────────────────────────────────
+      # 1. Checkout source
+      # ──────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ──────────────────────────────────────────────────────────
+      # 2. PHP setup + composer (production-only deps)
+      # ──────────────────────────────────────────────────────────
+      - name: Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
         with:
-          host: ${{ secrets.HOSTINGER_HOST }}
-          username: ${{ secrets.HOSTINGER_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          port: ${{ secrets.HOSTINGER_PORT }}
-          script_stop: true
-          script: |
-            cd ~/exam_management
-            chmod +x ./deploy.sh
-            ./deploy.sh
+          php-version: '8.3'
+          extensions: bcmath, ctype, curl, dom, fileinfo, gd, intl, mbstring, openssl, pcre, pdo, pdo_mysql, tokenizer, xml, zip
+          tools: composer:v2
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install Composer dependencies (production)
+        run: |
+          composer install \
+            --no-dev \
+            --no-interaction \
+            --no-progress \
+            --prefer-dist \
+            --optimize-autoloader
+
+      # ──────────────────────────────────────────────────────────
+      # 3. Node + Vite build
+      # ──────────────────────────────────────────────────────────
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build frontend assets (Vite)
+        run: npm run build
+
+      # ──────────────────────────────────────────────────────────
+      # 4. Sanity: remove dev artifacts that should never reach prod
+      # ──────────────────────────────────────────────────────────
+      - name: Strip dev artifacts
+        run: |
+          rm -f public/hot
+          rm -rf node_modules tests .git .github
+
+      # ──────────────────────────────────────────────────────────
+      # 5. Upload to Hostinger via FTPS
+      #    SECURITY: always use FTPS (port 21 with TLS), never plain FTP
+      # ──────────────────────────────────────────────────────────
+      - name: Sync files to Hostinger via FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: ${{ secrets.FTP_PORT }}        # usually 21 for FTPS
+          protocol: ftps                        # explicit TLS upgrade
+          server-dir: ${{ secrets.FTP_TARGET_DIR }}/  # e.g. domains/your-domain.com/exam_management/
+          local-dir: ./
+          dangerous-clean-slate: false          # keep .env, storage/, public/storage on server
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/.env
+            **/.env.example
+            **/.env.local
+            **/.env.production
+            **/storage/logs/**
+            **/storage/framework/cache/data/**
+            **/storage/framework/sessions/**
+            **/storage/framework/views/**
+            **/storage/app/public/**
+            **/.github/**
+            **/tests/**
+            **/phpunit.xml
+            **/.editorconfig
+            **/.gitignore
+            **/.gitattributes
+            **/README.md
+            **/DEPLOY.md
+            **/deploy.sh
+            **/.styleci.yml
+            **/.phpunit.result.cache
+            **/database/database.sqlite
+
+      # ──────────────────────────────────────────────────────────
+      # 6. Run post-deploy hook on the server
+      #    The hook (a tiny PHP script you upload once) runs migrations,
+      #    clears caches, and bumps the public/build manifest. It's
+      #    protected by a shared secret so only this workflow can hit it.
+      # ──────────────────────────────────────────────────────────
+      - name: Trigger post-deploy hook (migrations + cache clear)
+        if: ${{ secrets.DEPLOY_HOOK_URL != '' }}
+        run: |
+          echo "→ Hitting deploy hook at ${{ secrets.DEPLOY_HOOK_URL }}"
+          curl --fail --show-error \
+               --max-time 120 \
+               -X POST \
+               -H "X-Deploy-Secret: ${{ secrets.DEPLOY_HOOK_SECRET }}" \
+               "${{ secrets.DEPLOY_HOOK_URL }}"
