@@ -1,0 +1,542 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Requests\StoreStudentRequest;
+use App\Models\AcademicSession;
+use App\Models\IssuedCertificate;
+use App\Models\Mark;
+use App\Models\Result;
+use App\Models\School;
+use App\Models\SchoolClass;
+use App\Models\Section;
+use App\Models\Student;
+use App\Models\StudentTransfer;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Inertia\Inertia;
+use Inertia\Response;
+use Maatwebsite\Excel\Facades\Excel;
+
+class StudentController extends Controller
+{
+    public function index(Request $request): Response
+    {
+        $this->authorize('viewAny', Student::class);
+
+        $user = $request->user();
+        $currentSession = AcademicSession::currentSession();
+
+        $students = Student::query()
+            ->when($user->isSuperAdmin(), function ($query) use ($request) {
+                if ($request->has('school_id')) {
+                    $query->where('school_id', $request->input('school_id'));
+                }
+            })
+            ->when($user->isSchoolAdmin(), function ($query) use ($user) {
+                $query->where('school_id', $user->school_id);
+            })
+            ->when($user->isClassTeacher(), function ($query) use ($user) {
+                $sectionIds = Section::where('class_teacher_id', $user->id)->pluck('id');
+                $query->whereIn('section_id', $sectionIds);
+            })
+            ->when($request->has('search'), function ($query) use ($request) {
+                $search = $request->input('search');
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('admission_no', 'like', "%{$search}%")
+                      ->orWhere('father_name', 'like', "%{$search}%");
+                });
+            })
+            ->when($request->has('class_id'), fn ($q) => $q->where('school_class_id', $request->input('class_id')))
+            ->when($request->has('section_id'), fn ($q) => $q->where('section_id', $request->input('section_id')))
+            ->when($request->has('status'), fn ($q) => $q->where('status', $request->input('status')))
+            ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+            ->with(['school', 'schoolClass', 'section'])
+            ->orderBy('name')
+            ->paginate(15)
+            ->withQueryString();
+
+        $schools = $user->isSuperAdmin() ? School::active()->orderBy('name')->get(['id', 'name']) : [];
+        $classes = SchoolClass::query()
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->active()->ordered()->get(['id', 'name', 'school_id']);
+
+        return Inertia::render('Students/Index', [
+            'students' => $students,
+            'schools' => $schools,
+            'classes' => $classes,
+            'filters' => $request->only(['search', 'school_id', 'class_id', 'section_id', 'status']),
+        ]);
+    }
+
+    public function create(Request $request): Response|RedirectResponse
+    {
+        $this->authorize('create', Student::class);
+
+        $user = $request->user();
+        $currentSession = AcademicSession::currentSession();
+
+        if (!$currentSession) {
+            return redirect()->route('academic-sessions.create')
+                ->with('warning', 'Please create an academic session before adding students.');
+        }
+
+        $schools = $user->isSuperAdmin()
+            ? School::active()->orderBy('name')->get(['id', 'name'])
+            : School::where('id', $user->school_id)->get(['id', 'name']);
+
+        $classes = SchoolClass::query()
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->active()->ordered()->get(['id', 'name', 'school_id']);
+
+        if ($classes->isEmpty()) {
+            return redirect()->route('classes.create')
+                ->with('warning', 'Please add at least one class before adding students.');
+        }
+
+        $sections = Section::query()
+            ->whereHas('schoolClass', function ($q) use ($user) {
+                $q->when(!$user->isSuperAdmin(), fn ($q2) => $q2->where('school_id', $user->school_id));
+            })
+            ->active()->get(['id', 'name', 'school_class_id']);
+
+        if ($sections->isEmpty()) {
+            return redirect()->route('sections.create')
+                ->with('warning', 'Please add at least one section before adding students.');
+        }
+
+        return Inertia::render('Students/Create', [
+            'schools' => $schools,
+            'classes' => $classes,
+            'sections' => $sections,
+            'currentSession' => $currentSession,
+        ]);
+    }
+
+    public function store(StoreStudentRequest $request): RedirectResponse
+    {
+        $data = $request->validated();
+
+        if (empty($data['academic_session_id'])) {
+            $data['academic_session_id'] = AcademicSession::currentSession()?->id;
+        }
+
+        if ($request->hasFile('photo')) {
+            $data['photo'] = $request->file('photo')->store('students/photos', 'public');
+        }
+
+        Student::create($data);
+
+        return redirect()->route('students.index')->with('success', 'Student created successfully.');
+    }
+
+    public function show(Student $student): Response
+    {
+        $this->authorize('view', $student);
+
+        $student->load(['school', 'schoolClass', 'section', 'academicSession']);
+
+        // ---- Marks (per-subject, per-exam) ----
+        $marks = Mark::where('student_id', $student->id)
+            ->with(['subject:id,name,code', 'exam:id,name,start_date'])
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn ($m) => [
+                'id' => $m->id,
+                'exam_id' => $m->exam_id,
+                'exam_name' => $m->exam?->name,
+                'subject_name' => $m->subject?->name,
+                'subject_code' => $m->subject?->code,
+                'marks_obtained' => (float) $m->marks_obtained,
+                'total_marks' => (float) $m->total_marks,
+                'grace_marks' => (float) ($m->grace_marks ?? 0),
+                'percentage' => $m->total_marks > 0
+                    ? round((((float) $m->marks_obtained + (float) ($m->grace_marks ?? 0)) / $m->total_marks) * 100, 1)
+                    : 0,
+                'is_absent' => (bool) $m->is_absent,
+                'status' => $m->status,
+            ]);
+
+        // ---- Results (per-exam summary) ----
+        $results = Result::where('student_id', $student->id)
+            ->with(['exam:id,name,start_date,exam_type_id', 'exam.examType:id,name'])
+            ->orderByDesc('updated_at')
+            ->get()
+            ->map(fn ($r) => [
+                'id' => $r->id,
+                'exam_id' => $r->exam_id,
+                'exam_name' => $r->exam?->name,
+                'exam_type' => $r->exam?->examType?->name,
+                'exam_date' => $r->exam?->start_date,
+                'total_marks' => (float) $r->total_marks,
+                'obtained_marks' => (float) $r->obtained_marks,
+                'percentage' => round((float) $r->percentage, 1),
+                'grade' => $r->grade,
+                'position' => $r->position,
+                'total_students' => $r->total_students,
+                'is_passed' => (bool) $r->is_passed,
+                'subjects_passed' => $r->subjects_passed,
+                'subjects_failed' => $r->subjects_failed,
+            ]);
+
+        // ---- Mark trend (chronological %) ----
+        $trend = $results->sortBy('exam_date')->values()->map(fn ($r) => [
+            'label' => $r['exam_name'],
+            'percentage' => $r['percentage'],
+        ]);
+
+        // ---- Transfers ----
+        $transfers = StudentTransfer::where('student_id', $student->id)
+            ->with(['fromSchool:id,name', 'toSchool:id,name', 'fromClass:id,name', 'toClass:id,name'])
+            ->orderByDesc('initiated_at')
+            ->get()
+            ->map(fn ($t) => [
+                'id' => $t->id,
+                'from' => $t->fromSchool?->name . ' · ' . $t->fromClass?->name,
+                'to' => $t->toSchool?->name . ' · ' . $t->toClass?->name,
+                'reason' => $t->reason,
+                'status' => $t->status,
+                'date' => $t->initiated_at,
+            ]);
+
+        // ---- Certificates earned ----
+        $certificates = IssuedCertificate::where('student_id', $student->id)
+            ->with(['template:id,name,type', 'exam:id,name'])
+            ->orderByDesc('issued_at')
+            ->get()
+            ->map(fn ($c) => [
+                'id' => $c->id,
+                'number' => $c->certificate_number,
+                'type' => $c->type,
+                'template_name' => $c->template?->name,
+                'exam_name' => $c->exam?->name,
+                'issued_at' => $c->issued_at,
+            ]);
+
+        // ---- Stats ----
+        $passedResults = $results->filter(fn ($r) => $r['is_passed']);
+        $stats = [
+            'examsTaken' => $results->count(),
+            'examsPassed' => $passedResults->count(),
+            'avgScore' => $results->count() ? round($results->avg('percentage'), 1) : 0,
+            'bestPercentage' => $results->max('percentage') ?: 0,
+            'bestRank' => $results->whereNotNull('position')->min('position'),
+            'certificatesEarned' => $certificates->count(),
+            'currentStreak' => $this->computePassStreak($results),
+        ];
+
+        // ---- Build chronological timeline (single feed of all events) ----
+        $timeline = collect();
+
+        foreach ($results as $r) {
+            $timeline->push([
+                'type' => 'exam_result',
+                'date' => $r['exam_date'] ?? now()->toDateString(),
+                'title' => $r['exam_name'],
+                'meta' => $r,
+            ]);
+        }
+        foreach ($transfers as $t) {
+            $timeline->push([
+                'type' => 'transfer',
+                'date' => $t['date'] ?? now()->toDateString(),
+                'title' => "Transferred from {$t['from']} to {$t['to']}",
+                'meta' => $t,
+            ]);
+        }
+        foreach ($certificates as $c) {
+            $timeline->push([
+                'type' => 'certificate',
+                'date' => $c['issued_at'] ?? now()->toDateString(),
+                'title' => $c['template_name'] . ' awarded',
+                'meta' => $c,
+            ]);
+        }
+        // Admission event (always at the bottom of timeline)
+        $timeline->push([
+            'type' => 'admission',
+            'date' => $student->created_at?->toDateString() ?? now()->toDateString(),
+            'title' => "Admitted to {$student->school?->name}",
+            'meta' => [
+                'class' => $student->schoolClass?->name,
+                'section' => $student->section?->name,
+            ],
+        ]);
+
+        $timeline = $timeline->sortByDesc('date')->values();
+
+        return Inertia::render('Students/Show', [
+            'student' => $student,
+            'marks' => $marks,
+            'results' => $results,
+            'trend' => $trend,
+            'transfers' => $transfers,
+            'certificates' => $certificates,
+            'timeline' => $timeline,
+            'stats' => $stats,
+        ]);
+    }
+
+    /**
+     * Count consecutive most-recent passed results.
+     */
+    protected function computePassStreak($results): int
+    {
+        $sorted = $results->sortByDesc('exam_date')->values();
+        $streak = 0;
+        foreach ($sorted as $r) {
+            if ($r['is_passed']) $streak++;
+            else break;
+        }
+        return $streak;
+    }
+
+    public function edit(Student $student): Response
+    {
+        $this->authorize('update', $student);
+
+        $user = request()->user();
+
+        $schools = $user->isSuperAdmin()
+            ? School::active()->orderBy('name')->get(['id', 'name'])
+            : School::where('id', $user->school_id)->get(['id', 'name']);
+
+        $classes = SchoolClass::query()
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->active()->ordered()->get(['id', 'name', 'school_id']);
+
+        $sections = Section::query()
+            ->whereHas('schoolClass', function ($q) use ($user) {
+                $q->when(!$user->isSuperAdmin(), fn ($q2) => $q2->where('school_id', $user->school_id));
+            })
+            ->active()->get(['id', 'name', 'school_class_id']);
+
+        return Inertia::render('Students/Create', [
+            'student' => $student,
+            'schools' => $schools,
+            'classes' => $classes,
+            'sections' => $sections,
+        ]);
+    }
+
+    public function update(Request $request, Student $student): RedirectResponse
+    {
+        $this->authorize('update', $student);
+
+        $validated = $request->validate([
+            'admission_no' => ['required', 'string', 'max:50', 'unique:students,admission_no,' . $student->id],
+            'roll_no' => ['nullable', 'string', 'max:20'],
+            'name' => ['required', 'string', 'max:255'],
+            'father_name' => ['nullable', 'string', 'max:255'],
+            'mother_name' => ['nullable', 'string', 'max:255'],
+            'guardian_phone' => ['nullable', 'string', 'max:20'],
+            'date_of_birth' => ['nullable', 'date', 'before:today'],
+            'gender' => ['required', 'string', 'in:male,female,other'],
+            'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:1024'],
+            'address' => ['nullable', 'string', 'max:500'],
+            'blood_group' => ['nullable', 'string', 'max:5'],
+            'religion' => ['nullable', 'string', 'max:50'],
+            'category' => ['nullable', 'string', 'max:50'],
+            'caste' => ['nullable', 'string', 'max:100'],
+            'aadhaar_no' => ['nullable', 'string', 'max:12'],
+            'school_id' => ['required', 'exists:schools,id'],
+            'school_class_id' => ['required', 'exists:school_classes,id'],
+            'section_id' => ['required', 'exists:sections,id'],
+            'academic_session_id' => ['required', 'exists:academic_sessions,id'],
+            'status' => ['nullable', 'string', 'in:active,inactive,transferred,graduated'],
+        ]);
+
+        if ($request->hasFile('photo')) {
+            if ($student->photo) {
+                Storage::disk('public')->delete($student->photo);
+            }
+            $validated['photo'] = $request->file('photo')->store('students/photos', 'public');
+        }
+
+        $student->update($validated);
+
+        return redirect()->route('students.index')->with('success', 'Student updated successfully.');
+    }
+
+    public function destroy(Student $student): RedirectResponse
+    {
+        $this->authorize('delete', $student);
+
+        $student->delete();
+
+        return redirect()->route('students.index')->with('success', 'Student deleted successfully.');
+    }
+
+    /**
+     * Bulk delete — accepts an array of student IDs. Each is policy-authorized
+     * individually, so a principal can only delete their own school's students.
+     */
+    public function bulkDelete(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:students,id'],
+        ]);
+
+        $user = $request->user();
+        $deleted = 0;
+        $skipped = 0;
+
+        foreach (Student::whereIn('id', $data['ids'])->get() as $student) {
+            if ($user->can('delete', $student)) {
+                $student->delete();
+                $deleted++;
+            } else {
+                $skipped++;
+            }
+        }
+
+        $msg = "{$deleted} student" . ($deleted === 1 ? '' : 's') . ' deleted.';
+        if ($skipped > 0) $msg .= " {$skipped} skipped (no permission).";
+
+        return redirect()->route('students.index')->with($deleted > 0 ? 'success' : 'warning', $msg);
+    }
+
+    /**
+     * Bulk export — streams selected students as CSV.
+     */
+    public function bulkExport(Request $request): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:students,id'],
+        ]);
+
+        $user = $request->user();
+        $students = Student::whereIn('id', $data['ids'])
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->with(['school:id,name', 'schoolClass:id,name', 'section:id,name'])
+            ->orderBy('school_id')->orderBy('school_class_id')->orderBy('section_id')->orderBy('roll_no')
+            ->get();
+
+        $filename = 'students-' . now()->format('Y-m-d-His') . '.csv';
+
+        return response()->streamDownload(function () use ($students) {
+            $out = fopen('php://output', 'w');
+            // BOM for Excel UTF-8 compatibility
+            fwrite($out, "\xEF\xBB\xBF");
+            fputcsv($out, [
+                'Admission No', 'Roll No', 'Name', 'Father Name', 'Mother Name',
+                'Gender', 'Date of Birth', 'Guardian Phone', 'Address', 'Blood Group',
+                'School', 'Class', 'Section', 'Status',
+            ]);
+            foreach ($students as $s) {
+                fputcsv($out, [
+                    $s->admission_no, $s->roll_no, $s->name, $s->father_name, $s->mother_name,
+                    $s->gender, $s->date_of_birth, $s->guardian_phone, $s->address, $s->blood_group,
+                    $s->school?->name, $s->schoolClass?->name, $s->section?->name, $s->status,
+                ]);
+            }
+            fclose($out);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    /**
+     * Generate a single student ID card (front + back on one A4).
+     */
+    public function idCard(Student $student)
+    {
+        $this->authorize('view', $student);
+
+        $student->load(['school', 'schoolClass', 'section', 'academicSession']);
+
+        $pdf = Pdf::loadView('reports.student-id-card', ['student' => $student])
+            ->setPaper('a4', 'portrait');
+
+        return $pdf->stream("id-card-{$student->admission_no}.pdf");
+    }
+
+    /**
+     * Generate ID cards for many students (4 fronts per page, then backs on next).
+     */
+    public function bulkIdCards(Request $request)
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:students,id'],
+        ]);
+
+        $user = $request->user();
+        $students = Student::whereIn('id', $data['ids'])
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->with(['school', 'schoolClass', 'section', 'academicSession'])
+            ->orderBy('school_class_id')->orderBy('section_id')->orderBy('roll_no')
+            ->get();
+
+        if ($students->isEmpty()) {
+            return redirect()->back()->with('error', 'No students found for ID card generation.');
+        }
+
+        $pdf = Pdf::loadView('reports.student-id-cards-bulk', ['students' => $students])
+            ->setPaper('a4', 'portrait');
+
+        return $pdf->stream('student-id-cards-' . now()->format('Y-m-d') . '.pdf');
+    }
+
+    public function import(Request $request): Response
+    {
+        $this->authorize('create', Student::class);
+
+        $user = $request->user();
+
+        $schools = $user->isSuperAdmin()
+            ? School::active()->orderBy('name')->get(['id', 'name'])
+            : School::where('id', $user->school_id)->get(['id', 'name']);
+
+        $classes = SchoolClass::query()
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->active()->ordered()->get(['id', 'name', 'school_id']);
+
+        $sections = Section::query()
+            ->whereHas('schoolClass', function ($q) use ($user) {
+                $q->when(!$user->isSuperAdmin(), fn ($q2) => $q2->where('school_id', $user->school_id));
+            })
+            ->active()->get(['id', 'name', 'school_class_id']);
+
+        return Inertia::render('Students/Import', [
+            'schools' => $schools,
+            'classes' => $classes,
+            'sections' => $sections,
+        ]);
+    }
+
+    public function processImport(Request $request): RedirectResponse
+    {
+        $this->authorize('create', Student::class);
+
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:5120'],
+            'school_id' => ['required', 'exists:schools,id'],
+            'school_class_id' => ['required', 'exists:school_classes,id'],
+            'section_id' => ['required', 'exists:sections,id'],
+            'academic_session_id' => ['required', 'exists:academic_sessions,id'],
+        ]);
+
+        try {
+            $import = new \App\Imports\StudentsImport(
+                $request->input('school_id'),
+                $request->input('school_class_id'),
+                $request->input('section_id'),
+                $request->input('academic_session_id')
+            );
+
+            Excel::import($import, $request->file('file'));
+
+            $count = $import->getRowCount();
+
+            return redirect()->route('students.index')
+                ->with('success', "{$count} students imported successfully.");
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->with('error', 'Import failed: ' . $e->getMessage());
+        }
+    }
+}

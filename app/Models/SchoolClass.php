@@ -1,0 +1,76 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
+
+class SchoolClass extends Model
+{
+    use HasFactory, SoftDeletes, LogsActivity;
+
+    protected $fillable = ['school_id', 'name', 'slug', 'numeric_name', 'sort_order', 'is_active'];
+
+    protected static function booted(): void
+    {
+        static::creating(function ($model) {
+            if (empty($model->slug)) {
+                $model->slug = Str::slug($model->name);
+            }
+        });
+        static::updating(function ($model) {
+            if ($model->isDirty('name') && !$model->isDirty('slug')) {
+                $model->slug = Str::slug($model->name);
+            }
+        });
+    }
+
+    protected function casts(): array
+    {
+        return ['is_active' => 'boolean'];
+    }
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()->logOnly(['name', 'school_id'])->logOnlyDirty();
+    }
+
+    public function school()
+    {
+        return $this->belongsTo(School::class);
+    }
+
+    public function sections()
+    {
+        return $this->hasMany(Section::class);
+    }
+
+    public function subjects()
+    {
+        return $this->belongsToMany(Subject::class, 'class_subjects');
+    }
+
+    public function classSubjects()
+    {
+        return $this->hasMany(ClassSubject::class);
+    }
+
+    public function students()
+    {
+        return $this->hasMany(Student::class);
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeOrdered($query)
+    {
+        return $query->orderBy('sort_order')->orderBy('name');
+    }
+}

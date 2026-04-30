@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(composer require:*)",
+      "Bash(npm install:*)",
+      "Bash(npm config:*)",
+      "Bash(php artisan:*)",
+      "Bash(npx vite:*)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Http/Controllers/DashboardController.php)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Http/Controllers/ExamController.php)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Http/Controllers/MarksController.php)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Http/Controllers/ResultController.php)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Http/Controllers/ReportController.php)",
+      "Bash(ls /e/laragon/www/exam_management/app/Http/Controllers/*.php)",
+      "Bash(ls /e/laragon/www/exam_management/app/Models/*.php)",
+      "Bash(ls /e/laragon/www/exam_management/database/seeders/*.php)",
+      "Bash(find /e/laragon/www/exam_management/app/Providers -name \"*.php\" -exec basename {} \\\\;)",
+      "Bash(grep -l \"'slug'\" /e/laragon/www/exam_management/app/Models/*.php)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Http/Requests/StoreExamRequest.php)",
+      "Bash(grep -n '\\\\$school' /e/laragon/www/exam_management/resources/views/reports/result-sheet.blade.php)",
+      "Bash(grep -n '\\\\$school\\\\|\\\\$academicSession\\\\|\\\\$session' /e/laragon/www/exam_management/resources/views/reports/report-card.blade.php)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Exports/ResultsExport.php)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Exports/MarksExport.php)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Exports/AwardListExport.php)",
+      "Bash(grep -v \"^$\\\\|INFO\\\\|Deprecated\\\\|WARN\")",
+      "Bash(grep -v \"^$\\\\|INFO\")",
+      "Bash(echo \"=== Status check ===\" echo \"Routes: $\\(php artisan route:list)",
+      "Bash(xargs -I{} basename {})",
+      "Bash(xargs ls *)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Http/Controllers/RoleController.php)",
+      "Bash(php -l /e/laragon/www/exam_management/database/seeders/DemoDataSeeder.php)",
+      "Bash(php -r \"require '/e/laragon/www/exam_management/vendor/autoload.php'; echo class_exists\\('Faker\\\\\\\\\\\\\\\\Factory'\\) ? 'Faker OK' : 'Faker MISSING';\")",
+      "Bash(php -l /e/laragon/www/exam_management/app/Http/Controllers/AnalyticsInsightsController.php)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Http/Controllers/ExamSchedulingController.php)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Http/Controllers/SearchController.php)",
+      "Bash(php -l /e/laragon/www/exam_management/app/Http/Controllers/QuestionController.php)",
+      "Bash(php -r ' *)",
+      "Bash(grep -E \"\\\\.css$\")",
+      "Bash(grep -n \"use App\\\\\\\\\\\\\\\\Models\" /e/laragon/www/exam_management/app/Http/Controllers/StudentController.php)",
+      "Bash(grep -n \"use App\\\\\\\\\\\\\\\\Models\\\\\\\\\\\\\\\\SubjectTeacher\" /e/laragon/www/exam_management/app/Http/Controllers/MarksController.php)"
+    ]
+  }
+}
