@@ -120,13 +120,18 @@ jobs:
       #    The hook (a tiny PHP script you upload once) runs migrations,
       #    clears caches, and bumps the public/build manifest. It's
       #    protected by a shared secret so only this workflow can hit it.
+      #    Note: GitHub Actions disallows referencing `secrets.*` directly
+      #    inside `if:` — we assign to env first, then check env in the if.
       # ──────────────────────────────────────────────────────────
       - name: Trigger post-deploy hook (migrations + cache clear)
-        if: ${{ secrets.DEPLOY_HOOK_URL != '' }}
+        env:
+          HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+          HOOK_SECRET: ${{ secrets.DEPLOY_HOOK_SECRET }}
+        if: env.HOOK_URL != ''
         run: |
-          echo "→ Hitting deploy hook at ${{ secrets.DEPLOY_HOOK_URL }}"
+          echo "→ Hitting deploy hook at $HOOK_URL"
           curl --fail --show-error \
                --max-time 120 \
                -X POST \
-               -H "X-Deploy-Secret: ${{ secrets.DEPLOY_HOOK_SECRET }}" \
-               "${{ secrets.DEPLOY_HOOK_URL }}"
+               -H "X-Deploy-Secret: $HOOK_SECRET" \
+               "$HOOK_URL"
