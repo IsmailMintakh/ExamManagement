@@ -5,12 +5,15 @@ Auto-deploys on every push to `main` using FTPS upload. No SSH required — work
 ## How it works
 
 1. You `git push origin main`.
-2. GitHub Actions (`.github/workflows/deploy.yml`) builds the project in CI:
-   - PHP 8.3 setup + `composer install --no-dev --optimize-autoloader`
+2. GitHub Actions (`.github/workflows/deploy.yml`) builds **only the frontend** in CI:
+   - Validates `composer.json` syntax (no install — `vendor/` is built on the server)
    - Node 20 + `npm ci && npm run build` (Vite production assets)
-3. GitHub Actions uploads the built project to Hostinger via **FTPS** (encrypted FTP).
-4. After upload, GitHub Actions hits a tiny PHP endpoint on your site (`https://your-domain.com/deploy-hook.php`) that runs `migrate --force`, clears caches, restarts queues. The hook is protected by a shared secret so only your workflow can trigger it.
-5. Total time: 2–4 minutes.
+3. GitHub Actions uploads source code + built assets to Hostinger via **FTPS** (encrypted FTP). `vendor/` is **excluded** — typically ~500 files instead of ~5,000.
+4. After upload, GitHub Actions hits a tiny PHP endpoint on your site (`https://your-domain.com/deploy-hook.php`) which:
+   - Runs `composer install --no-dev --optimize-autoloader` on the server (so any newly-added PHP packages get pulled in automatically)
+   - Runs `migrate --force`, clears caches, restarts queues
+   - Protected by a shared secret so only your workflow can trigger it
+5. Total time: ~2 minutes (FTP upload ~60s + composer install ~30–60s + cache clears ~10s).
 
 ---
 
@@ -85,7 +88,40 @@ While you're here, note the **FTP server** address shown (something like `ftp.yo
 
 ---
 
-### Step 3 — Create the `.env` file on the server (one-time)
+### Step 3 — Make sure composer is available on the server
+
+The deploy hook runs `composer install` on Hostinger after each deploy. Composer must be findable.
+
+**Hostinger Premium / Business / Cloud plans** — composer is pre-installed. You can verify:
+
+```bash
+ssh u123456@your-host -p 65002
+which composer        # should print something like /usr/bin/composer
+composer --version
+```
+
+If `composer` is found, you're done — skip to Step 4.
+
+**Hostinger Single (no SSH) or composer not found** — install composer.phar once via the File Manager:
+
+1. Download `composer.phar` to your local machine:
+   ```bash
+   curl -sS https://getcomposer.org/installer | php -- --filename=composer.phar
+   ```
+2. hPanel → **Files** → **File Manager** → navigate to your **home directory** (one level above `domains/`)
+3. Upload `composer.phar` so it sits at `~/composer.phar`
+
+The deploy hook auto-detects all of these locations:
+- `composer` on PATH
+- `~/composer` and `~/composer.phar`
+- `~/exam_management/composer.phar`
+- `/usr/local/bin/composer`, `/usr/bin/composer`, `/opt/composer/composer.phar`
+
+If none are found, you'll see a clear error in the deploy log with download instructions.
+
+---
+
+### Step 4 — Create the `.env` file on the server (one-time)
 
 This file is NEVER uploaded by the deploy. Create it manually:
 
@@ -131,7 +167,7 @@ APP_DEPLOY_SECRET=replace-with-32-char-random-string-from-keygen
 
 ---
 
-### Step 4 — Create the database in hPanel
+### Step 5 — Create the database in hPanel
 
 1. hPanel → **Databases** → **MySQL Databases**
 2. Create a new database, e.g. `exam`. Hostinger prefixes your username, so it becomes `u123456_exam`.
@@ -140,7 +176,7 @@ APP_DEPLOY_SECRET=replace-with-32-char-random-string-from-keygen
 
 ---
 
-### Step 5 — Add GitHub secrets
+### Step 6 — Add GitHub secrets
 
 In your GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**.
 
@@ -162,7 +198,7 @@ Add these 7 secrets:
 
 ---
 
-### Step 6 — First deploy
+### Step 7 — First deploy
 
 Push to `main`:
 
@@ -176,7 +212,7 @@ The first deploy will take a bit longer because it uploads the entire `vendor/` 
 
 ---
 
-### Step 7 — Run the seed once (production-safe baseline)
+### Step 8 — Run the seed once (production-safe baseline)
 
 After the first deploy succeeds and migrations have run, you need to seed the DDO user + master data ONCE.
 
@@ -254,22 +290,15 @@ chmod -R 775 ~/domains/your-domain.com/exam_management/storage \
               ~/domains/your-domain.com/exam_management/bootstrap/cache
 ```
 
-**FTP upload is very slow / "The operation was canceled" mid-upload** — This is the **first-deploy problem** and is expected. Laravel's `vendor/` has ~3,000 directories and ~5,000 files, and FTP requires one round-trip per file. First deploy can legitimately take 30–45 minutes.
+**Composer install fails on the server / hook reports "composer not found"** — see Step 3. Either install `composer.phar` to your home directory or contact Hostinger to enable composer. The deploy log under `storage/logs/deploy-hook.log` shows exactly which paths were tried.
 
-The workflow handles this in 3 ways:
-1. **`timeout-minutes: 60`** gives plenty of headroom for the first deploy.
-2. **`state-name: .ftp-deploy-sync-state.json`** — the action keeps a sync state file on the server. If the upload is interrupted, **just re-run the workflow** (Actions tab → failed run → "Re-run jobs"). It will pick up where it left off, NOT start over.
-3. **Vendor cleanup step** strips tests, docs, examples, READMEs from `vendor/` before upload — typically cuts file count by 30%.
+**Composer install runs but takes too long** — Hostinger shared plans have memory limits that can slow composer down. The hook's `set_time_limit(180)` gives 3 minutes; if you regularly hit that, your packages list is unusually large. Consider running `composer dump-autoload --classmap-authoritative` once via SSH for faster autoload.
 
-If you keep hitting the timeout, repeat the re-run 2–3 times. The state file makes each attempt resume from where the previous one stopped. Subsequent deploys (after the initial complete upload) are 2–4 minutes because only changed files are sent.
-
-**Faster alternative — pre-build locally, FTP manually once**:
+**FTP upload is slow on first deploy** — Should be fast now since `vendor/` is excluded (~500 files instead of ~5,000). If it's still slow, check that `vendor/` doesn't exist locally before push — old workflows may have left it behind:
 ```bash
-# On your local machine
-composer install --no-dev --optimize-autoloader
-npm ci && npm run build
-# Use FileZilla (set Transfer → Concurrent transfers = 10) to upload the entire project once.
-# After that, GitHub Actions will only push deltas and complete in minutes.
+git rm -r --cached vendor 2>/dev/null
+echo "vendor/" >> .gitignore
+git commit -m "exclude vendor from repo"
 ```
 
 **.env got overwritten** — The workflow excludes `**/.env` so this shouldn't happen. If it did, restore from your backup. Always keep an offline copy of your production `.env`.

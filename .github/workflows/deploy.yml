@@ -15,10 +15,11 @@ jobs:
   build-and-deploy:
     name: Build & FTP upload
     runs-on: ubuntu-latest
-    # First deploy uploads ~5,000 files (vendor/ + node_modules build output) over FTP,
-    # which can take 30–45 min due to FTP's per-file overhead. Subsequent deploys are
-    # fast (~2–4 min) because only changed files are sent.
-    timeout-minutes: 60
+    # vendor/ is built ON THE SERVER (by deploy-hook.php running composer install),
+    # so we only FTP-upload app source + built frontend assets — typically ~500
+    # files. Most deploys finish in 1–2 minutes. Composer install on the server
+    # adds ~30–60 seconds.
+    timeout-minutes: 15
 
     steps:
       # ──────────────────────────────────────────────────────────
@@ -28,34 +29,26 @@ jobs:
         uses: actions/checkout@v4
 
       # ──────────────────────────────────────────────────────────
-      # 2. PHP setup + composer (production-only deps)
+      # 2. Validate composer.json/lock without installing — vendor/ will be
+      #    built on the Hostinger server itself by the deploy-hook.php.
+      #    This keeps the FTP upload tiny and ensures Hostinger gets the
+      #    exact same packages as locked, including any newly added ones.
       # ──────────────────────────────────────────────────────────
-      - name: Setup PHP 8.3
+      - name: Setup PHP 8.3 (for composer validate only)
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: bcmath, ctype, curl, dom, fileinfo, gd, intl, mbstring, openssl, pcre, pdo, pdo_mysql, tokenizer, xml, zip
           tools: composer:v2
           coverage: none
 
-      - name: Cache Composer dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.composer/cache
-          key: composer-${{ hashFiles('composer.lock') }}
-          restore-keys: composer-
-
-      - name: Install Composer dependencies (production)
-        run: |
-          composer install \
-            --no-dev \
-            --no-interaction \
-            --no-progress \
-            --prefer-dist \
-            --optimize-autoloader
+      - name: Validate composer.json
+        run: composer validate --no-check-publish
 
       # ──────────────────────────────────────────────────────────
       # 3. Node + Vite build
+      #    Frontend MUST be built in CI because Hostinger doesn't always
+      #    have Node available, and even when it does, build-on-server
+      #    eats memory we'd rather give to Laravel.
       # ──────────────────────────────────────────────────────────
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -70,45 +63,13 @@ jobs:
         run: npm run build
 
       # ──────────────────────────────────────────────────────────
-      # 4. Sanity: strip dev artifacts AND vendor bloat to speed FTP upload
-      #    Removes thousands of unused files so first deploy is much faster.
+      # 4. Strip dev artifacts before FTP upload
       # ──────────────────────────────────────────────────────────
-      - name: Strip dev artifacts and vendor bloat
+      - name: Strip dev artifacts
         run: |
           rm -f public/hot
           rm -rf node_modules tests .git .github
-
-          # Remove tests, docs, examples from vendor — they ship by default but
-          # add ~30% to vendor size and contribute most of the small-file count.
-          find vendor -type d \( \
-            -name 'tests' -o \
-            -name 'test' -o \
-            -name 'Tests' -o \
-            -name 'docs' -o \
-            -name 'doc' -o \
-            -name 'examples' -o \
-            -name 'example' -o \
-            -name 'benchmarks' -o \
-            -name '.github' \
-          \) -prune -exec rm -rf {} + 2>/dev/null || true
-
-          # Remove docs / changelogs / readmes
-          find vendor -type f \( \
-            -iname '*.md' -o \
-            -iname 'changelog*' -o \
-            -iname 'license*' -o \
-            -iname 'readme*' -o \
-            -iname 'upgrade*' -o \
-            -iname 'phpunit.xml*' -o \
-            -iname '.editorconfig' -o \
-            -iname '.gitignore' -o \
-            -iname '.gitattributes' \
-          \) -delete 2>/dev/null || true
-
-          echo "vendor/ size after cleanup:"
-          du -sh vendor 2>/dev/null
-          echo "vendor/ file count:"
-          find vendor -type f | wc -l
+          echo "Files to upload: $(find . -type f | wc -l)"
 
       # ──────────────────────────────────────────────────────────
       # 5. Upload to Hostinger via FTPS
@@ -134,6 +95,7 @@ jobs:
             **/.git*
             **/.git*/**
             **/node_modules/**
+            **/vendor/**
             **/.env
             **/.env.example
             **/.env.local
