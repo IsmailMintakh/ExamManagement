@@ -15,7 +15,10 @@ jobs:
   build-and-deploy:
     name: Build & FTP upload
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # First deploy uploads ~5,000 files (vendor/ + node_modules build output) over FTP,
+    # which can take 30–45 min due to FTP's per-file overhead. Subsequent deploys are
+    # fast (~2–4 min) because only changed files are sent.
+    timeout-minutes: 60
 
     steps:
       # ──────────────────────────────────────────────────────────
@@ -67,12 +70,45 @@ jobs:
         run: npm run build
 
       # ──────────────────────────────────────────────────────────
-      # 4. Sanity: remove dev artifacts that should never reach prod
+      # 4. Sanity: strip dev artifacts AND vendor bloat to speed FTP upload
+      #    Removes thousands of unused files so first deploy is much faster.
       # ──────────────────────────────────────────────────────────
-      - name: Strip dev artifacts
+      - name: Strip dev artifacts and vendor bloat
         run: |
           rm -f public/hot
           rm -rf node_modules tests .git .github
+
+          # Remove tests, docs, examples from vendor — they ship by default but
+          # add ~30% to vendor size and contribute most of the small-file count.
+          find vendor -type d \( \
+            -name 'tests' -o \
+            -name 'test' -o \
+            -name 'Tests' -o \
+            -name 'docs' -o \
+            -name 'doc' -o \
+            -name 'examples' -o \
+            -name 'example' -o \
+            -name 'benchmarks' -o \
+            -name '.github' \
+          \) -prune -exec rm -rf {} + 2>/dev/null || true
+
+          # Remove docs / changelogs / readmes
+          find vendor -type f \( \
+            -iname '*.md' -o \
+            -iname 'changelog*' -o \
+            -iname 'license*' -o \
+            -iname 'readme*' -o \
+            -iname 'upgrade*' -o \
+            -iname 'phpunit.xml*' -o \
+            -iname '.editorconfig' -o \
+            -iname '.gitignore' -o \
+            -iname '.gitattributes' \
+          \) -delete 2>/dev/null || true
+
+          echo "vendor/ size after cleanup:"
+          du -sh vendor 2>/dev/null
+          echo "vendor/ file count:"
+          find vendor -type f | wc -l
 
       # ──────────────────────────────────────────────────────────
       # 5. Upload to Hostinger via FTPS
@@ -89,6 +125,11 @@ jobs:
           server-dir: ${{ secrets.FTP_TARGET_DIR }}/  # e.g. domains/your-domain.com/exam_management/
           local-dir: ./
           dangerous-clean-slate: false          # keep .env, storage/, public/storage on server
+          # State file kept on server tracks what's already uploaded — so if this
+          # workflow times out and you re-run it, it resumes instead of re-uploading
+          # files that already made it across. Critical for first-deploy success.
+          state-name: .ftp-deploy-sync-state.json
+          log-level: minimal                    # less noise in the GH Actions log
           exclude: |
             **/.git*
             **/.git*/**

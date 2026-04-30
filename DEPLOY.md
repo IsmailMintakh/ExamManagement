@@ -254,12 +254,23 @@ chmod -R 775 ~/domains/your-domain.com/exam_management/storage \
               ~/domains/your-domain.com/exam_management/bootstrap/cache
 ```
 
-**FTP upload is very slow** — First deploy uploads ~5,000 files. Subsequent deploys are fast (only changed files). To speed up the first deploy:
-- Use a wired connection
-- Use FTPS (encrypted) on port 21, not SFTP — FTPS supports parallel transfers
-- Consider committing `vendor/` and `public/build/` once to skip the install step (less ideal — bloats the repo)
+**FTP upload is very slow / "The operation was canceled" mid-upload** — This is the **first-deploy problem** and is expected. Laravel's `vendor/` has ~3,000 directories and ~5,000 files, and FTP requires one round-trip per file. First deploy can legitimately take 30–45 minutes.
 
-**"Connection timed out" during FTP** — Hostinger sometimes throttles long-running FTP sessions. The workflow has a 20-minute timeout; if you hit it, split the deploy by excluding `vendor/` and uploading it separately one time, then re-enabling.
+The workflow handles this in 3 ways:
+1. **`timeout-minutes: 60`** gives plenty of headroom for the first deploy.
+2. **`state-name: .ftp-deploy-sync-state.json`** — the action keeps a sync state file on the server. If the upload is interrupted, **just re-run the workflow** (Actions tab → failed run → "Re-run jobs"). It will pick up where it left off, NOT start over.
+3. **Vendor cleanup step** strips tests, docs, examples, READMEs from `vendor/` before upload — typically cuts file count by 30%.
+
+If you keep hitting the timeout, repeat the re-run 2–3 times. The state file makes each attempt resume from where the previous one stopped. Subsequent deploys (after the initial complete upload) are 2–4 minutes because only changed files are sent.
+
+**Faster alternative — pre-build locally, FTP manually once**:
+```bash
+# On your local machine
+composer install --no-dev --optimize-autoloader
+npm ci && npm run build
+# Use FileZilla (set Transfer → Concurrent transfers = 10) to upload the entire project once.
+# After that, GitHub Actions will only push deltas and complete in minutes.
+```
 
 **.env got overwritten** — The workflow excludes `**/.env` so this shouldn't happen. If it did, restore from your backup. Always keep an offline copy of your production `.env`.
 
