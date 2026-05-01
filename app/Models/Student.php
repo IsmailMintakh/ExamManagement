@@ -97,9 +97,15 @@ class Student extends Model
         return $this->belongsTo(User::class, 'parent_user_id');
     }
 
+    /**
+     * Photo URL. Tries the standard /storage/ symlink path first, but
+     * the actual delivery is via Storage::url() which respects the disk
+     * config — works whether the storage symlink exists or not as long
+     * as the public disk is configured correctly.
+     */
     public function getPhotoUrlAttribute(): ?string
     {
-        return $this->photo ? asset('storage/' . $this->photo) : null;
+        return $this->photo ? \Illuminate\Support\Facades\Storage::disk('public')->url($this->photo) : null;
     }
 
     public function scopeActive($query)
