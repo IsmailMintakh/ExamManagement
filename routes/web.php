@@ -44,6 +44,28 @@ use Inertia\Inertia;
 // and cache miss). No auth so it works even before login.
 Route::get('/offline', fn () => Inertia::render('Offline'))->name('offline');
 
+/**
+ * Bulletproof file delivery for the public storage disk.
+ *
+ * Bypasses the public/storage symlink — useful on shared hosts where the
+ * symlink is broken, gives 403, or gets reset by the platform. Activate
+ * by setting FILESYSTEM_PUBLIC_URL_PREFIX=/uploads in .env. Files served
+ * with strong cache headers since their hashed filenames make them
+ * effectively immutable.
+ */
+Route::get('/uploads/{path}', function (string $path) {
+    $path = ltrim($path, '/');
+    // Disallow path traversal — reject anything containing ..
+    if (str_contains($path, '..')) abort(404);
+
+    $full = storage_path('app/public/' . $path);
+    if (!is_file($full)) abort(404);
+
+    return response()->file($full, [
+        'Cache-Control' => 'public, max-age=2592000, immutable',  // 30 days
+    ]);
+})->where('path', '.*')->name('uploads');
+
 // Public website (marketing/info pages — no auth required)
 Route::get('/', [PublicController::class, 'home'])->name('home');
 Route::get('/about', [PublicController::class, 'about'])->name('about');
@@ -273,28 +295,32 @@ Route::middleware(['auth', 'verified'])->group(function () {
     });
 
     // Exam Scheduling (Date Sheet, Rooms, Seating, Invigilators, Admit Cards)
-    Route::prefix('scheduling')->name('scheduling.')->group(function () {
+    // All read routes need 'scheduling.view'; write routes additionally need
+    // 'scheduling.manage'. Auth was originally in the controller constructor
+    // but Laravel 11+ removed that pattern — do it here at the route level.
+    Route::prefix('scheduling')->name('scheduling.')->middleware('can:scheduling.view')->group(function () {
+        // Read endpoints (covered by 'can:scheduling.view' on the group)
         Route::get('/', [ExamSchedulingController::class, 'examsList'])->name('exams');
         Route::get('exams/{exam}', [ExamSchedulingController::class, 'index'])->name('index');
         Route::get('exams/{exam}/datesheet', [ExamSchedulingController::class, 'datesheet'])->name('datesheet');
-        Route::post('exams/{exam}/datesheet', [ExamSchedulingController::class, 'storeSchedule'])->name('store-schedule');
         Route::get('exams/{exam}/datesheet/pdf', [ExamSchedulingController::class, 'datesheetPdf'])->name('datesheet-pdf');
-
         Route::get('rooms', [ExamSchedulingController::class, 'rooms'])->name('rooms');
-        Route::post('rooms', [ExamSchedulingController::class, 'storeRoom'])->name('store-room');
-
         Route::get('exams/{exam}/seating/{section}', [ExamSchedulingController::class, 'seating'])->name('seating');
-        Route::post('exams/{exam}/seating/{section}/auto', [ExamSchedulingController::class, 'autoAssignSeats'])->name('auto-seats');
-        Route::post('exams/{exam}/seating/{section}/clear', [ExamSchedulingController::class, 'clearSeats'])->name('clear-seats');
         Route::get('exams/{exam}/seating/room/{room}/pdf', [ExamSchedulingController::class, 'seatingPdf'])->name('seating-pdf');
-
         Route::get('exams/{exam}/invigilators', [ExamSchedulingController::class, 'invigilators'])->name('invigilators');
-        Route::post('exams/{exam}/invigilators', [ExamSchedulingController::class, 'storeInvigilator'])->name('store-invigilator');
-        Route::delete('invigilators/{invigilator}', [ExamSchedulingController::class, 'deleteInvigilator'])->name('delete-invigilator');
         Route::get('exams/{exam}/invigilators/pdf', [ExamSchedulingController::class, 'invigilatorDutyPdf'])->name('invigilator-pdf');
-
         Route::get('exams/{exam}/admit-cards', [ExamSchedulingController::class, 'admitCards'])->name('admit-cards');
         Route::get('exams/{exam}/admit-cards/download', [ExamSchedulingController::class, 'downloadAdmitCards'])->name('admit-cards-download');
+
+        // Write endpoints — require additional 'scheduling.manage' permission
+        Route::middleware('can:scheduling.manage')->group(function () {
+            Route::post('exams/{exam}/datesheet', [ExamSchedulingController::class, 'storeSchedule'])->name('store-schedule');
+            Route::post('rooms', [ExamSchedulingController::class, 'storeRoom'])->name('store-room');
+            Route::post('exams/{exam}/seating/{section}/auto', [ExamSchedulingController::class, 'autoAssignSeats'])->name('auto-seats');
+            Route::post('exams/{exam}/seating/{section}/clear', [ExamSchedulingController::class, 'clearSeats'])->name('clear-seats');
+            Route::post('exams/{exam}/invigilators', [ExamSchedulingController::class, 'storeInvigilator'])->name('store-invigilator');
+            Route::delete('invigilators/{invigilator}', [ExamSchedulingController::class, 'deleteInvigilator'])->name('delete-invigilator');
+        });
     });
 
     // Question Bank

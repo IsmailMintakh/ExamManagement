@@ -24,25 +24,12 @@ use Inertia\Response;
 
 class ExamSchedulingController extends Controller
 {
-    public function __construct()
-    {
-        $writeActions = [
-            'storeSchedule', 'storeRoom',
-            'autoAssignSeats', 'clearSeats',
-            'storeInvigilator', 'deleteInvigilator',
-        ];
-
-        $this->middleware(function ($request, $next) use ($writeActions) {
-            $user = $request->user();
-            if (!$user) {
-                abort(403);
-            }
-            $method = $request->route()?->getActionMethod();
-            $needed = in_array($method, $writeActions, true) ? 'scheduling.manage' : 'scheduling.view';
-            abort_unless($user->can($needed), 403);
-            return $next($request);
-        });
-    }
+    // Note: auth checks are applied at the route level (see routes/web.php
+    // → 'scheduling' group). Read routes require `scheduling.view`, write
+    // routes (storeSchedule, storeRoom, autoAssignSeats, clearSeats,
+    // storeInvigilator, deleteInvigilator) require `scheduling.manage`.
+    // Laravel 11+ removed $this->middleware() from controllers — apply
+    // middleware in routes instead.
 
     /**
      * Top-level list of exams available for scheduling. Entry point for the module.
