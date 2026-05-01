@@ -41,12 +41,16 @@ return [
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
-            // URL prefix for uploads. Switch via FILESYSTEM_PUBLIC_URL_PREFIX:
-            //   /storage  → uses public/storage symlink (default Laravel behavior)
-            //   /uploads  → served by Laravel route (bypasses symlink + 403 issues)
-            // Recommended for shared hosting that breaks symlinks: /uploads.
+            // URL prefix for uploads.
+            //   /uploads  (default) → served by a Laravel route (routes/web.php).
+            //                          Always works — no public/storage symlink
+            //                          needed, no 403 from shared-hosting quirks.
+            //   /storage              → bypass the route, use the public/storage
+            //                          symlink directly (slightly faster, but
+            //                          relies on the symlink being intact).
+            // Override via FILESYSTEM_PUBLIC_URL_PREFIX in .env if needed.
             'url' => rtrim(env('APP_URL', 'http://localhost'), '/')
-                     . env('FILESYSTEM_PUBLIC_URL_PREFIX', '/storage'),
+                     . env('FILESYSTEM_PUBLIC_URL_PREFIX', '/uploads'),
             'visibility' => 'public',
             'throw' => false,
             'report' => false,

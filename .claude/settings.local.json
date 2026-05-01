@@ -49,7 +49,8 @@
       "Bash(base64 -w0)",
       "Bash(php -r \"echo 'upload_max_filesize: ' . ini_get\\('upload_max_filesize'\\) . PHP_EOL; echo 'post_max_size: ' . ini_get\\('post_max_size'\\) . PHP_EOL; echo 'max_file_uploads: ' . ini_get\\('max_file_uploads'\\) . PHP_EOL; echo 'memory_limit: ' . ini_get\\('memory_limit'\\) . PHP_EOL;\")",
       "Bash(curl -s -o /dev/null -w '%{http_code}\\\\n' http://exam_management.test/offline.html)",
-      "Bash(curl -s -o /dev/null -w 'GET /uploads/students/photos/<file>: %{http_code}\\\\n' \"http://exam_management.test/uploads/students/photos/$\\(ls storage/app/public/students/photos/)"
+      "Bash(curl -s -o /dev/null -w 'GET /uploads/students/photos/<file>: %{http_code}\\\\n' \"http://exam_management.test/uploads/students/photos/$\\(ls storage/app/public/students/photos/)",
+      "Bash(curl -s -o /dev/null -w 'GET /uploads/.../photo.png: %{http_code}\\\\n' \"http://exam_management.test/uploads/students/photos/fkBiZkTQ4PtuhZSgbQS1Lmqob8sV9MOCYazWcOk0.png\")"
     ]
   }
 }
