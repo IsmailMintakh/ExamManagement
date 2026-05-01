@@ -53,15 +53,27 @@ const navStrategy = new NetworkFirst({
     plugins: [new ExpirationPlugin({ maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 })],
 })
 
+// Static HTML offline shell — always precached, always available.
+// We import it as a precache URL so Workbox includes it in __WB_MANIFEST.
+import { matchPrecache } from 'workbox-precaching'
+
 registerRoute(
     new NavigationRoute(
         async (args) => {
             try {
                 return await navStrategy.handle(args)
             } catch (e) {
+                // Try the cached version of /dashboard first (most useful).
                 const cache = await caches.open('pages')
-                const offline = await cache.match('/offline')
-                return offline || new Response('You are offline.', {
+                const dashboard = await cache.match('/dashboard')
+                if (dashboard) return dashboard
+
+                // Fall back to the static offline.html shell — precached
+                // so it's ALWAYS available, even on the very first offline open.
+                const offline = await matchPrecache('/offline.html')
+                if (offline) return offline
+
+                return new Response('You are offline. Reconnect and try again.', {
                     status: 503,
                     headers: { 'Content-Type': 'text/plain' },
                 })
@@ -106,24 +118,16 @@ registerRoute(
         try {
             return await inertiaStrategy.handle(args)
         } catch (e) {
-            // Both network AND cache miss. Return a synthetic Inertia
-            // response telling the SPA to navigate to /offline so the
-            // user sees a friendly screen instead of a hard error.
-            return new Response(
-                JSON.stringify({
-                    component: 'Offline',
-                    props: { url: args.request.url },
-                    url: '/offline',
-                    version: null,
-                }),
-                {
-                    status: 200,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Inertia': 'true',
-                    },
-                }
-            )
+            // Inertia XHR with no cached response and no network.
+            // Returning a 409 with X-Inertia-Location triggers Inertia to
+            // do a full page reload at the given URL — which the SW will
+            // intercept again as a navigation, ending up at /offline.html.
+            return new Response('', {
+                status: 409,
+                headers: {
+                    'X-Inertia-Location': '/offline.html',
+                },
+            })
         }
     }
 )
@@ -212,4 +216,12 @@ self.addEventListener('notificationclick', (event) => {
 // Allow the page to trigger SKIP_WAITING when the user accepts an update.
 self.addEventListener('message', (event) => {
     if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
+})
+
+// Take control of all open tabs immediately on activation, so the new SW
+// version doesn't sit waiting for every tab to be closed before kicking in.
+// Combined with skipWaiting (triggered by the user via the update prompt),
+// this gives a snappy update flow.
+self.addEventListener('activate', (event) => {
+    event.waitUntil(self.clients.claim())
 })

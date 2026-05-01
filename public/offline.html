@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Offline — GBHSS Skardu</title>
+    <link rel="manifest" href="/build/manifest.webmanifest">
+    <link rel="icon" type="image/png" href="/pwa-192x192.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png">
+    <meta name="theme-color" content="#047857">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #f8fafc 0%, #e7eee9 100%);
+            color: #0f172a;
+            padding: 1.5rem;
+            -webkit-font-smoothing: antialiased;
+        }
+        .card {
+            max-width: 28rem;
+            width: 100%;
+            background: white;
+            border-radius: 1.5rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+            border: 1px solid #e7e5e4;
+            padding: 2.5rem 2rem;
+            text-align: center;
+        }
+        .icon {
+            width: 5rem;
+            height: 5rem;
+            margin: 0 auto 1.5rem;
+            border-radius: 1rem;
+            background: #fef3c7;
+            color: #b45309;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all .3s;
+        }
+        .icon.online {
+            background: #d1fae5;
+            color: #047857;
+        }
+        .icon svg { width: 2.5rem; height: 2.5rem; }
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 900;
+            letter-spacing: -0.025em;
+            margin-bottom: 0.75rem;
+            color: #0f172a;
+        }
+        p {
+            font-size: 0.875rem;
+            color: #475569;
+            line-height: 1.6;
+            margin-bottom: 1.75rem;
+        }
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.625rem;
+        }
+        button, a.btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.875rem 1rem;
+            border-radius: 0.75rem;
+            font-weight: 700;
+            font-size: 0.875rem;
+            border: 0;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background-color .15s;
+            font-family: inherit;
+        }
+        .btn-primary {
+            background: #047857;
+            color: white;
+        }
+        .btn-primary:hover, .btn-primary:active { background: #065f46; }
+        .btn-secondary {
+            background: #f1f5f9;
+            color: #334155;
+        }
+        .btn-secondary:hover, .btn-secondary:active { background: #e2e8f0; }
+        .footer {
+            margin-top: 1.5rem;
+            font-size: 0.6875rem;
+            color: #94a3b8;
+        }
+        .pulse {
+            display: inline-block;
+            width: 0.5rem;
+            height: 0.5rem;
+            border-radius: 50%;
+            background: #10b981;
+            margin-right: 0.5rem;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: .4; transform: scale(0.8); }
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div id="iconBox" class="icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+                <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+                <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+                <line x1="12" y1="20" x2="12.01" y2="20"></line>
+                <line id="strikeLine" x1="2" y1="2" x2="22" y2="22" stroke="#dc2626"></line>
+            </svg>
+        </div>
+
+        <h1 id="title">You're offline</h1>
+        <p id="message">
+            This page hasn't been cached yet, so it can't load without internet.
+            Connect to the internet and we'll reload automatically.
+        </p>
+
+        <div class="actions">
+            <button class="btn-primary" onclick="tryReload()">
+                Try Again
+            </button>
+            <a class="btn btn-secondary" href="/dashboard">
+                Go to Dashboard
+            </a>
+        </div>
+
+        <div class="footer">
+            <span class="pulse"></span>
+            <span id="status">Watching for connection…</span>
+        </div>
+    </div>
+
+    <script>
+        // Auto-reconnect: poll status, reload as soon as we're online again.
+        function tryReload() {
+            // Force a network fetch (skip cache) by adding a cache-buster.
+            window.location.href = '/dashboard?_=' + Date.now();
+        }
+
+        function updateUI() {
+            var online = navigator.onLine;
+            var icon = document.getElementById('iconBox');
+            var title = document.getElementById('title');
+            var msg = document.getElementById('message');
+            var status = document.getElementById('status');
+            var strike = document.getElementById('strikeLine');
+
+            if (online) {
+                icon.classList.add('online');
+                title.textContent = "You're back online";
+                msg.textContent = 'Reconnecting to the app…';
+                status.textContent = 'Reloading…';
+                if (strike) strike.style.display = 'none';
+                setTimeout(tryReload, 800);
+            } else {
+                icon.classList.remove('online');
+                title.textContent = "You're offline";
+                msg.textContent = "This page hasn't been cached yet, so it can't load without internet. Connect to the internet and we'll reload automatically.";
+                status.textContent = 'Watching for connection…';
+                if (strike) strike.style.display = '';
+            }
+        }
+
+        window.addEventListener('online', updateUI);
+        window.addEventListener('offline', updateUI);
+        // Also poll every 3s in case the events miss (some mobile networks).
+        setInterval(function () {
+            if (navigator.onLine) updateUI();
+        }, 3000);
+        updateUI();
+    </script>
+</body>
+</html>

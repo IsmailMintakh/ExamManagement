@@ -2,6 +2,17 @@ import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
 import vue from '@vitejs/plugin-vue';
 import { VitePWA } from 'vite-plugin-pwa';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+
+/** Tiny helper so additionalManifestEntries gets a real content hash. */
+function fileRevision(path) {
+    try {
+        return createHash('md5').update(readFileSync(path)).digest('hex').slice(0, 10);
+    } catch {
+        return Date.now().toString(36);
+    }
+}
 
 export default defineConfig({
     plugins: [
@@ -98,6 +109,12 @@ export default defineConfig({
             injectManifest: {
                 globPatterns: ['**/*.{js,css,html,png,svg,jpg,webp,woff2,woff,ttf}'],
                 maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+                // Add files that live OUTSIDE the build output dir.
+                // /offline.html is the static "you're offline" shell that
+                // the SW falls back to when nothing else is cached.
+                additionalManifestEntries: [
+                    { url: '/offline.html', revision: fileRevision('public/offline.html') },
+                ],
             },
         }),
     ],
