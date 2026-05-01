@@ -335,7 +335,9 @@ class StudentController extends Controller
             'guardian_phone' => ['nullable', 'string', 'max:20'],
             'date_of_birth' => ['nullable', 'date', 'before:today'],
             'gender' => ['required', 'string', 'in:male,female,other'],
-            'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:1024'],
+            // Up to 4 MB so modern phone camera photos pass without
+            // pre-compression. Keep mime list permissive for phone uploads.
+            'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
             'address' => ['nullable', 'string', 'max:500'],
             'blood_group' => ['nullable', 'string', 'max:5'],
             'religion' => ['nullable', 'string', 'max:50'],

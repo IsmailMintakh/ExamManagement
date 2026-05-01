@@ -40,6 +40,10 @@ use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
+// Offline fallback page (rendered by service worker when both network
+// and cache miss). No auth so it works even before login.
+Route::get('/offline', fn () => Inertia::render('Offline'))->name('offline');
+
 // Public website (marketing/info pages — no auth required)
 Route::get('/', [PublicController::class, 'home'])->name('home');
 Route::get('/about', [PublicController::class, 'about'])->name('about');

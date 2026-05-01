@@ -22,7 +22,9 @@ class StoreStudentRequest extends FormRequest
             'guardian_phone' => ['nullable', 'string', 'max:20'],
             'date_of_birth' => ['nullable', 'date', 'before:today'],
             'gender' => ['required', 'string', 'in:male,female,other'],
-            'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:1024'],
+            // Up to 4 MB so modern phone camera photos (typically 2-4 MB)
+            // pass without the user needing to compress first.
+            'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
             'address' => ['nullable', 'string', 'max:500'],
             'blood_group' => ['nullable', 'string', 'max:5'],
             'religion' => ['nullable', 'string', 'max:50'],

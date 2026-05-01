@@ -16,6 +16,10 @@ const props = defineProps({
 const isEdit = !!props.student
 
 const form = useForm({
+    // _method is a form field (Laravel reads it from the body), NOT an
+    // Inertia option. For multipart uploads we must POST + spoof PUT,
+    // because PUT requests can't carry multipart form data in browsers.
+    _method: isEdit ? 'put' : 'post',
     admission_no: props.student?.admission_no || '',
     roll_no: props.student?.roll_no || '',
     name: props.student?.name || '',
@@ -35,11 +39,12 @@ const form = useForm({
 })
 
 function submit() {
-    if (isEdit) {
-        form.post(route('students.update', props.student.id), { _method: 'PUT', forceFormData: true })
-    } else {
-        form.post(route('students.store'), { forceFormData: true })
-    }
+    const url = isEdit
+        ? route('students.update', props.student.id)
+        : route('students.store')
+    // Always POST — when _method='put' is in the body, Laravel's
+    // FormMethodSpoofingMiddleware translates it to a PUT route match.
+    form.post(url, { forceFormData: true, preserveScroll: true })
 }
 </script>
 
@@ -101,8 +106,22 @@ function submit() {
                             help-text="Pakistani CNIC for adults; B-Form number for minors."
                             :error="form.errors.cnic" />
                     </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FileUpload v-model="form.photo" label="Student Photo" accept="image/*" :preview="true" :error="form.errors.photo" />
+                    <div>
+                        <label class="text-[12px] font-semibold text-base-content/75 mb-1.5 block">Student Photo</label>
+                        <!-- Show the current photo when editing so the user knows what's already set. -->
+                        <div v-if="isEdit && student?.photo_url && !form.photo"
+                             class="flex items-center gap-4 p-3 rounded-xl bg-base-200/40 mb-3">
+                            <img :src="student.photo_url" alt="Current photo"
+                                 class="h-24 w-24 object-cover rounded-xl" />
+                            <div class="text-xs text-base-content/65">
+                                <div class="font-semibold text-base-content">Current photo</div>
+                                <div class="mt-1">Pick a new file below to replace it.</div>
+                            </div>
+                        </div>
+                        <FileUpload v-model="form.photo"
+                            accept="image/jpeg,image/png,image/webp"
+                            :max-size="4" :preview="true"
+                            :error="form.errors.photo" />
                     </div>
                     <FormTextarea v-model="form.address" label="Address" :error="form.errors.address" :rows="2" />
 

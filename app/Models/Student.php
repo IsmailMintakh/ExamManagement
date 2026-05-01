@@ -22,6 +22,12 @@ class Student extends Model
         'user_id', 'parent_user_id',
     ];
 
+    /**
+     * Always serialize the computed `photo_url` so Vue can show
+     * <img :src="student.photo_url"> without per-controller wiring.
+     */
+    protected $appends = ['photo_url'];
+
     protected function casts(): array
     {
         return [

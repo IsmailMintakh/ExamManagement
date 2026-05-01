@@ -45,14 +45,28 @@ registerRoute(
 )
 
 // HTML page navigations — try network, fall back to cache. 4s timeout
-// keeps things snappy on flaky mobile.
+// keeps things snappy on flaky mobile. If both network AND cache fail,
+// hand back the precached /offline.html as a friendly fallback.
+const navStrategy = new NetworkFirst({
+    cacheName: 'pages',
+    networkTimeoutSeconds: 4,
+    plugins: [new ExpirationPlugin({ maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 })],
+})
+
 registerRoute(
     new NavigationRoute(
-        new NetworkFirst({
-            cacheName: 'pages',
-            networkTimeoutSeconds: 4,
-            plugins: [new ExpirationPlugin({ maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 })],
-        }),
+        async (args) => {
+            try {
+                return await navStrategy.handle(args)
+            } catch (e) {
+                const cache = await caches.open('pages')
+                const offline = await cache.match('/offline')
+                return offline || new Response('You are offline.', {
+                    status: 503,
+                    headers: { 'Content-Type': 'text/plain' },
+                })
+            }
+        },
         {
             denylist: [
                 /^\/build\//,
@@ -65,6 +79,53 @@ registerRoute(
             ],
         }
     )
+)
+
+/**
+ * INERTIA REQUESTS — the critical bit for offline.
+ *
+ * Inertia internal navigations (clicking a <Link>) are XHR, NOT navigations.
+ * They're identified by the `X-Inertia: true` request header. Workbox's
+ * NavigationRoute matcher misses them, so without this handler, internal
+ * page clicks would always fail offline.
+ *
+ * Strategy: NetworkFirst (3s timeout) → cache → fake offline Inertia
+ * response that redirects to /offline.
+ */
+const inertiaStrategy = new NetworkFirst({
+    cacheName: 'inertia-pages',
+    networkTimeoutSeconds: 3,
+    plugins: [new ExpirationPlugin({ maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 })],
+})
+
+registerRoute(
+    ({ request }) =>
+        request.headers.get('x-inertia') === 'true' ||
+        request.headers.get('X-Inertia') === 'true',
+    async (args) => {
+        try {
+            return await inertiaStrategy.handle(args)
+        } catch (e) {
+            // Both network AND cache miss. Return a synthetic Inertia
+            // response telling the SPA to navigate to /offline so the
+            // user sees a friendly screen instead of a hard error.
+            return new Response(
+                JSON.stringify({
+                    component: 'Offline',
+                    props: { url: args.request.url },
+                    url: '/offline',
+                    version: null,
+                }),
+                {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Inertia': 'true',
+                    },
+                }
+            )
+        }
+    }
 )
 
 // External fonts.
