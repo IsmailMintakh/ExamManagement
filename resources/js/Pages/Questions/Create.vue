@@ -2,6 +2,7 @@
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { Head, Link, useForm } from '@inertiajs/vue3'
 import { computed, watch } from 'vue'
+import { invalidatePageCache } from '@/Composables/useCacheInvalidation'
 import {
     PlusIcon, TrashIcon, ArrowLeftIcon, CheckIcon,
     ListBulletIcon, PencilSquareIcon, DocumentTextIcon,
@@ -78,8 +79,11 @@ function setCorrect(i) {
 }
 
 function submit() {
-    if (isEdit) form.put(route('questions.update', props.question.id))
-    else form.post(route('questions.store'))
+    // Drop SW page cache after a successful save so the index page
+    // immediately reflects the new/updated question on PWA mobile.
+    const opts = { onSuccess: () => invalidatePageCache() }
+    if (isEdit) form.put(route('questions.update', props.question.id), opts)
+    else form.post(route('questions.store'), opts)
 }
 </script>
 

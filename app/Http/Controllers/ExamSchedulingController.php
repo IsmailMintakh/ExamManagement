@@ -285,9 +285,20 @@ class ExamSchedulingController extends Controller
             ->orderBy('name')
             ->get();
 
+        // Schools list. For non-super-admin, just their own school (if set).
+        // The previous code did `[$user->school]->filter()` — calling ->filter()
+        // on a raw array which crashes; replaced with collect() wrapper.
         $schools = $user->isSuperAdmin()
             ? School::active()->orderBy('name')->get(['id', 'name'])
-            : collect([$user->school]->filter())->map(fn ($s) => ['id' => $s->id, 'name' => $s->name]);
+            : collect([$user->school])->filter()->map(fn ($s) => ['id' => $s->id, 'name' => $s->name])->values();
+
+        // Default selected school: for non-super-admin it's their own.
+        // For super-admin, default to the first school in the list (or null
+        // if no schools exist yet) — otherwise the form silently fails
+        // when only one school exists (selector hidden + school_id null).
+        $defaultSchoolId = $user->isSuperAdmin()
+            ? ($schools->first()['id'] ?? null)
+            : $user->school_id;
 
         return Inertia::render('Scheduling/Rooms', [
             'rooms' => $rooms->map(fn ($r) => [
@@ -301,7 +312,7 @@ class ExamSchedulingController extends Controller
                 'school_name' => $r->school?->name,
             ])->values(),
             'schools' => $schools,
-            'defaultSchoolId' => $user->isSuperAdmin() ? null : $user->school_id,
+            'defaultSchoolId' => $defaultSchoolId,
         ]);
     }
 
@@ -313,27 +324,32 @@ class ExamSchedulingController extends Controller
         $user = $request->user();
 
         $validated = $request->validate([
-            'school_id' => ['required_if:super_admin,true', 'nullable', 'integer', 'exists:schools,id'],
-            'name' => ['required', 'string', 'max:100'],
-            'capacity' => ['required', 'integer', 'min:1', 'max:500'],
-            'rows' => ['required', 'integer', 'min:1', 'max:50'],
-            'cols' => ['required', 'integer', 'min:1', 'max:50'],
+            'school_id' => ['nullable', 'integer', 'exists:schools,id'],
+            'name'      => ['required', 'string', 'max:100'],
+            'capacity'  => ['required', 'integer', 'min:1', 'max:500'],
+            'rows'      => ['required', 'integer', 'min:1', 'max:50'],
+            'cols'      => ['required', 'integer', 'min:1', 'max:50'],
         ]);
 
+        // Resolve which school owns this room.
         $schoolId = $user->isSuperAdmin()
             ? ($validated['school_id'] ?? $user->school_id)
             : $user->school_id;
 
+        // Throw a real validation error so the form shows it under the
+        // school field, instead of a silent flash redirect users miss.
         if (!$schoolId) {
-            return back()->with('error', 'A school must be selected.');
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'school_id' => 'Please choose a school for this exam room.',
+            ]);
         }
 
         ExamRoom::create([
             'school_id' => $schoolId,
-            'name' => $validated['name'],
-            'capacity' => $validated['capacity'],
-            'rows' => $validated['rows'],
-            'cols' => $validated['cols'],
+            'name'      => $validated['name'],
+            'capacity'  => $validated['capacity'],
+            'rows'      => $validated['rows'],
+            'cols'      => $validated['cols'],
             'is_active' => true,
         ]);
 

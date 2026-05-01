@@ -14,6 +14,9 @@ const props = defineProps({
 const isEdit = !!props.user
 
 const form = useForm({
+    // _method must be a form FIELD for PUT spoofing — see Schools/Create.vue
+    // for the same explanation. Inertia options don't reach Laravel.
+    _method: isEdit ? 'put' : 'post',
     name: props.user?.name || '',
     email: props.user?.email || '',
     password: '',
@@ -26,11 +29,8 @@ const form = useForm({
 })
 
 function submit() {
-    if (isEdit) {
-        form.post(route('users.update', props.user.id), { _method: 'PUT', forceFormData: true })
-    } else {
-        form.post(route('users.store'), { forceFormData: true })
-    }
+    const url = isEdit ? route('users.update', props.user.id) : route('users.store')
+    form.post(url, { forceFormData: true, preserveScroll: true })
 }
 </script>
 

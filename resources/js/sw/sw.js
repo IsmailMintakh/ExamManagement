@@ -20,10 +20,20 @@ import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching'
 import { registerRoute, NavigationRoute, setDefaultHandler } from 'workbox-routing'
 import { CacheFirst, NetworkFirst, StaleWhileRevalidate } from 'workbox-strategies'
 import { ExpirationPlugin } from 'workbox-expiration'
+import { CacheableResponsePlugin } from 'workbox-cacheable-response'
 
 // ──────────────── Precache (filled by Vite at build time) ────────────────
 precacheAndRoute(self.__WB_MANIFEST || [])
 cleanupOutdatedCaches()
+
+// ──────────────── Bypass SW for non-GET requests ────────────────
+// File uploads, form submissions, and any mutation must go straight to
+// the network. registerRoute() with a method:'GET' filter is the cleanest
+// way: every other registerRoute below also uses GET by default, so non-GET
+// requests fall through Workbox entirely (handled by the browser directly).
+//
+// Critical for PWA file uploads — multipart/form-data (e.g. student photos)
+// gets corrupted if a Workbox strategy clones or re-issues the request.
 
 // ──────────────── Runtime caching ────────────────
 // Build assets — instant from cache, refresh in background.
@@ -36,12 +46,24 @@ registerRoute(
 )
 
 // Public uploads (logos, photos, news, gallery).
+//
+// Match BOTH /storage/* (symlink-served) and /uploads/* (Laravel-route-served).
+// CacheableResponsePlugin filters out 404/500 responses so a transient
+// missing-file response doesn't stick in the cache.
+const uploadsRouteHandler = new StaleWhileRevalidate({
+    cacheName: 'user-uploads',
+    plugins: [
+        new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 14 }),
+        new CacheableResponsePlugin({ statuses: [0, 200] }),  // skip 4xx/5xx
+    ],
+})
+
 registerRoute(
-    ({ url }) => url.pathname.startsWith('/storage/'),
-    new StaleWhileRevalidate({
-        cacheName: 'user-uploads',
-        plugins: [new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 14 })],
-    })
+    ({ url, request }) => request.method === 'GET' && (
+        url.pathname.startsWith('/storage/') ||
+        url.pathname.startsWith('/uploads/')
+    ),
+    uploadsRouteHandler
 )
 
 // HTML page navigations — try network, fall back to cache. 4s timeout
@@ -112,8 +134,12 @@ const inertiaStrategy = new NetworkFirst({
 
 registerRoute(
     ({ request }) =>
-        request.headers.get('x-inertia') === 'true' ||
-        request.headers.get('X-Inertia') === 'true',
+        // GET only — POST/PUT/PATCH/DELETE Inertia requests (form submits,
+        // file uploads) must go straight to network without SW interference.
+        request.method === 'GET' && (
+            request.headers.get('x-inertia') === 'true' ||
+            request.headers.get('X-Inertia') === 'true'
+        ),
     async (args) => {
         try {
             return await inertiaStrategy.handle(args)
@@ -213,9 +239,27 @@ self.addEventListener('notificationclick', (event) => {
     )
 })
 
-// Allow the page to trigger SKIP_WAITING when the user accepts an update.
-self.addEventListener('message', (event) => {
-    if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
+// Messages from the page:
+//   SKIP_WAITING — adopt the new SW immediately (called after user clicks
+//                  "Reload" on the update prompt)
+//   INVALIDATE_PAGES — clear cached HTML/Inertia pages. Call after a
+//                  successful save/update so the next page load fetches
+//                  fresh data (e.g. the newly uploaded student photo).
+self.addEventListener('message', async (event) => {
+    if (event.data?.type === 'SKIP_WAITING') {
+        self.skipWaiting()
+    }
+    if (event.data?.type === 'INVALIDATE_PAGES') {
+        await Promise.all([
+            caches.delete('pages'),
+            caches.delete('inertia-pages'),
+        ])
+        // Also clear cached uploads so re-uploaded files (same URL? rare,
+        // but possible) are re-fetched.
+        if (event.data?.alsoUploads) {
+            await caches.delete('user-uploads')
+        }
+    }
 })
 
 // Take control of all open tabs immediately on activation, so the new SW

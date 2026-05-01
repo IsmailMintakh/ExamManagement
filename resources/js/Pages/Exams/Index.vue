@@ -5,6 +5,7 @@ import SearchFilter from '@/Components/SearchFilter.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import BulkActionBar from '@/Components/BulkActionBar.vue'
+import FloatingActionButton from '@/Components/FloatingActionButton.vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import { ref, computed, watch } from 'vue'
 import { PlusIcon, PencilSquareIcon, TrashIcon, EyeIcon, LockClosedIcon, MegaphoneIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
@@ -109,7 +110,72 @@ const statusColors = {
                 <div class="card-body">
                     <SearchFilter v-model="search" @update:model-value="handleSearch" />
 
-                    <div class="overflow-x-auto mt-4" v-if="exams?.data?.length">
+                    <!-- ════════ MOBILE: tap-friendly exam cards ════════ -->
+                    <div v-if="exams?.data?.length" class="sm:hidden mt-4 space-y-2.5">
+                        <div v-for="exam in exams.data" :key="`m-${exam.id}`"
+                             class="rounded-2xl bg-base-100 border border-base-200 active:bg-base-200/40 transition-colors overflow-hidden"
+                             :class="{ 'border-primary/40 bg-primary/[0.04]': selectedIds.has(exam.id) }">
+                            <!-- Body — tappable -->
+                            <Link :href="route('exams.show', exam.id)" class="block p-3.5">
+                                <div class="flex items-start gap-3">
+                                    <label v-if="exam.status === 'draft'" @click.stop
+                                           class="flex items-center justify-center pt-1">
+                                        <input type="checkbox" :checked="selectedIds.has(exam.id)"
+                                               @change="toggleOne(exam.id)" class="checkbox checkbox-sm checkbox-primary" />
+                                    </label>
+
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span class="font-bold text-[15px] truncate">{{ exam.name }}</span>
+                                            <span :class="['badge badge-xs', statusColors[exam.status] || 'badge-ghost']">
+                                                {{ exam.status?.replace('_', ' ') }}
+                                            </span>
+                                        </div>
+                                        <div class="text-[11px] text-base-content/55 mt-1 truncate">
+                                            <span v-if="exam.exam_type?.name" class="font-semibold">{{ exam.exam_type.name }}</span>
+                                            <span v-if="exam.academic_session?.name"> · {{ exam.academic_session.name }}</span>
+                                            <span v-if="exam.exam_subjects_count !== undefined"> · {{ exam.exam_subjects_count }} subjects</span>
+                                        </div>
+                                        <div class="text-[11px] text-base-content/45 mt-0.5 truncate">
+                                            {{ exam.start_date }} → {{ exam.end_date }} · Total {{ exam.total_marks }} · Pass {{ exam.passing_marks }}
+                                        </div>
+                                        <div v-if="exam.status === 'draft' && (exam.exam_subjects_count ?? 0) === 0"
+                                             class="mt-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase text-amber-700 bg-amber-100 rounded-md px-1.5 py-0.5">
+                                            <ExclamationTriangleIcon class="w-3 h-3" /> Setup needed
+                                        </div>
+                                    </div>
+                                </div>
+                            </Link>
+                            <!-- Quick actions strip -->
+                            <div class="flex items-stretch border-t border-base-200 bg-base-200/30">
+                                <Link v-if="exam.status === 'draft' && can('exams.edit')"
+                                      :href="route('exams.edit', exam.id)"
+                                      class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 text-[12px] font-semibold text-base-content/65 active:bg-base-300/50">
+                                    <PencilSquareIcon class="w-4 h-4" /> Edit
+                                </Link>
+                                <button v-if="(exam.status === 'draft' || exam.status === 'published') && can('exams.publish')"
+                                        @click="publishExam(exam)"
+                                        class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 text-[12px] font-semibold text-info active:bg-info/10">
+                                    <MegaphoneIcon class="w-4 h-4" />
+                                    {{ exam.status === 'draft' ? 'Publish' : 'Open Marks' }}
+                                </button>
+                                <button v-if="exam.status === 'marks_entry' && can('exams.publish')"
+                                        @click="lockExam(exam)"
+                                        class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 text-[12px] font-semibold text-warning active:bg-warning/10">
+                                    <LockClosedIcon class="w-4 h-4" /> Lock
+                                </button>
+                                <button v-if="exam.status === 'draft' && can('exams.delete')"
+                                        @click="examToDelete = exam; confirmDelete = true"
+                                        class="w-12 inline-flex items-center justify-center text-error active:bg-error/10">
+                                    <TrashIcon class="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+                        <div class="pt-2"><Pagination :links="exams.links" /></div>
+                    </div>
+
+                    <!-- ════════ DESKTOP: full table ════════ -->
+                    <div class="hidden sm:block overflow-x-auto mt-4" v-if="exams?.data?.length">
                         <table class="table table-zebra">
                             <thead>
                                 <tr>
@@ -199,6 +265,12 @@ const statusColors = {
             @action="onBulkAction"
             @clear="clearSelection"
             @toggle-all="toggleAll"
+        />
+
+        <FloatingActionButton
+            v-if="can('exams.create')"
+            :href="route('exams.create')"
+            label="New Exam"
         />
     </AppLayout>
 </template>

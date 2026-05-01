@@ -543,3 +543,74 @@
         margin-right: 0.75rem;
     }
 }
+
+/* ==========================================================================
+   MOBILE-FIRST APP-LIKE UX — applied only at < sm breakpoint (640px).
+   Goals:
+     - 44px minimum touch targets (Apple HIG / Material guideline)
+     - Larger inputs prevent iOS Safari from auto-zooming on focus (16px+)
+     - Native-style active feedback (scale-down on tap, no hover state)
+     - Safe-area insets respected on notched phones
+   ========================================================================== */
+@media (max-width: 639px) {
+    /* All buttons get a comfortable touch height. DaisyUI's btn-sm is 32px
+       which feels cramped on mobile — bump to 40px minimum, regular btn to 44px. */
+    .btn:not(.btn-xs):not(.btn-circle):not(.btn-square) {
+        min-height: 44px;
+        font-size: 0.875rem;
+    }
+    .btn-sm:not(.btn-circle):not(.btn-square) {
+        min-height: 40px;
+    }
+    .btn-square, .btn-circle {
+        min-width: 44px;
+        min-height: 44px;
+    }
+    .btn-square.btn-sm, .btn-circle.btn-sm {
+        min-width: 40px;
+        min-height: 40px;
+    }
+    /* Tap feedback — native feel */
+    .btn:active, button:not(.btn):active, [role="button"]:active {
+        transform: scale(0.97);
+    }
+    .btn { transition: transform .1s ease, background-color .15s ease, border-color .15s ease; }
+
+    /* Form inputs: 16px font prevents iOS Safari auto-zoom on focus */
+    .input, .select, .textarea, input[type="text"], input[type="email"],
+    input[type="password"], input[type="number"], input[type="tel"],
+    input[type="date"], input[type="datetime-local"], textarea, select {
+        font-size: 16px !important;
+    }
+    .input:not(.input-xs):not(.input-sm), .select:not(.select-xs):not(.select-sm) {
+        min-height: 44px;
+    }
+    .input-sm, .select-sm {
+        min-height: 40px;
+    }
+
+    /* Cards: tighter mobile padding */
+    .card-body { padding: 1rem; }
+
+    /* Tables: where we still must use them, make them scrollable smoothly */
+    .overflow-x-auto { -webkit-overflow-scrolling: touch; }
+
+    /* Modals/sheets: respect bottom safe area */
+    .pb-safe { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+}
+
+/* Touch-action — prevent double-tap zoom on interactive elements */
+.btn, button, [role="button"], a.btn { touch-action: manipulation; }
+
+/* App-like list rows (used in mobile card lists) */
+.app-list-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    background: oklch(var(--b1));
+    border-bottom: 1px solid oklch(var(--bc) / 0.06);
+    transition: background-color .15s ease;
+}
+.app-list-row:active { background: oklch(var(--bc) / 0.04); }
+.app-list-row:last-child { border-bottom: 0; }

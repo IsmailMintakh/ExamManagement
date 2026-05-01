@@ -3,6 +3,7 @@ import AppLayout from '@/Layouts/AppLayout.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import { Head, useForm } from '@inertiajs/vue3'
 import { computed, ref } from 'vue'
+import { invalidatePageCache } from '@/Composables/useCacheInvalidation'
 import {
     BuildingOffice2Icon,
     PlusIcon,
@@ -48,6 +49,7 @@ function save() {
             form.rows = 6
             form.cols = 5
             showAdd.value = false
+            invalidatePageCache()  // refresh the rooms list on PWA
         },
     })
 }

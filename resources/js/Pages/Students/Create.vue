@@ -5,6 +5,7 @@ import FormSelect from '@/Components/FormSelect.vue'
 import FormTextarea from '@/Components/FormTextarea.vue'
 import FileUpload from '@/Components/FileUpload.vue'
 import { Head, useForm, Link } from '@inertiajs/vue3'
+import { invalidatePageCache } from '@/Composables/useCacheInvalidation'
 
 const props = defineProps({
     student: Object,
@@ -44,7 +45,14 @@ function submit() {
         : route('students.store')
     // Always POST — when _method='put' is in the body, Laravel's
     // FormMethodSpoofingMiddleware translates it to a PUT route match.
-    form.post(url, { forceFormData: true, preserveScroll: true })
+    form.post(url, {
+        forceFormData: true,
+        preserveScroll: true,
+        // After save, ask the SW to drop cached HTML/Inertia pages so
+        // the next view of this student fetches the fresh photo URL
+        // instead of serving a stale cached page.
+        onSuccess: () => invalidatePageCache({ alsoUploads: true }),
+    })
 }
 </script>
 

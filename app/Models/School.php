@@ -18,6 +18,9 @@ class School extends Model
         'is_main', 'is_active', 'settings',
     ];
 
+    /** Auto-serialize the computed logo URL so Vue can use school.logo_url. */
+    protected $appends = ['logo_url'];
+
     protected function casts(): array
     {
         return [

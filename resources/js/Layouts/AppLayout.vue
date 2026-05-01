@@ -8,7 +8,7 @@ import {
     UserGroupIcon, ClipboardDocumentListIcon, ChartBarIcon,
     DocumentTextIcon, Cog6ToothIcon, UsersIcon, CalendarIcon,
     ClipboardDocumentCheckIcon, TableCellsIcon, ShieldCheckIcon,
-    BellAlertIcon, ClockIcon, ChevronRightIcon,
+    BellAlertIcon, ClockIcon, ChevronRightIcon, ChevronLeftIcon,
     ArrowPathIcon, CheckBadgeIcon, ArrowsRightLeftIcon,
     ArchiveBoxIcon, DocumentDuplicateIcon, MagnifyingGlassIcon,
     SparklesIcon, ExclamationTriangleIcon, Squares2X2Icon,
@@ -22,7 +22,7 @@ import NotificationDrawer from '@/Components/NotificationDrawer.vue'
 import MobileBottomNav from '@/Components/MobileBottomNav.vue'
 import PWAManager from '@/Components/PWAManager.vue'
 
-defineProps({
+const props = defineProps({
     breadcrumbs: { type: Array, default: () => [] },
 })
 
@@ -43,6 +43,22 @@ const isActive = (href) => {
     if (href === '/dashboard') return currentPath.value === '/dashboard'
     return currentPath.value?.startsWith(href)
 }
+
+// ─── Mobile back-button logic ───
+// Prefer the second-last breadcrumb (the parent page) as the back target.
+// Falls back to /dashboard. Hidden when there's nowhere to go back to —
+// e.g. on dashboard itself or single-crumb top-level pages.
+const canShowBack = computed(() => {
+    if (props.breadcrumbs.length >= 2) return true
+    // Single-crumb pages get back-to-dashboard if not already on dashboard.
+    return currentPath.value && currentPath.value !== '/dashboard' && currentPath.value !== '/'
+})
+const parentHref = computed(() => {
+    if (props.breadcrumbs.length >= 2) {
+        return props.breadcrumbs[props.breadcrumbs.length - 2]?.href || '/dashboard'
+    }
+    return '/dashboard'
+})
 
 // ---- Collapsible group state (persisted) ----
 const STORAGE_KEY = 'sidebar_collapsed_groups'
@@ -378,17 +394,24 @@ watch(() => page.url, () => { sidebarOpen.value = false })
         <div class="flex flex-1 flex-col overflow-hidden">
             <!-- Top Bar -->
             <header class="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 px-4 sm:gap-3 sm:px-6 glass-strong" style="border-bottom: 1px solid oklch(var(--bc) / 0.08);">
-                <button class="btn btn-ghost btn-sm btn-square lg:hidden" @click="sidebarOpen = true" aria-label="Open navigation menu">
+                <!-- MOBILE: Back button (when not on dashboard) OR menu button -->
+                <Link v-if="canShowBack" :href="parentHref" class="lg:hidden flex items-center justify-center w-10 h-10 -ml-2 rounded-full active:bg-base-200 transition-colors touch-manipulation" aria-label="Go back">
+                    <ChevronLeftIcon class="h-5 w-5" />
+                </Link>
+                <button v-else class="lg:hidden flex items-center justify-center w-10 h-10 -ml-2 rounded-full active:bg-base-200 transition-colors touch-manipulation" @click="sidebarOpen = true" aria-label="Open navigation menu">
                     <Bars3Icon class="h-5 w-5" />
                 </button>
 
-                <!-- Mobile: show current page label inline -->
-                <div v-if="breadcrumbs.length" class="flex items-center gap-1.5 text-sm font-semibold text-base-content/85 sm:hidden truncate min-w-0">
-                    <span class="truncate">{{ breadcrumbs[breadcrumbs.length - 1].label }}</span>
+                <!-- Mobile: app-style title — bigger, bolder than breadcrumbs -->
+                <div v-if="breadcrumbs.length" class="lg:hidden flex flex-col min-w-0 leading-tight">
+                    <span class="text-base font-bold truncate text-base-content">{{ breadcrumbs[breadcrumbs.length - 1].label }}</span>
+                    <span v-if="breadcrumbs.length > 1" class="text-[10px] uppercase tracking-wider text-base-content/45 font-semibold truncate">
+                        {{ breadcrumbs[breadcrumbs.length - 2].label }}
+                    </span>
                 </div>
 
                 <!-- Desktop: full breadcrumbs -->
-                <nav v-if="breadcrumbs.length" class="hidden items-center gap-1.5 text-[13px] sm:flex">
+                <nav v-if="breadcrumbs.length" class="hidden items-center gap-1.5 text-[13px] lg:flex">
                     <Link :href="route('dashboard')" class="flex h-7 w-7 items-center justify-center rounded-md text-base-content/40 transition-all hover:bg-base-200 hover:text-primary">
                         <HomeIcon class="h-4 w-4" />
                     </Link>

@@ -21,6 +21,9 @@ class User extends Authenticatable
 
     protected $hidden = ['password', 'remember_token'];
 
+    /** Auto-serialize the computed avatar URL for Vue. */
+    protected $appends = ['avatar_url'];
+
     protected function casts(): array
     {
         return [

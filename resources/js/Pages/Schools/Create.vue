@@ -10,6 +10,10 @@ const props = defineProps({ school: Object })
 const isEdit = !!props.school
 
 const form = useForm({
+    // _method must be a form FIELD (not an Inertia option) for PUT spoofing
+    // to reach Laravel's FormMethodSpoofingMiddleware. Without this, the
+    // POST hits a route that only accepts PUT/PATCH → 405.
+    _method: isEdit ? 'put' : 'post',
     name: props.school?.name || '',
     code: props.school?.code || '',
     address: props.school?.address || '',
@@ -21,11 +25,8 @@ const form = useForm({
 })
 
 function submit() {
-    if (isEdit) {
-        form.post(route('schools.update', props.school.id), { _method: 'PUT', forceFormData: true })
-    } else {
-        form.post(route('schools.store'), { forceFormData: true })
-    }
+    const url = isEdit ? route('schools.update', props.school.id) : route('schools.store')
+    form.post(url, { forceFormData: true, preserveScroll: true })
 }
 </script>
 

@@ -179,7 +179,61 @@ function deleteStudent() {
                         @filter="handleFilter"
                     />
 
-                    <div class="overflow-x-auto mt-4" v-if="students?.data?.length">
+                    <!-- ════════ MOBILE: tappable card list ════════ -->
+                    <div v-if="students?.data?.length" class="sm:hidden mt-4 space-y-2">
+                        <div v-for="student in students.data" :key="`m-${student.id}`"
+                             class="rounded-2xl bg-base-100 border border-base-200 active:bg-base-200/40 transition-colors"
+                             :class="{ 'border-primary/40 bg-primary/[0.04]': selectedIds.has(student.id) }">
+                            <div class="flex items-stretch">
+                                <!-- Checkbox area -->
+                                <label class="flex items-center justify-center w-12 shrink-0 cursor-pointer">
+                                    <input type="checkbox"
+                                        :checked="selectedIds.has(student.id)"
+                                        @change="toggleOne(student.id)"
+                                        class="checkbox checkbox-sm checkbox-primary" />
+                                </label>
+                                <!-- Body -->
+                                <Link :href="route('students.show', student.id)"
+                                      class="flex-1 flex items-center gap-3 py-3 pr-2 min-w-0">
+                                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white flex items-center justify-center font-bold shrink-0">
+                                        <img v-if="student.photo_url" :src="student.photo_url" :alt="student.name" class="w-full h-full object-cover rounded-2xl" />
+                                        <span v-else>{{ student.name?.charAt(0)?.toUpperCase() }}</span>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="font-bold text-[14.5px] truncate">{{ student.name }}</div>
+                                        <div class="text-[11px] text-base-content/55 truncate mt-0.5">
+                                            <span class="font-mono font-semibold">#{{ student.admission_no }}</span>
+                                            <span v-if="student.roll_no"> · Roll {{ student.roll_no }}</span>
+                                            <span v-if="student.school_class?.name"> · {{ student.school_class.name }}-{{ student.section?.name }}</span>
+                                        </div>
+                                        <div v-if="student.father_name" class="text-[11px] text-base-content/45 truncate mt-0.5">
+                                            S/o {{ student.father_name }}
+                                        </div>
+                                    </div>
+                                    <span :class="['badge badge-xs shrink-0', student.status === 'active' ? 'badge-success' : 'badge-warning']">
+                                        {{ student.status }}
+                                    </span>
+                                </Link>
+                                <!-- Action menu -->
+                                <div class="flex items-center pr-2 gap-0.5">
+                                    <Link v-if="can('students.edit')" :href="route('students.edit', student.id)"
+                                          class="w-9 h-9 flex items-center justify-center rounded-lg active:bg-base-200 text-base-content/65"
+                                          :aria-label="`Edit ${student.name}`">
+                                        <PencilSquareIcon class="w-4 h-4" />
+                                    </Link>
+                                    <button v-if="can('students.delete')" @click.stop="confirmDeleteStudent(student)"
+                                            class="w-9 h-9 flex items-center justify-center rounded-lg active:bg-error/10 text-error"
+                                            :aria-label="`Delete ${student.name}`">
+                                        <TrashIcon class="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="pt-2"><Pagination :links="students.links" /></div>
+                    </div>
+
+                    <!-- ════════ DESKTOP: full table ════════ -->
+                    <div class="hidden sm:block overflow-x-auto mt-4" v-if="students?.data?.length">
                         <table class="table table-zebra">
                             <thead>
                                 <tr>
