@@ -36,6 +36,9 @@ const form = useForm({
     school_id: props.student?.school_id || '',
     school_class_id: props.student?.school_class_id || '',
     section_id: props.student?.section_id || '',
+    // Required by the update validator; auto-populated from the student
+    // being edited so the form doesn't bounce with "session is required".
+    academic_session_id: props.student?.academic_session_id || '',
     photo: null,
 })
 

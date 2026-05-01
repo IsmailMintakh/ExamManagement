@@ -326,6 +326,16 @@ class StudentController extends Controller
     {
         $this->authorize('update', $student);
 
+        // Auto-fill academic_session_id BEFORE validation so older clients,
+        // mobile PWA forms, or any form that omits the field still pass.
+        // Falls back to the student's existing session, then the current one.
+        if (!$request->filled('academic_session_id')) {
+            $request->merge([
+                'academic_session_id' => $student->academic_session_id
+                    ?? AcademicSession::currentSession()?->id,
+            ]);
+        }
+
         $validated = $request->validate([
             'admission_no' => ['required', 'string', 'max:50', 'unique:students,admission_no,' . $student->id],
             'roll_no' => ['nullable', 'string', 'max:20'],
@@ -346,7 +356,7 @@ class StudentController extends Controller
             'school_id' => ['required', 'exists:schools,id'],
             'school_class_id' => ['required', 'exists:school_classes,id'],
             'section_id' => ['required', 'exists:sections,id'],
-            'academic_session_id' => ['required', 'exists:academic_sessions,id'],
+            'academic_session_id' => ['nullable', 'exists:academic_sessions,id'],
             'status' => ['nullable', 'string', 'in:active,inactive,transferred,graduated'],
         ]);
 
