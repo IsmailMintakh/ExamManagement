@@ -583,10 +583,8 @@ function eventColorClasses(c) {
                         <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">Gender</dt><dd class="font-semibold capitalize">{{ student?.gender || '—' }}</dd></div>
                         <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">Blood Group</dt><dd class="font-semibold inline-flex items-center gap-1"><HeartIcon v-if="student?.blood_group" class="w-3.5 h-3.5 text-rose-500" />{{ student?.blood_group || '—' }}</dd></div>
                         <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">Religion</dt><dd class="font-semibold">{{ student?.religion || '—' }}</dd></div>
-                        <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">Category</dt><dd class="font-semibold">{{ student?.category || '—' }}</dd></div>
-                        <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">Caste</dt><dd class="font-semibold">{{ student?.caste || '—' }}</dd></div>
                         <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">Guardian Phone</dt><dd class="font-semibold inline-flex items-center gap-1"><PhoneIcon class="w-3.5 h-3.5 text-base-content/40" />{{ student?.guardian_phone || '—' }}</dd></div>
-                        <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">National ID</dt><dd class="font-semibold font-mono">{{ student?.aadhaar_no || '—' }}</dd></div>
+                        <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">CNIC / B-Form</dt><dd class="font-semibold font-mono">{{ student?.cnic || '—' }}</dd></div>
                         <div class="col-span-2"><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">Address</dt><dd class="font-semibold inline-flex items-start gap-1"><MapPinIcon class="w-3.5 h-3.5 text-base-content/40 mt-1 flex-shrink-0" />{{ student?.address || '—' }}</dd></div>
                     </dl>
                 </div>

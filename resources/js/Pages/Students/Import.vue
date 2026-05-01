@@ -37,7 +37,7 @@ function submit() {
                         </li>
                         <li class="flex items-start gap-1">
                             <CheckCircleIcon class="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                            Optional columns: roll_no, father_name, mother_name, guardian_phone, date_of_birth, gender, address, blood_group, religion, category, caste, aadhaar_no
+                            Optional columns: roll_no, father_name, mother_name, guardian_phone, date_of_birth, gender, address, blood_group, religion, cnic
                         </li>
                         <li class="flex items-start gap-1">
                             <CheckCircleIcon class="w-3.5 h-3.5 mt-0.5 shrink-0" />

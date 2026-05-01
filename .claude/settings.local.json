@@ -37,7 +37,16 @@
       "Bash(php -r ' *)",
       "Bash(grep -E \"\\\\.css$\")",
       "Bash(grep -n \"use App\\\\\\\\\\\\\\\\Models\" /e/laragon/www/exam_management/app/Http/Controllers/StudentController.php)",
-      "Bash(grep -n \"use App\\\\\\\\\\\\\\\\Models\\\\\\\\\\\\\\\\SubjectTeacher\" /e/laragon/www/exam_management/app/Http/Controllers/MarksController.php)"
+      "Bash(grep -n \"use App\\\\\\\\\\\\\\\\Models\\\\\\\\\\\\\\\\SubjectTeacher\" /e/laragon/www/exam_management/app/Http/Controllers/MarksController.php)",
+      "Bash(npm run *)",
+      "Bash(grep -n '</footer\\\\|</template>$' resources/js/Layouts/PublicLayout.vue)",
+      "Bash(php -r 'require '\\\\''vendor/autoload.php'\\\\''; $keys = Minishlink\\\\WebPush\\\\VAPID::createVapidKeys\\(\\); echo '\\\\''PUBLIC: '\\\\'' . $keys['\\\\''publicKey'\\\\''] . PHP_EOL; echo '\\\\''PRIVATE: '\\\\'' . $keys['\\\\''privateKey'\\\\''] . PHP_EOL;')",
+      "Bash(openssl version *)",
+      "Bash(openssl ecparam *)",
+      "Bash(openssl ec *)",
+      "Bash(ls /tmp/vapid_*.pem)",
+      "Bash(xxd -r -p)",
+      "Bash(base64 -w0)"
     ]
   }
 }

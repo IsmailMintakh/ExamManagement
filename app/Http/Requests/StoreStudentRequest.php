@@ -26,9 +26,8 @@ class StoreStudentRequest extends FormRequest
             'address' => ['nullable', 'string', 'max:500'],
             'blood_group' => ['nullable', 'string', 'max:5'],
             'religion' => ['nullable', 'string', 'max:50'],
-            'category' => ['nullable', 'string', 'max:50'],
-            'caste' => ['nullable', 'string', 'max:100'],
-            'aadhaar_no' => ['nullable', 'string', 'max:12'],
+            // CNIC / B-Form: 13 digits, formatted as 12345-1234567-1 (with or without dashes).
+            'cnic' => ['nullable', 'string', 'max:18', 'regex:/^[0-9]{5}-?[0-9]{7}-?[0-9]{1}$/'],
             'school_id' => ['required', 'exists:schools,id'],
             'school_class_id' => ['required', 'exists:school_classes,id'],
             'section_id' => ['required', 'exists:sections,id'],

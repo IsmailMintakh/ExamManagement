@@ -35,4 +35,15 @@ return [
         ],
     ],
 
+    /*
+    | Web Push (VAPID) — keys identify our server when sending push
+    | notifications via FCM / Mozilla Push / APNS. Generated once and
+    | persisted; rotating them invalidates all existing subscriptions.
+    */
+    'webpush' => [
+        'subject'     => env('VAPID_SUBJECT', 'mailto:admin@example.com'),
+        'public_key'  => env('VAPID_PUBLIC_KEY'),
+        'private_key' => env('VAPID_PRIVATE_KEY'),
+    ],
+
 ];

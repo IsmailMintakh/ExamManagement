@@ -48,8 +48,11 @@ Route::get('/admissions', [PublicController::class, 'admissions'])->name('public
 Route::get('/faculty', [PublicController::class, 'faculty'])->name('public.faculty');
 Route::get('/gallery', [PublicController::class, 'gallery'])->name('public.gallery');
 Route::get('/news', [PublicController::class, 'news'])->name('public.news');
+Route::get('/news/{slug}', [PublicController::class, 'newsShow'])->name('public.news.show');
+Route::get('/gallery/{slug}', [PublicController::class, 'galleryShow'])->name('public.gallery.show');
 Route::get('/board-results', [PublicController::class, 'results'])->name('public.results');
 Route::get('/contact', [PublicController::class, 'contact'])->name('public.contact');
+Route::post('/contact', [PublicController::class, 'submitContact'])->name('public.contact.submit');
 
 // Authenticated routes
 Route::middleware(['auth', 'verified'])->group(function () {
@@ -166,6 +169,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Help / Documentation
     Route::get('help', fn () => \Inertia\Inertia::render('Help'))->name('help');
 
+    // Web Push (browser notifications)
+    Route::prefix('push')->name('push.')->group(function () {
+        Route::get('public-key', [\App\Http\Controllers\PushController::class, 'publicKey'])->name('public-key');
+        Route::post('subscribe',  [\App\Http\Controllers\PushController::class, 'subscribe'])->name('subscribe');
+        Route::post('unsubscribe',[\App\Http\Controllers\PushController::class, 'unsubscribe'])->name('unsubscribe');
+        Route::post('test',       [\App\Http\Controllers\PushController::class, 'sendTest'])->name('test');
+    });
+
     // Notifications
     Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::get('notifications/recent', [NotificationController::class, 'recent'])->name('notifications.recent');
@@ -178,6 +189,51 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Settings
     Route::get('settings', [SettingsController::class, 'index'])->name('settings.index');
     Route::post('settings', [SettingsController::class, 'update'])->name('settings.update');
+
+    // Public Website CMS (DDO only — site settings + hero slider + news + gallery + faculty)
+    Route::prefix('website')->name('website.')->middleware('can:website.manage')->group(function () {
+        Route::get('settings', [\App\Http\Controllers\Website\WebsiteSettingsController::class, 'edit'])->name('settings');
+        Route::post('settings', [\App\Http\Controllers\Website\WebsiteSettingsController::class, 'update'])->name('settings.update');
+
+        Route::post('hero-slides/reorder', [\App\Http\Controllers\Website\HeroSlideController::class, 'reorder'])->name('hero-slides.reorder');
+        Route::resource('hero-slides', \App\Http\Controllers\Website\HeroSlideController::class)
+            ->parameters(['hero-slides' => 'heroSlide'])
+            ->except(['show']);
+
+        // News articles
+        Route::resource('news', \App\Http\Controllers\Website\NewsArticleController::class)
+            ->parameters(['news' => 'news'])
+            ->except(['show']);
+
+        // Gallery albums + nested photo actions
+        Route::resource('gallery', \App\Http\Controllers\Website\GalleryAlbumController::class)
+            ->parameters(['gallery' => 'album'])
+            ->except(['show']);
+        Route::post('gallery/{album}/photos', [\App\Http\Controllers\Website\GalleryAlbumController::class, 'uploadPhotos'])->name('gallery.photos.upload');
+        Route::put('gallery/{album}/photos/{photo}', [\App\Http\Controllers\Website\GalleryAlbumController::class, 'updatePhoto'])->name('gallery.photos.update');
+        Route::delete('gallery/{album}/photos/{photo}', [\App\Http\Controllers\Website\GalleryAlbumController::class, 'deletePhoto'])->name('gallery.photos.destroy');
+
+        // Faculty
+        Route::resource('faculty', \App\Http\Controllers\Website\FacultyMemberController::class)
+            ->parameters(['faculty' => 'faculty'])
+            ->except(['show']);
+
+        // Page Blocks (About, Academics, Admissions content)
+        Route::get('pages', [\App\Http\Controllers\Website\PageBlockController::class, 'index'])->name('pages.index');
+        Route::get('pages/{key}', [\App\Http\Controllers\Website\PageBlockController::class, 'show'])->name('pages.show');
+        Route::put('pages/{key}/hero', [\App\Http\Controllers\Website\PageBlockController::class, 'updateHero'])->name('pages.hero.update');
+        Route::post('pages/{key}/reorder', [\App\Http\Controllers\Website\PageBlockController::class, 'reorder'])->name('pages.reorder');
+        Route::post('page-blocks', [\App\Http\Controllers\Website\PageBlockController::class, 'store'])->name('page-blocks.store');
+        Route::put('page-blocks/{block}', [\App\Http\Controllers\Website\PageBlockController::class, 'update'])->name('page-blocks.update');
+        Route::delete('page-blocks/{block}', [\App\Http\Controllers\Website\PageBlockController::class, 'destroy'])->name('page-blocks.destroy');
+
+        // Contact Messages
+        Route::get('contact-messages', [\App\Http\Controllers\Website\ContactMessageController::class, 'index'])->name('contact-messages.index');
+        Route::get('contact-messages/{message}', [\App\Http\Controllers\Website\ContactMessageController::class, 'show'])->name('contact-messages.show');
+        Route::put('contact-messages/{message}', [\App\Http\Controllers\Website\ContactMessageController::class, 'update'])->name('contact-messages.update');
+        Route::delete('contact-messages/{message}', [\App\Http\Controllers\Website\ContactMessageController::class, 'destroy'])->name('contact-messages.destroy');
+        Route::post('contact-messages/bulk', [\App\Http\Controllers\Website\ContactMessageController::class, 'bulk'])->name('contact-messages.bulk');
+    });
 
     // Student Promotion (year-end workflow)
     Route::prefix('promotion')->name('promotion.')->group(function () {

@@ -4,12 +4,14 @@
     "type": "module",
     "scripts": {
         "build": "vite build",
-        "dev": "vite"
+        "dev": "vite",
+        "pwa:icons": "pwa-assets-generator"
     },
     "devDependencies": {
         "@inertiajs/vue3": "^2.0.0",
         "@tailwindcss/forms": "^0.5.3",
         "@tailwindcss/vite": "^4.0.0",
+        "@vite-pwa/assets-generator": "^1.0.2",
         "@vitejs/plugin-vue": "^6.0.0",
         "autoprefixer": "^10.4.12",
         "axios": "^1.11.0",
@@ -18,12 +20,15 @@
         "postcss": "^8.4.31",
         "tailwindcss": "^3.2.1",
         "vite": "^7.0.7",
-        "vue": "^3.4.0"
+        "vite-plugin-pwa": "^1.2.0",
+        "vue": "^3.4.0",
+        "workbox-window": "^7.4.0"
     },
     "dependencies": {
         "@heroicons/vue": "^2.2.0",
         "daisyui": "^4.12.24",
         "sweetalert2": "^11.26.24",
+        "swiper": "^12.1.4",
         "vue-sonner": "^2.0.9"
     }
 }

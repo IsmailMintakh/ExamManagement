@@ -5,11 +5,21 @@ import {
     AcademicCapIcon, Bars3Icon, XMarkIcon, PhoneIcon, EnvelopeIcon,
     MapPinIcon, ArrowRightIcon, ChevronDownIcon, HeartIcon,
 } from '@heroicons/vue/24/outline'
+import PWAManager from '@/Components/PWAManager.vue'
 
 const page = usePage()
 const currentPath = computed(() => page.url)
 const scrolled = ref(false)
 const mobileOpen = ref(false)
+
+// All site settings shared globally via HandleInertiaRequests
+const site = computed(() => page.props.site || {})
+const s = (key, fallback = '') => site.value?.[key] || fallback
+const logoUrl = computed(() => {
+    const path = site.value?.logo_path
+    if (!path) return null
+    return path.startsWith('http') ? path : `/storage/${path}`
+})
 
 function onScroll() { scrolled.value = window.scrollY > 40 }
 
@@ -29,6 +39,13 @@ const navItems = [
 ]
 
 const isActive = (href) => href === '/' ? currentPath.value === '/' : currentPath.value?.startsWith(href)
+
+// Footer social links — only show ones the admin has set
+const socialLinks = computed(() => [
+    { url: s('social_facebook'),  label: 'f' },
+    { url: s('social_instagram'), label: '⊙' },
+    { url: s('social_youtube'),   label: '▶' },
+].filter(l => l.url))
 </script>
 
 <template>
@@ -37,12 +54,21 @@ const isActive = (href) => href === '/' ? currentPath.value === '/' : currentPat
         <div class="bg-slate-950 text-stone-300 text-[11px] py-2.5 hidden md:block border-b border-slate-900">
             <div class="max-w-[1400px] mx-auto px-8 flex items-center justify-between">
                 <div class="flex items-center gap-7">
-                    <span class="flex items-center gap-1.5"><PhoneIcon class="w-3 h-3 text-emerald-400" /> +92-5815-920234</span>
-                    <span class="flex items-center gap-1.5"><EnvelopeIcon class="w-3 h-3 text-emerald-400" /> info@gbhss1-skardu.edu.pk</span>
-                    <span class="flex items-center gap-1.5"><MapPinIcon class="w-3 h-3 text-emerald-400" /> College Road, Skardu · Gilgit-Baltistan</span>
+                    <a v-if="s('phone_primary')" :href="`tel:${s('phone_primary')}`" class="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
+                        <PhoneIcon class="w-3 h-3 text-emerald-400" /> {{ s('phone_primary') }}
+                    </a>
+                    <a v-if="s('email_primary')" :href="`mailto:${s('email_primary')}`" class="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
+                        <EnvelopeIcon class="w-3 h-3 text-emerald-400" /> {{ s('email_primary') }}
+                    </a>
+                    <span v-if="s('address')" class="flex items-center gap-1.5">
+                        <MapPinIcon class="w-3 h-3 text-emerald-400" /> {{ s('address') }}
+                    </span>
                 </div>
                 <div class="flex items-center gap-5 font-medium">
-                    <span class="flex items-center gap-1.5 text-emerald-400"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Admissions Open 2026–27</span>
+                    <span v-if="s('announcement_message')" class="flex items-center gap-1.5 text-emerald-400">
+                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        {{ s('announcement_message') }}
+                    </span>
                     <Link href="/login" class="hover:text-amber-400 transition-colors">Staff Portal</Link>
                 </div>
             </div>
@@ -59,13 +85,20 @@ const isActive = (href) => href === '/' ? currentPath.value === '/' : currentPat
                 <div class="flex items-center justify-between h-[72px] lg:h-20">
                     <!-- Logo -->
                     <Link href="/" class="flex items-center gap-3 group">
-                        <div class="relative w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-700 to-emerald-900 flex items-center justify-center shadow-lg shadow-emerald-900/20 transition-all duration-500 group-hover:rotate-6 group-hover:scale-105">
+                        <div v-if="logoUrl" class="relative w-12 h-12 rounded-2xl overflow-hidden shadow-lg shadow-emerald-900/20 transition-all duration-500 group-hover:rotate-3 group-hover:scale-105 bg-white">
+                            <img :src="logoUrl" :alt="s('school_short_name', 'Logo')" class="w-full h-full object-contain p-1" />
+                        </div>
+                        <div v-else class="relative w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-700 to-emerald-900 flex items-center justify-center shadow-lg shadow-emerald-900/20 transition-all duration-500 group-hover:rotate-6 group-hover:scale-105">
                             <AcademicCapIcon class="w-6 h-6 text-white" />
                             <span class="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 ring-2 ring-white"></span>
                         </div>
                         <div>
-                            <div class="text-[14px] font-bold text-slate-900 leading-tight tracking-tight">GBHSS No.1 Skardu</div>
-                            <div class="text-[10px] text-emerald-700 font-semibold uppercase tracking-[0.15em] leading-none mt-1">Est. 1954 · Excellence Since</div>
+                            <div class="text-[14px] font-bold text-slate-900 leading-tight tracking-tight">{{ s('school_short_name', 'School Name') }}</div>
+                            <div v-if="s('established_year') || s('tagline')" class="text-[10px] text-emerald-700 font-semibold uppercase tracking-[0.15em] leading-none mt-1">
+                                <template v-if="s('established_year')">Est. {{ s('established_year') }}</template>
+                                <template v-if="s('established_year') && s('tagline')"> · </template>
+                                <template v-if="s('tagline')">{{ s('tagline') }}</template>
+                            </div>
                         </div>
                     </Link>
 
@@ -148,20 +181,24 @@ const isActive = (href) => href === '/' ? currentPath.value === '/' : currentPat
                 <div class="grid grid-cols-1 lg:grid-cols-5 gap-12 mb-14 pb-12 border-b border-slate-900">
                     <div class="lg:col-span-2">
                         <div class="flex items-center gap-3 mb-5">
-                            <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 via-emerald-600 to-emerald-800 flex items-center justify-center shadow-xl">
+                            <div v-if="logoUrl" class="w-14 h-14 rounded-2xl overflow-hidden bg-white shadow-xl">
+                                <img :src="logoUrl" :alt="s('school_short_name', 'Logo')" class="w-full h-full object-contain p-1.5" />
+                            </div>
+                            <div v-else class="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 via-emerald-600 to-emerald-800 flex items-center justify-center shadow-xl">
                                 <AcademicCapIcon class="w-7 h-7 text-white" />
                             </div>
                             <div>
-                                <div class="text-lg font-bold text-white tracking-tight">GBHSS No.1 Skardu</div>
-                                <div class="text-[10px] text-amber-400 uppercase tracking-[0.2em] font-semibold">Government Boys · Since 1954</div>
+                                <div class="text-lg font-bold text-white tracking-tight">{{ s('school_short_name', 'School Name') }}</div>
+                                <div v-if="s('established_year')" class="text-[10px] text-amber-400 uppercase tracking-[0.2em] font-semibold">Since {{ s('established_year') }}</div>
                             </div>
                         </div>
-                        <p class="text-[15px] leading-[1.75] text-stone-400 max-w-md">
-                            Nestled in the heart of Baltistan, our institution has shaped generations of leaders — blending mountain spirit with world-class education for over seven decades.
+                        <p v-if="s('footer_description')" class="text-[15px] leading-[1.75] text-stone-400 max-w-md">
+                            {{ s('footer_description') }}
                         </p>
-                        <div class="flex items-center gap-2 mt-6">
-                            <a v-for="s in ['f', '𝕏', 'in', '▶']" :key="s"
-                               class="w-10 h-10 rounded-full bg-slate-900 hover:bg-emerald-600 border border-slate-800 hover:border-emerald-500 flex items-center justify-center text-sm font-bold cursor-pointer transition-all duration-300 hover:-translate-y-0.5">{{ s }}</a>
+                        <div v-if="socialLinks.length" class="flex items-center gap-2 mt-6">
+                            <a v-for="link in socialLinks" :key="link.url"
+                               :href="link.url" target="_blank" rel="noopener"
+                               class="w-10 h-10 rounded-full bg-slate-900 hover:bg-emerald-600 border border-slate-800 hover:border-emerald-500 flex items-center justify-center text-sm font-bold cursor-pointer transition-all duration-300 hover:-translate-y-0.5">{{ link.label }}</a>
                         </div>
                     </div>
 
@@ -190,17 +227,17 @@ const isActive = (href) => href === '/' ? currentPath.value === '/' : currentPat
                     <div>
                         <h3 class="text-white font-semibold mb-5 text-xs uppercase tracking-[0.2em]">Visit Us</h3>
                         <ul class="space-y-4 text-[13px]">
-                            <li class="flex gap-3 items-start">
+                            <li v-if="s('address')" class="flex gap-3 items-start">
                                 <MapPinIcon class="w-4 h-4 flex-shrink-0 text-amber-400 mt-0.5" />
-                                <span class="leading-relaxed">College Road, Skardu<br />Gilgit-Baltistan, 16100<br />Pakistan</span>
+                                <span class="leading-relaxed whitespace-pre-line">{{ s('address') }}</span>
                             </li>
-                            <li class="flex gap-3 items-center">
+                            <li v-if="s('phone_primary')" class="flex gap-3 items-center">
                                 <PhoneIcon class="w-4 h-4 flex-shrink-0 text-amber-400" />
-                                <span>+92-5815-920234</span>
+                                <a :href="`tel:${s('phone_primary')}`" class="hover:text-amber-400 transition-colors">{{ s('phone_primary') }}</a>
                             </li>
-                            <li class="flex gap-3 items-center">
+                            <li v-if="s('email_primary')" class="flex gap-3 items-center">
                                 <EnvelopeIcon class="w-4 h-4 flex-shrink-0 text-amber-400" />
-                                <span>info@gbhss1-skardu.edu.pk</span>
+                                <a :href="`mailto:${s('email_primary')}`" class="hover:text-amber-400 transition-colors break-all">{{ s('email_primary') }}</a>
                             </li>
                         </ul>
                     </div>
@@ -208,10 +245,10 @@ const isActive = (href) => href === '/' ? currentPath.value === '/' : currentPat
 
                 <!-- Bottom bar -->
                 <div class="flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-stone-500">
-                    <p class="flex items-center gap-2">
-                        <span>&copy; {{ new Date().getFullYear() }} Government Boys Higher Secondary School No.1, Skardu.</span>
+                    <p class="flex items-center gap-2 text-center md:text-left">
+                        <span>&copy; {{ new Date().getFullYear() }} {{ s('school_name', s('school_short_name', 'Our School')) }}.</span>
                         <span class="hidden md:inline">·</span>
-                        <span class="hidden md:inline">Crafted with <HeartIcon class="inline w-3 h-3 text-rose-400" /> in Baltistan</span>
+                        <span class="hidden md:inline">All rights reserved.</span>
                     </p>
                     <div class="flex items-center gap-6">
                         <a href="#" class="hover:text-amber-400 transition-colors">Privacy</a>
@@ -222,6 +259,9 @@ const isActive = (href) => href === '/' ? currentPath.value === '/' : currentPat
                 </div>
             </div>
         </footer>
+
+        <!-- PWA install prompt + offline indicator -->
+        <PWAManager />
     </div>
 </template>
 

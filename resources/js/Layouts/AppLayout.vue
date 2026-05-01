@@ -13,11 +13,14 @@ import {
     ArchiveBoxIcon, DocumentDuplicateIcon, MagnifyingGlassIcon,
     SparklesIcon, ExclamationTriangleIcon, Squares2X2Icon,
     LifebuoyIcon, QuestionMarkCircleIcon, TrophyIcon,
+    GlobeAltIcon, PhotoIcon, NewspaperIcon, EnvelopeIcon,
 } from '@heroicons/vue/24/outline'
 import ThemeToggle from '@/Components/ThemeToggle.vue'
 import Toast from '@/Components/Toast.vue'
 import CommandPalette from '@/Components/CommandPalette.vue'
 import NotificationDrawer from '@/Components/NotificationDrawer.vue'
+import MobileBottomNav from '@/Components/MobileBottomNav.vue'
+import PWAManager from '@/Components/PWAManager.vue'
 
 defineProps({
     breadcrumbs: { type: Array, default: () => [] },
@@ -28,6 +31,7 @@ const user = computed(() => page.props.auth?.user)
 const currentSession = computed(() => page.props.auth?.currentSession)
 const sessions = computed(() => page.props.auth?.sessions || [])
 const notificationCount = computed(() => page.props.notificationCount || 0)
+const contactMessageCount = computed(() => page.props.contactMessageCount || 0)
 const roles = computed(() => user.value?.roles || [])
 const permissions = computed(() => user.value?.permissions || [])
 
@@ -159,6 +163,21 @@ const menuGroups = computed(() => {
     if (hasPerm('certificates.templates.view')) masterItems.push({ label: 'Certificate Templates', href: '/certificates/templates', icon: TrophyIcon })
     if (masterItems.length) groups.push({ label: 'Master Data', items: masterItems })
 
+    if (hasPerm('website.manage')) {
+        groups.push({
+            label: 'Website',
+            items: [
+                { label: 'Site Settings', href: '/website/settings', icon: GlobeAltIcon },
+                { label: 'Hero Slider', href: '/website/hero-slides', icon: PhotoIcon },
+                { label: 'News & Articles', href: '/website/news', icon: NewspaperIcon },
+                { label: 'Photo Gallery', href: '/website/gallery', icon: Squares2X2Icon },
+                { label: 'Faculty', href: '/website/faculty', icon: UserGroupIcon },
+                { label: 'Pages Content', href: '/website/pages', icon: DocumentTextIcon },
+                { label: 'Contact Messages', href: '/website/contact-messages', icon: EnvelopeIcon, badge: 'contactMessageCount' },
+            ],
+        })
+    }
+
     const sysItems = []
     if (hasPerm('notifications.view')) sysItems.push({ label: 'Notifications', href: '/notifications', icon: BellAlertIcon })
     if (hasPerm('archive.view')) sysItems.push({ label: 'Archive', href: '/archive', icon: ArchiveBoxIcon })
@@ -261,6 +280,10 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                                 <span v-if="item.href === '/notifications' && notificationCount > 0"
                                     class="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-error px-1.5 text-[9px] font-bold text-error-content">
                                     {{ notificationCount > 99 ? '99+' : notificationCount }}
+                                </span>
+                                <span v-else-if="item.badge === 'contactMessageCount' && contactMessageCount > 0"
+                                    class="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[9px] font-bold text-white">
+                                    {{ contactMessageCount > 99 ? '99+' : contactMessageCount }}
                                 </span>
                             </Link>
                         </div>
@@ -466,13 +489,20 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                 </div>
             </header>
 
-            <!-- Page Content with transition -->
-            <main class="flex-1 overflow-y-auto">
-                <div :key="page.url" class="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8 animate-fade-in">
+            <!-- Page Content with transition. pb-24 lg:pb-6 reserves space for mobile bottom nav.
+                 overflow-x-hidden defends against any inner element accidentally pushing the page wider than the viewport on mobile. -->
+            <main class="flex-1 overflow-y-auto overflow-x-hidden">
+                <div :key="page.url" class="mx-auto max-w-7xl px-4 py-5 pb-28 sm:px-6 sm:py-6 lg:px-8 lg:pb-6 animate-fade-in">
                     <slot />
                 </div>
             </main>
         </div>
+
+        <!-- Mobile bottom tab bar — hidden on lg+, opens drawer for "More" -->
+        <MobileBottomNav @open-drawer="sidebarOpen = true" />
+
+        <!-- PWA: install prompt, offline indicator, update prompt -->
+        <PWAManager />
 
         <Toast />
         <CommandPalette ref="commandPalette" />

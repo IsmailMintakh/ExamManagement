@@ -27,9 +27,7 @@ const form = useForm({
     address: props.student?.address || '',
     blood_group: props.student?.blood_group || '',
     religion: props.student?.religion || '',
-    category: props.student?.category || '',
-    caste: props.student?.caste || '',
-    aadhaar_no: props.student?.aadhaar_no || '',
+    cnic: props.student?.cnic || '',
     school_id: props.student?.school_id || '',
     school_class_id: props.student?.school_class_id || '',
     section_id: props.student?.section_id || '',
@@ -97,12 +95,13 @@ function submit() {
                     <!-- Additional -->
                     <h3 class="text-lg font-semibold border-b border-base-200 pb-2">Additional Details</h3>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <FormInput v-model="form.religion" label="Religion" :error="form.errors.religion" />
-                        <FormInput v-model="form.category" label="Category" :error="form.errors.category" />
-                        <FormInput v-model="form.caste" label="Caste" :error="form.errors.caste" />
+                        <FormInput v-model="form.religion" label="Religion" placeholder="Islam" :error="form.errors.religion" />
+                        <FormInput v-model="form.cnic" label="CNIC / B-Form No"
+                            placeholder="12345-1234567-1"
+                            help-text="Pakistani CNIC for adults; B-Form number for minors."
+                            :error="form.errors.cnic" />
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormInput v-model="form.aadhaar_no" label="Aadhaar No" :error="form.errors.aadhaar_no" />
                         <FileUpload v-model="form.photo" label="Student Photo" accept="image/*" :preview="true" :error="form.errors.photo" />
                     </div>
                     <FormTextarea v-model="form.address" label="Address" :error="form.errors.address" :rows="2" />

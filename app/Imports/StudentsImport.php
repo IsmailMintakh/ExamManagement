@@ -34,7 +34,7 @@ class StudentsImport implements ToModel, WithHeadingRow, WithValidation, SkipsOn
             'address' => $row['address'] ?? null,
             'blood_group' => $row['blood_group'] ?? null,
             'religion' => $row['religion'] ?? null,
-            'category' => $row['category'] ?? null,
+            'cnic'     => $row['cnic'] ?? null,
             'school_id' => $this->schoolId,
             'school_class_id' => $this->schoolClassId,
             'section_id' => $this->sectionId,

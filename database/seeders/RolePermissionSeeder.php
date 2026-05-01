@@ -71,6 +71,8 @@ class RolePermissionSeeder extends Seeder
             'roles.view', 'roles.manage',
             // Notifications
             'notifications.view',
+            // Public Website CMS (DDO only — manages homepage content, slider, news, etc.)
+            'website.view', 'website.manage',
         ];
 
         foreach ($permissions as $permission) {

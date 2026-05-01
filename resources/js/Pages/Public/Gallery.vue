@@ -1,83 +1,73 @@
 <script setup>
 import PublicLayout from '@/Layouts/PublicLayout.vue'
-import { Head } from '@inertiajs/vue3'
-import { ref, computed } from 'vue'
-import { CameraIcon } from '@heroicons/vue/24/outline'
+import PublicHero from '@/Components/PublicHero.vue'
+import PageBlocks from '@/Components/PageBlocks.vue'
+import { Head, Link } from '@inertiajs/vue3'
+import { PhotoIcon, CalendarDaysIcon, ArrowRightIcon } from '@heroicons/vue/24/outline'
 
-const categories = ['All', 'Events', 'Sports', 'Academics', 'Ceremonies', 'Campus']
-const activeCategory = ref('All')
+const props = defineProps({
+    site:   { type: Object, default: () => ({}) },
+    hero:   { type: Object, default: () => ({}) },
+    albums: { type: Array,  default: () => [] },
+    blocks: { type: Array,  default: () => [] },
+})
 
-const photos = ref([
-    { title: 'Annual Prize Distribution 2026', category: 'Ceremonies', gradient: 'from-amber-500 via-orange-600 to-rose-800' },
-    { title: 'Inter-House Cricket Tournament', category: 'Sports', gradient: 'from-emerald-600 via-teal-700 to-sky-900' },
-    { title: 'Science Exhibition — Class 11', category: 'Academics', gradient: 'from-violet-600 via-purple-700 to-indigo-900' },
-    { title: 'Pakistan Day Parade · Skardu', category: 'Events', gradient: 'from-emerald-700 via-green-800 to-emerald-950' },
-    { title: 'Chemistry Laboratory', category: 'Campus', gradient: 'from-sky-600 via-blue-700 to-indigo-900' },
-    { title: 'Matriculation Graduation 2026', category: 'Ceremonies', gradient: 'from-amber-600 via-yellow-600 to-orange-800' },
-    { title: 'Urdu Debate Competition', category: 'Academics', gradient: 'from-rose-600 via-pink-700 to-fuchsia-900' },
-    { title: 'Traditional Polo Match', category: 'Sports', gradient: 'from-lime-600 via-green-700 to-emerald-900' },
-    { title: 'Our Library — 4,000+ Books', category: 'Campus', gradient: 'from-stone-600 via-neutral-700 to-slate-900' },
-    { title: 'Independence Day · 14 August', category: 'Events', gradient: 'from-green-700 via-emerald-700 to-green-950' },
-    { title: 'Quran Recitation Competition', category: 'Events', gradient: 'from-teal-600 via-cyan-700 to-sky-900' },
-    { title: 'Biology Lab · Hands-on', category: 'Campus', gradient: 'from-rose-500 via-red-600 to-pink-900' },
-    { title: 'Teachers Day Tribute', category: 'Ceremonies', gradient: 'from-violet-500 via-purple-600 to-violet-900' },
-    { title: 'FBISE Toppers 2026', category: 'Academics', gradient: 'from-amber-600 via-orange-700 to-red-900' },
-    { title: 'Volleyball Finals', category: 'Sports', gradient: 'from-orange-600 via-red-700 to-rose-900' },
-    { title: 'Calligraphy Exhibition', category: 'Events', gradient: 'from-fuchsia-600 via-pink-700 to-rose-900' },
-])
-
-const filtered = computed(() => activeCategory.value === 'All' ? photos.value : photos.value.filter(p => p.category === activeCategory.value))
+function fmt(d) {
+    if (!d) return ''
+    return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
 </script>
 
 <template>
-    <Head title="Gallery — GBHSS No.1 Skardu" />
+    <Head :title="hero.meta_title || 'Photo Gallery'">
+        <meta v-if="hero.meta_description" name="description" :content="hero.meta_description" />
+    </Head>
     <PublicLayout>
-        <section class="relative bg-slate-950 text-white py-28 overflow-hidden">
-            <div class="absolute inset-0 bg-gradient-to-br from-slate-950 via-emerald-950 to-slate-900"></div>
-            <div class="absolute top-0 right-0 w-[40rem] h-[40rem] bg-amber-500/15 rounded-full blur-[140px] animate-float"></div>
-            <div class="relative max-w-5xl mx-auto px-6 lg:px-10 text-center reveal">
-                <div class="text-[11px] uppercase tracking-[0.25em] text-amber-400 font-semibold mb-5">Moments Captured</div>
-                <h1 class="text-5xl lg:text-7xl font-black tracking-tight leading-[1.0]">
-                    A school in<br />
-                    <span class="bg-gradient-to-r from-amber-300 to-emerald-300 bg-clip-text text-transparent">pictures.</span>
-                </h1>
-                <p class="mt-7 text-lg text-stone-300 max-w-2xl mx-auto font-light">Seventy-two years of memories, milestones, and mountains.</p>
-            </div>
-        </section>
+        <PublicHero :hero="hero" :fallback="{
+            eyebrow: 'Campus Life',
+            title: 'Moments &',
+            accent: 'memories.',
+            subtitle: `Glimpses of school events, ceremonies, and the everyday spirit of ${site.school_short_name || 'our school'}.`,
+        }" />
 
-        <!-- Filters -->
-        <section class="sticky top-[72px] lg:top-20 z-30 py-5 bg-white/95 backdrop-blur-xl border-b border-stone-100">
-            <div class="max-w-[1400px] mx-auto px-6 lg:px-10 flex gap-2 overflow-x-auto">
-                <button v-for="c in categories" :key="c" @click="activeCategory = c"
-                        class="px-5 py-2.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all duration-300"
-                        :class="activeCategory === c ? 'bg-slate-900 text-white shadow-lg' : 'bg-stone-100 text-slate-700 hover:bg-stone-200'">
-                    {{ c }}
-                </button>
-            </div>
-        </section>
-
-        <!-- Grid -->
-        <section class="py-14 bg-stone-50">
+        <section class="py-16 bg-stone-50 min-h-[400px]">
             <div class="max-w-[1400px] mx-auto px-6 lg:px-10">
-                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    <div v-for="(p, i) in filtered" :key="p.title + i"
-                         class="group relative rounded-2xl overflow-hidden aspect-square cursor-pointer shadow-lg hover:shadow-2xl transition-all duration-500 reveal-stagger"
-                         :style="`--delay: ${(i % 8) * 40}ms`">
-                        <div class="absolute inset-0 bg-gradient-to-br transition-transform duration-700 group-hover:scale-110" :class="p.gradient"></div>
-                        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-500"></div>
-                        <CameraIcon class="absolute top-4 right-4 w-5 h-5 text-white/40 group-hover:text-white group-hover:rotate-12 transition-all duration-500" />
-                        <div class="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
-                            <span class="text-[10px] font-bold uppercase tracking-[0.15em] text-amber-300">{{ p.category }}</span>
-                            <h3 class="text-white font-bold text-sm leading-tight mt-1 tracking-tight" v-html="p.title"></h3>
-                        </div>
-                        <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                            <div class="w-14 h-14 rounded-full bg-white/20 backdrop-blur border-2 border-white/40 flex items-center justify-center">
-                                <CameraIcon class="w-6 h-6 text-white" />
+                <div v-if="!albums.length" class="text-center py-20 bg-white rounded-3xl shadow-sm border border-stone-100">
+                    <PhotoIcon class="w-16 h-16 mx-auto text-stone-300" />
+                    <h2 class="mt-5 text-2xl font-bold text-slate-900">Photos coming soon</h2>
+                    <p class="mt-3 text-slate-500">We're curating our photo collection — check back soon.</p>
+                </div>
+
+                <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <Link v-for="(a, i) in albums" :key="a.id"
+                          :href="route('public.gallery.show', a.slug)"
+                          class="group cursor-pointer reveal-stagger"
+                          :style="`--delay: ${(i % 6) * 60}ms`">
+                        <div class="aspect-[4/3] rounded-2xl bg-gradient-to-br from-emerald-700 to-slate-900 relative overflow-hidden mb-5 shadow-md group-hover:shadow-2xl transition-all duration-500">
+                            <img v-if="a.cover_url" :src="a.cover_url" :alt="a.title"
+                                class="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                            <PhotoIcon v-else class="absolute right-5 bottom-5 w-20 h-20 text-white/15 group-hover:scale-110 transition-transform duration-700" />
+                            <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent opacity-70 group-hover:opacity-90 transition-opacity"></div>
+                            <div class="absolute top-5 right-5 bg-white/95 text-slate-900 text-[10px] font-bold uppercase tracking-[0.1em] px-3 py-1.5 rounded-full">
+                                {{ a.photos_count }} photos
+                            </div>
+                            <div class="absolute bottom-5 left-5 right-5 text-white">
+                                <h3 class="font-black text-xl tracking-tight leading-snug">{{ a.title }}</h3>
+                                <p v-if="a.event_date" class="mt-1 text-xs text-white/80 inline-flex items-center gap-1">
+                                    <CalendarDaysIcon class="w-3 h-3" /> {{ fmt(a.event_date) }}
+                                </p>
                             </div>
                         </div>
-                    </div>
+                        <p v-if="a.description" class="text-sm text-slate-600 leading-relaxed line-clamp-2">{{ a.description }}</p>
+                        <span class="inline-flex items-center gap-1.5 mt-3 text-emerald-700 text-xs font-semibold group-hover:gap-2.5 transition-all">
+                            View album <ArrowRightIcon class="w-3.5 h-3.5" />
+                        </span>
+                    </Link>
                 </div>
             </div>
         </section>
+
+        <!-- Custom admin-managed blocks -->
+        <PageBlocks :blocks="blocks" />
     </PublicLayout>
 </template>

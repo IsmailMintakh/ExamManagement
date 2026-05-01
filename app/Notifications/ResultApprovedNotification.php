@@ -4,6 +4,7 @@ namespace App\Notifications;
 
 use App\Models\Exam;
 use App\Models\ResultSubmission;
+use App\Notifications\Channels\WebPushChannel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -20,7 +21,17 @@ class ResultApprovedNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        return ['database', 'mail'];
+        return ['database', 'mail', WebPushChannel::class];
+    }
+
+    public function toWebPush(object $notifiable): array
+    {
+        return [
+            'title' => '✓ Results Approved',
+            'body'  => "DDO approved your {$this->exam->name} results — they're now finalized.",
+            'tag'   => "result-approved-{$this->submission->id}",
+            'url'   => "/results/{$this->exam->id}/section/{$this->submission->section_id}",
+        ];
     }
 
     public function toMail(object $notifiable): MailMessage

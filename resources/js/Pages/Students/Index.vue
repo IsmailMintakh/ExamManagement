@@ -5,6 +5,7 @@ import SearchFilter from '@/Components/SearchFilter.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import BulkActionBar from '@/Components/BulkActionBar.vue'
+import FloatingActionButton from '@/Components/FloatingActionButton.vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import { ref, computed, watch } from 'vue'
 import {
@@ -274,6 +275,12 @@ function deleteStudent() {
             @action="onBulkAction"
             @clear="clearSelection"
             @toggle-all="toggleAll"
+        />
+
+        <FloatingActionButton
+            v-if="can('students.create')"
+            :href="route('students.create')"
+            label="Add Student"
         />
     </AppLayout>
 </template>

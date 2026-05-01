@@ -4,6 +4,7 @@ namespace App\Notifications;
 
 use App\Models\Exam;
 use App\Models\ResultSubmission;
+use App\Notifications\Channels\WebPushChannel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -21,7 +22,18 @@ class ResultReturnedForCorrectionNotification extends Notification implements Sh
 
     public function via(object $notifiable): array
     {
-        return ['database', 'mail'];
+        return ['database', 'mail', WebPushChannel::class];
+    }
+
+    public function toWebPush(object $notifiable): array
+    {
+        return [
+            'title' => '⚠ Action Required',
+            'body'  => "DDO returned {$this->exam->name} results: " . substr($this->remarks, 0, 120),
+            'tag'   => "result-returned-{$this->submission->id}",
+            'url'   => "/results/{$this->exam->id}/generate",
+            'requireInteraction' => true,  // sticks until user interacts
+        ];
     }
 
     public function toMail(object $notifiable): MailMessage

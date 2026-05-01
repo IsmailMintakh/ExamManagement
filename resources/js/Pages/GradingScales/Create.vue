@@ -61,7 +61,7 @@ function submit() {
                     <div class="card-body space-y-4">
                         <h3 class="text-lg font-semibold border-b border-base-200 pb-2">Scale Details</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <FormInput v-model="form.name" label="Scale Name" :error="form.errors.name" required placeholder="e.g., CBSE Grading Scale" />
+                            <FormInput v-model="form.name" label="Scale Name" :error="form.errors.name" required placeholder="e.g., FBISE Grading Scale" />
                             <FormSelect v-model="form.school_id" label="School (optional)" :error="form.errors.school_id"
                                 :options="schools?.map(s => ({ value: s.id, label: s.name })) || []" placeholder="All Schools (default)" />
                         </div>

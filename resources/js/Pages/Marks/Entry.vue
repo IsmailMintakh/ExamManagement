@@ -19,8 +19,9 @@ const props = defineProps({
     isSubmitted: Boolean,
 })
 
-const totalMarks = props.examSubject?.total_marks ?? 100
-const passingMarks = props.examSubject?.passing_marks ?? Math.floor(totalMarks * 0.33)
+// Coerce "30.00" → 30 (DB returns decimals as strings); leaves 33.5 as 33.5.
+const totalMarks   = Number(props.examSubject?.total_marks ?? 100)
+const passingMarks = Number(props.examSubject?.passing_marks ?? Math.floor(totalMarks * 0.33))
 
 // =============== State ===============
 const rows = ref(props.students.map(s => {
@@ -53,6 +54,17 @@ const saveError = ref(null)
 const lastSavedAgo = ref('')
 let savedAgoTimer = null
 let autosaveTimer = null
+
+/** Quick +/- adjustment used by the mobile card view's stepper buttons. */
+function bumpMarks(row, delta) {
+    if (row.is_absent || props.isSubmitted) return
+    const current = parseMarks(row.marks_obtained) ?? 0
+    let next = Math.round((current + delta) * 10) / 10
+    if (next < 0) next = 0
+    if (next > totalMarks) next = totalMarks
+    row.marks_obtained = String(next)
+    markDirty(row)
+}
 
 // =============== Number parsing (handles 20.5, 20,5, "20.5 marks", etc.) ===============
 function parseMarks(s) {
@@ -293,31 +305,31 @@ const absentStudents = computed(() =>
         { label: 'Marks Entry', href: route('marks.index') },
         { label: `${subject?.name} · ${schoolClass?.name} ${section?.name}` }
     ]">
-        <div class="space-y-4 max-w-[1500px] mx-auto">
+        <div class="space-y-3 sm:space-y-4 max-w-[1500px] mx-auto">
             <!-- ═══════════ HEADER ═══════════ -->
-            <div class="rounded-2xl border border-base-200 bg-base-100 p-5">
-                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                    <div>
-                        <div class="text-[11px] uppercase tracking-wider font-semibold text-base-content/55 mb-1">
+            <div class="rounded-2xl border border-base-200 bg-base-100 p-3.5 sm:p-5">
+                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 sm:gap-4">
+                    <div class="min-w-0">
+                        <div class="text-[10px] sm:text-[11px] uppercase tracking-wider font-semibold text-base-content/55 mb-0.5 truncate">
                             Marks Entry · {{ exam?.name }}
                         </div>
-                        <h1 class="text-2xl font-extrabold tracking-tight">
+                        <h1 class="text-lg sm:text-2xl font-extrabold tracking-tight truncate">
                             {{ subject?.name }}
-                            <span class="text-base-content/30 mx-1.5">·</span>
+                            <span class="text-base-content/30 mx-1">·</span>
                             <span class="text-primary">{{ schoolClass?.name }} {{ section?.name }}</span>
                         </h1>
                     </div>
-                    <div class="flex flex-wrap items-center gap-2.5">
-                        <div class="px-3 py-2 rounded-xl bg-primary/10 text-center min-w-[64px]">
-                            <div class="text-lg font-extrabold text-primary tabular-nums">{{ totalMarks }}</div>
+                    <div class="flex items-stretch gap-2">
+                        <div class="flex-1 lg:flex-none px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl bg-primary/10 text-center lg:min-w-[64px]">
+                            <div class="text-base sm:text-lg font-extrabold text-primary tabular-nums leading-tight">{{ totalMarks }}</div>
                             <div class="text-[9px] uppercase tracking-widest text-base-content/55 font-semibold">Total</div>
                         </div>
-                        <div class="px-3 py-2 rounded-xl bg-amber-100 text-center min-w-[64px]">
-                            <div class="text-lg font-extrabold text-amber-700 tabular-nums">{{ passingMarks }}</div>
+                        <div class="flex-1 lg:flex-none px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl bg-amber-100 text-center lg:min-w-[64px]">
+                            <div class="text-base sm:text-lg font-extrabold text-amber-700 tabular-nums leading-tight">{{ passingMarks }}</div>
                             <div class="text-[9px] uppercase tracking-widest text-base-content/55 font-semibold">Pass</div>
                         </div>
-                        <div class="px-3 py-2 rounded-xl bg-base-200 text-center min-w-[64px]">
-                            <div class="text-lg font-extrabold tabular-nums">{{ stats.total }}</div>
+                        <div class="flex-1 lg:flex-none px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl bg-base-200 text-center lg:min-w-[64px]">
+                            <div class="text-base sm:text-lg font-extrabold tabular-nums leading-tight">{{ stats.total }}</div>
                             <div class="text-[9px] uppercase tracking-widest text-base-content/55 font-semibold">Students</div>
                         </div>
                     </div>
@@ -385,7 +397,7 @@ const absentStudents = computed(() =>
                         </div>
 
                         <button @click="showShortcuts = !showShortcuts"
-                            class="btn btn-ghost btn-xs rounded-lg gap-1">
+                            class="hidden sm:inline-flex btn btn-ghost btn-xs rounded-lg gap-1">
                             <KeyIcon class="w-3.5 h-3.5" /> Shortcuts
                         </button>
                     </div>
@@ -400,8 +412,8 @@ const absentStudents = computed(() =>
                 </div>
             </div>
 
-            <!-- ═══════════ HELP HINT ═══════════ -->
-            <div v-if="!isSubmitted" class="rounded-xl bg-sky-50 border border-sky-200 p-3 flex items-start gap-2.5 text-xs text-sky-900">
+            <!-- ═══════════ HELP HINT (desktop only — keyboard-focused tips) ═══════════ -->
+            <div v-if="!isSubmitted" class="hidden sm:flex rounded-xl bg-sky-50 border border-sky-200 p-3 items-start gap-2.5 text-xs text-sky-900">
                 <InformationCircleIcon class="w-4 h-4 text-sky-600 flex-shrink-0 mt-0.5" />
                 <div>
                     <span class="font-semibold">Tip:</span>
@@ -410,8 +422,103 @@ const absentStudents = computed(() =>
                 </div>
             </div>
 
-            <!-- ═══════════ GRID ═══════════ -->
-            <div class="rounded-2xl border border-base-200 bg-base-100 overflow-hidden">
+            <!-- ═══════════ MOBILE CARD VIEW (xs–sm) ═══════════
+                 Touch-friendly per-student cards. Replaces the table on phones.
+                 Layout: 2 rows. Top row = identity + status. Bottom row = stepper input full-width.
+                 Percentage + absent shown as inline pills below.
+            -->
+            <div class="sm:hidden space-y-2.5 max-w-full">
+                <div v-for="(row, idx) in rows" :key="`m-${row.student_id}`"
+                     class="rounded-2xl border bg-base-100 overflow-hidden transition-colors"
+                     :class="[
+                         row.is_absent ? 'border-amber-300/70'
+                       : rowErrors[idx] ? 'border-rose-400'
+                       : (row.marks_obtained !== '' && row.marks_obtained != null)
+                            ? ((parseMarks(row.marks_obtained) ?? -1) >= passingMarks
+                                ? 'border-emerald-300/70'
+                                : 'border-rose-300/70')
+                       : 'border-base-200',
+                     ]">
+                    <!-- Identity row -->
+                    <div class="flex items-center gap-2.5 px-3 pt-3 pb-2 min-w-0">
+                        <div class="w-8 h-8 rounded-lg bg-base-200 flex items-center justify-center text-[11px] font-bold text-base-content/70 shrink-0 tabular-nums">
+                            {{ idx + 1 }}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="font-bold text-[15px] leading-tight truncate">{{ row.name }}</div>
+                            <div class="text-[11px] text-base-content/55 mt-0.5 truncate">
+                                <span class="font-mono font-semibold">#{{ row.roll_no || '—' }}</span>
+                                <span v-if="row.father_name"> · {{ row.father_name }}</span>
+                            </div>
+                        </div>
+                        <!-- Pass / Fail / Absent / Error pill -->
+                        <span v-if="row.is_absent"
+                              class="px-2 py-1 rounded-md bg-amber-100 text-amber-800 text-[10px] font-bold uppercase tracking-wider shrink-0">Absent</span>
+                        <ExclamationTriangleIcon v-else-if="rowErrors[idx]" class="w-5 h-5 text-rose-600 shrink-0" />
+                        <CheckCircleIcon v-else-if="row.marks_obtained !== '' && row.marks_obtained != null && (parseMarks(row.marks_obtained) ?? -1) >= passingMarks"
+                            class="w-5 h-5 text-emerald-600 shrink-0" />
+                        <XCircleIcon v-else-if="row.marks_obtained !== '' && row.marks_obtained != null"
+                            class="w-5 h-5 text-rose-500 shrink-0" />
+                    </div>
+
+                    <!-- Stepper row — full width, equal-flex children -->
+                    <div class="px-3 pb-3 flex items-stretch gap-2 min-w-0">
+                        <button type="button"
+                            @click="bumpMarks(row, -1)"
+                            :disabled="row.is_absent || isSubmitted"
+                            class="w-11 h-12 shrink-0 rounded-xl bg-base-200 text-xl font-bold text-base-content/75 active:scale-95 transition-transform disabled:opacity-30 disabled:active:scale-100"
+                            aria-label="Decrease">−</button>
+
+                        <input
+                            v-model="row.marks_obtained"
+                            @input="markDirty(row)"
+                            :disabled="row.is_absent || isSubmitted"
+                            type="text"
+                            inputmode="decimal"
+                            :placeholder="row.is_absent ? 'AB' : 'Marks'"
+                            class="input input-bordered flex-1 min-w-0 h-12 text-center text-xl font-bold tabular-nums px-1"
+                            :class="{ 'input-error': rowErrors[idx], 'opacity-40 placeholder-amber-700': row.is_absent }"
+                        />
+
+                        <button type="button"
+                            @click="bumpMarks(row, 1)"
+                            :disabled="row.is_absent || isSubmitted"
+                            class="w-11 h-12 shrink-0 rounded-xl bg-base-200 text-xl font-bold text-base-content/75 active:scale-95 transition-transform disabled:opacity-30 disabled:active:scale-100"
+                            aria-label="Increase">+</button>
+                    </div>
+
+                    <!-- Inline metrics row -->
+                    <div class="px-3 pb-3 flex items-center gap-2 text-[11px] min-w-0">
+                        <span class="text-base-content/55 shrink-0">out of <span class="font-bold tabular-nums text-base-content/85">{{ totalMarks }}</span></span>
+                        <span v-if="rowPercentage(row) !== null"
+                              class="px-2 py-0.5 rounded-md font-bold tabular-nums shrink-0"
+                              :class="rowPercentage(row) >= (passingMarks / totalMarks * 100)
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-rose-100 text-rose-700'">
+                            {{ rowPercentage(row) }}%
+                        </span>
+                        <div class="flex-1"></div>
+                        <label class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer active:bg-base-200 shrink-0"
+                               :class="row.is_absent ? 'bg-amber-50 text-amber-800' : 'text-base-content/70'">
+                            <input type="checkbox" v-model="row.is_absent" @change="toggleAbsent(row)" :disabled="isSubmitted"
+                                   class="checkbox checkbox-warning checkbox-xs" />
+                            <span class="text-[10px] font-bold uppercase tracking-wider">Absent</span>
+                        </label>
+                    </div>
+
+                    <div v-if="rowErrors[idx]" class="mx-3 mb-3 px-2.5 py-1.5 rounded-lg bg-rose-100 text-rose-700 text-[11px] font-medium">
+                        {{ rowErrors[idx] }} — enter 0 to {{ totalMarks }}
+                    </div>
+                </div>
+
+                <div v-if="!rows.length" class="rounded-2xl border border-base-200 px-4 py-12 text-center text-sm text-base-content/55">
+                    <UserGroupIcon class="w-10 h-10 text-base-content/30 mx-auto mb-2" />
+                    No students in this section.
+                </div>
+            </div>
+
+            <!-- ═══════════ DESKTOP TABLE (sm+) ═══════════ -->
+            <div class="hidden sm:block rounded-2xl border border-base-200 bg-base-100 overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="w-full text-sm">
                         <thead class="bg-base-200/50 text-[11px] uppercase tracking-wider text-base-content/55 sticky top-0">
@@ -521,24 +628,59 @@ const absentStudents = computed(() =>
                 </div>
             </div>
 
-            <!-- ═══════════ STICKY ACTION BAR ═══════════ -->
+            <!-- ═══════════ STICKY ACTION BAR (mobile + desktop variants) ═══════════ -->
+
+            <!-- MOBILE: compact dock that floats above the bottom nav -->
             <div v-if="!isSubmitted && rows.length"
-                class="sticky bottom-4 rounded-2xl border border-base-200 bg-base-100/95 backdrop-blur-xl shadow-xl p-4 z-10">
-                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                class="sm:hidden sticky z-10 -mx-1 rounded-2xl border border-base-200 bg-base-100/95 backdrop-blur-xl shadow-xl p-2.5"
+                style="bottom: calc(76px + env(safe-area-inset-bottom));">
+                <!-- Progress -->
+                <div class="flex items-center gap-2 mb-2 px-1">
+                    <div class="flex-1 h-1.5 bg-base-200 rounded-full overflow-hidden">
+                        <div class="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-full transition-all duration-300"
+                             :style="`width: ${stats.total ? (stats.entered / stats.total * 100) : 0}%`"></div>
+                    </div>
+                    <span class="text-[10px] font-bold text-base-content/60 tabular-nums shrink-0">
+                        {{ stats.entered }}/{{ stats.total }}
+                    </span>
+                </div>
+                <!-- Action row: icon-button save + big primary submit -->
+                <div class="flex items-stretch gap-2">
+                    <button @click="autosave"
+                        class="shrink-0 w-12 h-11 rounded-xl bg-base-200 active:scale-95 transition-transform flex items-center justify-center"
+                        aria-label="Save draft">
+                        <CloudIcon class="w-5 h-5 text-base-content/65" />
+                    </button>
+                    <button @click="openReview"
+                        :disabled="!canSubmit"
+                        class="flex-1 h-11 rounded-xl font-bold text-sm gap-2 inline-flex items-center justify-center text-white transition-all active:scale-[0.98]"
+                        :class="canSubmit ? 'bg-gradient-to-br from-primary to-primary/80 shadow-md shadow-primary/30' : 'bg-base-300 text-base-content/40 cursor-not-allowed'">
+                        <DocumentCheckIcon class="w-4 h-4" />
+                        <span>{{ hasErrors ? 'Fix Errors' : (stats.remaining ? 'Submit' : 'Submit All') }}</span>
+                    </button>
+                </div>
+                <!-- Inline error hint -->
+                <div v-if="hasErrors" class="mt-2 px-2 py-1 rounded-md bg-rose-50 text-rose-700 text-[10.5px] font-medium flex items-center gap-1.5">
+                    <ExclamationTriangleIcon class="w-3.5 h-3.5 shrink-0" />
+                    Fix highlighted rows before submitting
+                </div>
+            </div>
+
+            <!-- DESKTOP: original wider layout -->
+            <div v-if="!isSubmitted && rows.length"
+                class="hidden sm:block sticky bottom-4 rounded-2xl border border-base-200 bg-base-100/95 backdrop-blur-xl shadow-xl p-4 z-10">
+                <div class="flex items-center justify-between gap-3">
                     <Link :href="route('marks.index')" class="btn btn-ghost btn-sm gap-1.5 rounded-xl">
                         <ArrowLeftIcon class="w-4 h-4" /> Back to Marks Entry
                     </Link>
                     <div class="flex items-center gap-3">
                         <div v-if="hasErrors" class="text-xs text-rose-600 font-medium flex items-center gap-1.5">
-                            <ExclamationTriangleIcon class="w-4 h-4" />
-                            Fix errors first
+                            <ExclamationTriangleIcon class="w-4 h-4" /> Fix errors first
                         </div>
                         <button @click="autosave" class="btn btn-outline btn-sm rounded-xl gap-1.5">
                             <CloudIcon class="w-4 h-4" /> Save Draft
                         </button>
-                        <button @click="openReview"
-                            :disabled="!canSubmit"
-                            class="btn btn-primary btn-sm rounded-xl gap-1.5">
+                        <button @click="openReview" :disabled="!canSubmit" class="btn btn-primary btn-sm rounded-xl gap-1.5">
                             <DocumentCheckIcon class="w-4 h-4" /> Review &amp; Submit
                         </button>
                     </div>

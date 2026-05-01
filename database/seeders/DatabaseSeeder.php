@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
      *   - Current academic session
      *   - Master subjects, exam types, grading scale
      *   - Certificate template designs
+     *   - Public website default content (school info, hero slides, DDO message)
      *
      * Demo data (sample schools / students / teachers / exams / marks /
      * questions) is NOT included. To populate demo data on a dev machine,
@@ -29,6 +30,11 @@ class DatabaseSeeder extends Seeder
             RolePermissionSeeder::class,
             DefaultDataSeeder::class,
             CertificateTemplatesSeeder::class,
+            WebsiteContentSeeder::class,
+            WebsitePhase2Seeder::class,
+            WebsitePhase3Seeder::class,
+            WebsitePhase4Seeder::class,
+            WebsitePhase5Seeder::class,
         ]);
     }
 }

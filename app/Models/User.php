@@ -43,6 +43,15 @@ class User extends Authenticatable
         return $this->belongsTo(School::class);
     }
 
+    /**
+     * Browser push subscriptions — one per (user, device).
+     * Loaded automatically by WebPushChannel.
+     */
+    public function pushSubscriptions()
+    {
+        return $this->hasMany(PushSubscription::class);
+    }
+
     public function classSections()
     {
         return $this->hasMany(Section::class, 'class_teacher_id');

@@ -15,7 +15,7 @@ class Student extends Model
     protected $fillable = [
         'admission_no', 'roll_no', 'name', 'father_name', 'mother_name',
         'guardian_phone', 'date_of_birth', 'gender', 'photo', 'address',
-        'blood_group', 'religion', 'category', 'caste', 'aadhaar_no',
+        'blood_group', 'religion', 'cnic',
         'school_id', 'school_class_id', 'previous_class_id', 'section_id',
         'academic_session_id', 'status', 'promotion_status', 'promoted_at',
         'is_transferred', 'transferred_from_school_id',

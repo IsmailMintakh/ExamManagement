@@ -3,6 +3,8 @@
 namespace App\Http\Middleware;
 
 use App\Models\AcademicSession;
+use App\Models\ContactMessage;
+use App\Models\SiteSetting;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -60,6 +62,15 @@ class HandleInertiaRequests extends Middleware
                 : [],
 
             'notificationCount' => fn () => $user ? $user->unreadNotifications()->count() : 0,
+
+            // Unread public-website contact messages — only DDOs see this
+            'contactMessageCount' => fn () => $user?->can('website.manage')
+                ? ContactMessage::unread()->count()
+                : 0,
+
+            // Site settings shared globally so PublicLayout (header/footer)
+            // and any page can reference them without per-controller injection.
+            'site' => fn () => SiteSetting::allCached(),
         ];
     }
 }
