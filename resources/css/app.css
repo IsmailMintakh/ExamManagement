@@ -153,33 +153,113 @@
         color: oklch(var(--bc) / 0.55);
     }
 
-    /* ========== CARDS / SURFACES ========== */
+    /* ========== CARDS / SURFACES ==========
+       Modern card system. Three sizes / two variants:
+         .surface / .card-section  — default elevated card
+         .surface-flush            — same shape, no shadow (subordinate)
+         .surface-bordered         — border-only, no shadow (lightweight)
+
+       The header has a left accent stripe option (.has-accent) which shows
+       a 3px coloured bar tying the card to its module identity (teal for
+       primary, amber for warnings, etc.) */
     .surface, .card-section {
         @apply rounded-2xl bg-base-100;
-        border: 1px solid oklch(var(--bc) / 0.08);
-        box-shadow: 0 1px 3px 0 oklch(0% 0 0 / 0.04), 0 1px 2px -1px oklch(0% 0 0 / 0.04);
+        border: 1px solid oklch(var(--bc) / 0.09);
+        box-shadow:
+            0 1px 2px 0 rgba(15, 23, 42, 0.04),
+            0 2px 6px -1px rgba(15, 23, 42, 0.06);
         transition: box-shadow var(--duration-base) var(--ease-out),
                     border-color var(--duration-base) var(--ease-out);
     }
+    /* Dark mode: page bg is base-200 (#1f242c), card bg is base-100 (#161b22).
+       Cards are slightly DARKER than the page — so we add a subtle white
+       hairline + ring so they stand out as raised surfaces against the page. */
+    html[data-theme="dark"] .surface,
+    html[data-theme="dark"] .card-section {
+        border-color: rgba(255, 255, 255, 0.08);
+        box-shadow:
+            inset 0 1px 0 0 rgba(255, 255, 255, 0.025),
+            0 1px 2px 0 rgba(0, 0, 0, 0.4),
+            0 4px 10px -2px rgba(0, 0, 0, 0.35);
+    }
+
+    .surface-flush { @apply rounded-2xl bg-base-100; border: 0; box-shadow: none; }
+    .surface-bordered {
+        @apply rounded-2xl bg-base-100;
+        border: 1px solid oklch(var(--bc) / 0.1);
+        box-shadow: none;
+    }
+
     .surface-header, .card-section .card-header {
-        @apply flex items-center justify-between gap-3 px-5 py-4;
-        border-bottom: 1px solid oklch(var(--bc) / 0.06);
+        @apply flex items-center justify-between gap-3 px-5 sm:px-6 py-4;
+        border-bottom: 1px solid oklch(var(--bc) / 0.08);
+        background: oklch(var(--b2) / 0.35);
+        border-top-left-radius: calc(1rem - 1px);
+        border-top-right-radius: calc(1rem - 1px);
+    }
+    html[data-theme="dark"] .surface-header,
+    html[data-theme="dark"] .card-section .card-header {
+        background: rgba(255, 255, 255, 0.025);
+        border-bottom-color: rgba(255, 255, 255, 0.06);
     }
     .surface-header h3, .card-section .card-header h3 {
-        @apply text-sm font-bold;
+        @apply text-base font-bold tracking-tight flex items-center gap-2;
+    }
+    .surface-header .surface-subtitle {
+        @apply text-xs text-base-content/55 mt-0.5;
     }
     .surface-body, .card-section .card-content {
-        @apply p-5;
+        @apply p-5 sm:p-6;
+    }
+    .surface-footer {
+        @apply flex items-center justify-between gap-3 px-5 sm:px-6 py-3.5 bg-base-200/40;
+        border-top: 1px solid oklch(var(--bc) / 0.06);
+        border-bottom-left-radius: 1rem;
+        border-bottom-right-radius: 1rem;
     }
 
     /* Hoverable surface */
-    .surface-hover {
-        cursor: pointer;
-    }
+    .surface-hover { cursor: pointer; }
     .surface-hover:hover {
-        border-color: oklch(var(--bc) / 0.15);
-        box-shadow: 0 4px 12px -2px oklch(0% 0 0 / 0.08), 0 2px 4px -1px oklch(0% 0 0 / 0.04);
+        border-color: oklch(var(--p) / 0.30);
+        box-shadow:
+            0 8px 16px -4px rgba(15, 23, 42, 0.08),
+            0 4px 8px -2px rgba(15, 23, 42, 0.04);
         transform: translateY(-2px);
+    }
+    html[data-theme="dark"] .surface-hover:hover {
+        box-shadow:
+            0 0 0 1px rgba(45, 212, 191, 0.2),
+            0 8px 16px -4px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Card with a coloured left accent stripe — pass via .accent-{color} */
+    .surface-accent-left {
+        position: relative;
+        overflow: hidden;
+    }
+    .surface-accent-left::before {
+        content: '';
+        position: absolute;
+        top: 0; bottom: 0; left: 0;
+        width: 3px;
+        background: oklch(var(--p));
+    }
+    .surface-accent-left.accent-amber::before   { background: #f59e0b; }
+    .surface-accent-left.accent-emerald::before { background: #10b981; }
+    .surface-accent-left.accent-sky::before     { background: #0ea5e9; }
+    .surface-accent-left.accent-rose::before    { background: #dc2626; }
+    .surface-accent-left.accent-violet::before  { background: #7c3aed; }
+
+    /* Form-section convenience: cleaner spacing inside .surface-body */
+    .form-grid {
+        @apply grid grid-cols-1 md:grid-cols-2 gap-5;
+    }
+    .form-grid-3 {
+        @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5;
+    }
+    .form-row-stretch {
+        @apply md:col-span-2;
     }
 
     /* ========== STAT CARD ========== */
@@ -199,21 +279,61 @@
         opacity: 0.05;
     }
 
-    /* ========== TABLES ========== */
-    .table { @apply w-full; }
+    /* ========== TABLES ==========
+       Modern data table:
+       - No zebra by default (looks cleaner)
+       - Tighter header text, more breathing room in cells
+       - Soft hover-row tint for scanning rows
+       - Whole-row click cursor when wrapped in a Link (consumer adds .table-clickable) */
+    .table { @apply w-full border-separate; border-spacing: 0; }
     .table thead th {
-        @apply px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider;
-        color: oklch(var(--bc) / 0.5);
-        background: oklch(var(--bc) / 0.025);
+        @apply px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.06em];
+        color: oklch(var(--bc) / 0.55);
+        background: oklch(var(--b2) / 0.55);
         border-bottom: 1px solid oklch(var(--bc) / 0.08);
+        white-space: nowrap;
+    }
+    html[data-theme="dark"] .table thead th {
+        background: rgba(255, 255, 255, 0.025);
     }
     .table tbody td {
         @apply px-4 py-3 text-sm;
-        border-bottom: 1px solid oklch(var(--bc) / 0.04);
+        border-bottom: 1px solid oklch(var(--bc) / 0.05);
         transition: background-color var(--duration-fast) var(--ease-out);
+        vertical-align: middle;
     }
     .table tbody tr:last-child td { border-bottom: 0; }
-    .table tbody tr.hover:hover { background: oklch(var(--bc) / 0.025); }
+    .table tbody tr:hover td,
+    .table tbody tr.hover:hover td {
+        background: oklch(var(--p) / 0.04);
+    }
+    html[data-theme="dark"] .table tbody tr:hover td,
+    html[data-theme="dark"] .table tbody tr.hover:hover td {
+        background: rgba(255, 255, 255, 0.03);
+    }
+    .table tbody tr.is-selected td {
+        background: oklch(var(--p) / 0.06);
+    }
+
+    /* Sticky header — opt in by wrapping the table in .table-sticky-wrap */
+    .table-sticky-wrap {
+        position: relative;
+        max-height: var(--table-max-h, 70vh);
+        overflow: auto;
+        border-radius: 1rem;
+    }
+    .table-sticky-wrap .table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        backdrop-filter: blur(8px);
+    }
+
+    /* Compact density modifier */
+    .table-compact thead th { @apply py-2 text-[10px]; }
+    .table-compact tbody td { @apply py-2 text-[13px]; }
+
+    /* DaisyUI's table-zebra is intentionally NOT extended — we want flat rows. */
 
     /* ========== BUTTONS — Enhanced animations ========== */
     .btn {
@@ -226,24 +346,51 @@
                     opacity var(--duration-fast) var(--ease-out);
         will-change: transform;
     }
+    /* Hover: soft brightness lift + slight rise. No coloured glow.
+       Active: tactile press. */
     .btn:not(:disabled):hover {
         transform: translateY(-1px);
+        filter: brightness(1.04);
     }
     .btn:not(:disabled):active {
         transform: translateY(0) scale(0.97);
+        filter: brightness(0.97);
         transition-duration: 75ms;
     }
+    /* Coloured buttons get a single neutral shadow — flat, modern, no glow.
+       Only the primary CTA keeps a faint tinted accent so it still stands out. */
     .btn-primary {
-        box-shadow: 0 1px 2px oklch(var(--p) / 0.2), 0 4px 12px -2px oklch(var(--p) / 0.25);
+        box-shadow:
+            0 1px 2px rgba(15, 23, 42, 0.08),
+            0 1px 3px oklch(var(--p) / 0.18);
     }
     .btn-primary:hover {
-        box-shadow: 0 2px 4px oklch(var(--p) / 0.25), 0 10px 18px -2px oklch(var(--p) / 0.35);
+        box-shadow:
+            0 2px 4px rgba(15, 23, 42, 0.10),
+            0 4px 10px -2px oklch(var(--p) / 0.25);
     }
-    .btn-secondary { box-shadow: 0 1px 2px oklch(var(--s) / 0.2), 0 4px 12px -2px oklch(var(--s) / 0.25); }
-    .btn-success { box-shadow: 0 1px 2px oklch(var(--su) / 0.2), 0 4px 12px -2px oklch(var(--su) / 0.25); }
-    .btn-warning { box-shadow: 0 1px 2px oklch(var(--wa) / 0.2), 0 4px 12px -2px oklch(var(--wa) / 0.25); }
-    .btn-error { box-shadow: 0 1px 2px oklch(var(--er) / 0.2), 0 4px 12px -2px oklch(var(--er) / 0.25); }
-    .btn-ghost { font-weight: 500; }
+    html[data-theme="dark"] .btn-primary {
+        box-shadow:
+            0 1px 2px rgba(0, 0, 0, 0.4),
+            0 1px 3px oklch(var(--p) / 0.25);
+    }
+    html[data-theme="dark"] .btn-primary:hover {
+        box-shadow:
+            0 2px 4px rgba(0, 0, 0, 0.5),
+            0 4px 10px -2px oklch(var(--p) / 0.35);
+    }
+    .btn-secondary, .btn-success, .btn-warning, .btn-error {
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    }
+    html[data-theme="dark"] .btn-secondary,
+    html[data-theme="dark"] .btn-success,
+    html[data-theme="dark"] .btn-warning,
+    html[data-theme="dark"] .btn-error {
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    }
+    .btn-ghost { font-weight: 500; box-shadow: none; }
+    .btn-ghost:hover { background: oklch(var(--bc) / 0.06); }
+    .btn-outline { box-shadow: none; }
     .btn-sm { font-size: 0.75rem; }
     .btn-xs { font-size: 0.6875rem; }
 
@@ -576,17 +723,41 @@
     }
     .btn { transition: transform .1s ease, background-color .15s ease, border-color .15s ease; }
 
-    /* Form inputs: 16px font prevents iOS Safari auto-zoom on focus */
-    .input, .select, .textarea, input[type="text"], input[type="email"],
+    /* Form inputs: 16px font prevents iOS Safari auto-zoom on focus.
+       We set per-element so the line-height/padding stay coherent — bumping
+       font-size on a small select with its baked-in small line-height
+       caused the placeholder text to vertically clip. */
+    .input, .textarea, input[type="text"], input[type="email"],
     input[type="password"], input[type="number"], input[type="tel"],
-    input[type="date"], input[type="datetime-local"], textarea, select {
+    input[type="date"], input[type="datetime-local"], input[type="time"],
+    input[type="search"], input[type="url"], textarea {
         font-size: 16px !important;
     }
-    .input:not(.input-xs):not(.input-sm), .select:not(.select-xs):not(.select-sm) {
-        min-height: 44px;
+    .input:not(.input-xs):not(.input-sm) { min-height: 44px; }
+    .input-sm { min-height: 40px; }
+
+    /* Selects need special treatment. DaisyUI's .select-sm bakes in a
+       small line-height; if we just bump min-height the text stays small
+       at the top and gets clipped. So we ALSO bump line-height +
+       vertical padding so the option text centers cleanly. */
+    .select, select {
+        font-size: 16px !important;
+        line-height: 1.5 !important;
     }
-    .input-sm, .select-sm {
+    .select:not(.select-xs):not(.select-sm) {
+        min-height: 44px;
+        padding-top: 0.625rem;
+        padding-bottom: 0.625rem;
+    }
+    .select-sm {
         min-height: 40px;
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+        height: auto;
+    }
+    .select-xs {
+        min-height: 32px;
+        font-size: 14px !important;
     }
 
     /* Cards: tighter mobile padding */
@@ -602,6 +773,33 @@
 /* Touch-action — prevent double-tap zoom on interactive elements */
 .btn, button, [role="button"], a.btn { touch-action: manipulation; }
 
+/* ──── Select element — vertically center placeholder text properly ────
+   DaisyUI's default .select uses a fixed height with a baked-in
+   line-height. When the rendered text is taller than expected, the
+   placeholder shows clipped at top + bottom. Force height: auto + a
+   line-height that fits the chosen padding so text always centers. */
+.select.select-bordered,
+.select-bordered {
+    line-height: 1.5;
+    height: auto;
+    min-height: 2.5rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
+.select.select-bordered.select-sm,
+.select-bordered.select-sm {
+    min-height: 2.25rem;
+    padding-top: 0.4rem;
+    padding-bottom: 0.4rem;
+    font-size: 0.875rem;
+}
+.select.select-bordered.select-lg,
+.select-bordered.select-lg {
+    min-height: 3rem;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+}
+
 /* App-like list rows (used in mobile card lists) */
 .app-list-row {
     display: flex;
@@ -614,3 +812,256 @@
 }
 .app-list-row:active { background: oklch(var(--bc) / 0.04); }
 .app-list-row:last-child { border-bottom: 0; }
+
+/* ==========================================================================
+   MODERN POLISH — state-of-the-art design system
+   ========================================================================== */
+
+/* Refined card shadows — softer + more depth than DaisyUI defaults */
+.shadow-card {
+    box-shadow:
+        0 1px 2px 0 rgba(15, 23, 42, 0.04),
+        0 1px 3px 0 rgba(15, 23, 42, 0.06);
+}
+.shadow-card-md {
+    box-shadow:
+        0 4px 6px -1px rgba(15, 23, 42, 0.05),
+        0 2px 4px -2px rgba(15, 23, 42, 0.04);
+}
+.shadow-card-lg {
+    box-shadow:
+        0 10px 15px -3px rgba(15, 23, 42, 0.06),
+        0 4px 6px -4px rgba(15, 23, 42, 0.04);
+}
+
+html[data-theme="dark"] .shadow-card,
+html[data-theme="dark"] .shadow-card-md,
+html[data-theme="dark"] .shadow-card-lg,
+html[data-theme="dark"] .shadow-md,
+html[data-theme="dark"] .shadow-lg,
+html[data-theme="dark"] .shadow-xl,
+html[data-theme="dark"] .shadow-2xl {
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.05),
+        0 4px 12px -2px rgba(0, 0, 0, 0.4);
+}
+
+/* Premium gradient text — for headings */
+.text-gradient-primary {
+    background: linear-gradient(135deg, #0d9488 0%, #0f766e 50%, #134e4a 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+html[data-theme="dark"] .text-gradient-primary {
+    background: linear-gradient(135deg, #2dd4bf 0%, #5eead4 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* Smooth scroll snap for horizontal scrollers (mobile carousels etc.) */
+.scroll-snap-x {
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+}
+.scroll-snap-x > * { scroll-snap-align: start; }
+
+/* Better default link/button transitions */
+button, a, .btn {
+    transition-property: color, background-color, border-color, box-shadow, transform;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Sidebar links — refined active state with teal accent stripe */
+.sidebar-link.active {
+    background: oklch(var(--p) / 0.12);
+    color: oklch(var(--p));
+}
+html[data-theme="dark"] .sidebar-link.active {
+    background: oklch(var(--p) / 0.18);
+    color: #5eead4;
+}
+html[data-theme="dark"] .sidebar-link {
+    color: oklch(var(--bc) / 0.65);
+}
+html[data-theme="dark"] .sidebar-link:hover {
+    background: oklch(var(--bc) / 0.06);
+    color: oklch(var(--bc) / 0.95);
+}
+
+/* Section titles — uppercase tracked with new typography */
+.section-eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.075em;
+    color: oklch(var(--bc) / 0.55);
+}
+
+/* Modern stat number style */
+.stat-number {
+    font-size: 1.875rem;
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    font-variant-numeric: tabular-nums;
+}
+@media (min-width: 640px) {
+    .stat-number { font-size: 2.25rem; }
+}
+
+/* Dashboard "needs attention" — colored top border instead of full tint */
+.attention-card {
+    border-top: 3px solid var(--attention-color, #f59e0b);
+}
+
+/* Top bar — clean blur, no glass-strong needed */
+header.app-topbar {
+    background-color: oklch(var(--b1) / 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+/* ==========================================================================
+   DARK MODE — global polish
+   Catches the most common contrast bugs caused by hardcoded light tints
+   like bg-amber-50 / bg-rose-100 etc. that look fine in light mode but
+   become invisible/jarring in dark mode. We re-tint them via cascading
+   overrides so any leftover legacy class still renders comfortably.
+   ========================================================================== */
+html[data-theme="dark"] { color-scheme: dark; }
+
+/* Hover backgrounds in dark mode need actual contrast with text. The most
+   common bug: hover:bg-base-200 in dark mode is barely-different — text
+   appears to disappear. Boost the hover contrast. */
+html[data-theme="dark"] .hover\:bg-base-200:hover,
+html[data-theme="dark"] .hover\:bg-base-200\/40:hover,
+html[data-theme="dark"] .hover\:bg-base-200\/60:hover,
+html[data-theme="dark"] [class*="hover:bg-stone-"]:hover,
+html[data-theme="dark"] [class*="hover:bg-gray-"]:hover {
+    background-color: oklch(var(--bc) / 0.10) !important;
+}
+
+/* Active feedback (touch/click) — perceptible in dark mode */
+html[data-theme="dark"] .active\:bg-base-200\/40:active,
+html[data-theme="dark"] .active\:bg-base-200:active {
+    background-color: oklch(var(--bc) / 0.14) !important;
+}
+
+/* Cards in dark mode — slightly elevated above base */
+html[data-theme="dark"] .bg-base-100 {
+    background-color: #1f242c;
+}
+
+/* Focus rings: bright teal in dark mode (matches new primary) */
+html[data-theme="dark"] *:focus-visible {
+    outline: 2px solid #2dd4bf;
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+/* Inputs — readable placeholder + visible border on dark surfaces */
+html[data-theme="dark"] .input,
+html[data-theme="dark"] .select,
+html[data-theme="dark"] .textarea {
+    border-color: oklch(var(--bc) / 0.15);
+    background-color: oklch(var(--b2));
+}
+html[data-theme="dark"] .input::placeholder,
+html[data-theme="dark"] .textarea::placeholder {
+    color: oklch(var(--bc) / 0.4);
+}
+
+/* Force readable text in dark mode for hardcoded dark-shade Tailwind text
+   (text-amber-700/800/900 etc) — these are designed for light backgrounds
+   and become invisible on dark. */
+html[data-theme="dark"] .text-amber-700,
+html[data-theme="dark"] .text-amber-800,
+html[data-theme="dark"] .text-amber-900 { color: oklch(85% .12 80); }
+html[data-theme="dark"] .text-emerald-700,
+html[data-theme="dark"] .text-emerald-800,
+html[data-theme="dark"] .text-emerald-900 { color: oklch(82% .14 162); }
+html[data-theme="dark"] .text-sky-700,
+html[data-theme="dark"] .text-sky-800,
+html[data-theme="dark"] .text-sky-900 { color: oklch(82% .12 230); }
+html[data-theme="dark"] .text-rose-600,
+html[data-theme="dark"] .text-rose-700,
+html[data-theme="dark"] .text-rose-800,
+html[data-theme="dark"] .text-rose-900 { color: oklch(80% .14 18); }
+html[data-theme="dark"] .text-violet-700,
+html[data-theme="dark"] .text-violet-800,
+html[data-theme="dark"] .text-violet-900 { color: oklch(82% .14 290); }
+html[data-theme="dark"] .text-orange-600,
+html[data-theme="dark"] .text-orange-700,
+html[data-theme="dark"] .text-orange-800 { color: oklch(82% .14 50); }
+html[data-theme="dark"] .text-indigo-700,
+html[data-theme="dark"] .text-indigo-800 { color: oklch(80% .12 270); }
+html[data-theme="dark"] .text-slate-700,
+html[data-theme="dark"] .text-slate-800,
+html[data-theme="dark"] .text-slate-900 { color: oklch(var(--bc) / 0.92); }
+
+/* Dim very-light tint backgrounds (50/100) so they do not blast in dark mode */
+html[data-theme="dark"] .bg-amber-50,
+html[data-theme="dark"] .bg-amber-100   { background-color: oklch(35% .07 80 / 0.45) !important; }
+html[data-theme="dark"] .bg-emerald-50,
+html[data-theme="dark"] .bg-emerald-100 { background-color: oklch(35% .07 162 / 0.45) !important; }
+html[data-theme="dark"] .bg-sky-50,
+html[data-theme="dark"] .bg-sky-100     { background-color: oklch(35% .06 230 / 0.45) !important; }
+html[data-theme="dark"] .bg-rose-50,
+html[data-theme="dark"] .bg-rose-100    { background-color: oklch(35% .07 18 / 0.45) !important; }
+html[data-theme="dark"] .bg-violet-50,
+html[data-theme="dark"] .bg-violet-100  { background-color: oklch(35% .07 290 / 0.45) !important; }
+html[data-theme="dark"] .bg-orange-50,
+html[data-theme="dark"] .bg-orange-100  { background-color: oklch(35% .08 50 / 0.45) !important; }
+html[data-theme="dark"] .bg-stone-50,
+html[data-theme="dark"] .bg-stone-100,
+html[data-theme="dark"] .bg-slate-50,
+html[data-theme="dark"] .bg-slate-100,
+html[data-theme="dark"] .bg-gray-50,
+html[data-theme="dark"] .bg-gray-100    { background-color: oklch(var(--bc) / 0.05) !important; }
+
+/* Hover-on-light-tint variants get the same dimming */
+html[data-theme="dark"] [class*="hover:bg-stone-50"]:hover,
+html[data-theme="dark"] [class*="hover:bg-stone-100"]:hover,
+html[data-theme="dark"] [class*="hover:bg-slate-50"]:hover,
+html[data-theme="dark"] [class*="hover:bg-slate-100"]:hover {
+    background-color: oklch(var(--bc) / 0.08) !important;
+}
+
+/* Borders on light tints — dark-mode equivalents */
+html[data-theme="dark"] .border-amber-100,
+html[data-theme="dark"] .border-amber-200 { border-color: oklch(50% .14 80 / 0.4); }
+html[data-theme="dark"] .border-emerald-100,
+html[data-theme="dark"] .border-emerald-200 { border-color: oklch(50% .14 162 / 0.4); }
+html[data-theme="dark"] .border-sky-100,
+html[data-theme="dark"] .border-sky-200 { border-color: oklch(50% .12 230 / 0.4); }
+html[data-theme="dark"] .border-rose-100,
+html[data-theme="dark"] .border-rose-200 { border-color: oklch(50% .14 18 / 0.4); }
+html[data-theme="dark"] .border-violet-100,
+html[data-theme="dark"] .border-violet-200 { border-color: oklch(50% .14 290 / 0.4); }
+html[data-theme="dark"] .border-stone-100,
+html[data-theme="dark"] .border-stone-200,
+html[data-theme="dark"] .border-slate-100,
+html[data-theme="dark"] .border-slate-200,
+html[data-theme="dark"] .border-gray-100,
+html[data-theme="dark"] .border-gray-200 { border-color: oklch(var(--bc) / 0.12); }
+
+/* Mobile bottom nav — slightly brighter border in dark */
+html[data-theme="dark"] nav[aria-label="Primary navigation"] {
+    background-color: rgba(15, 19, 25, 0.96);
+    border-top-color: oklch(var(--bc) / 0.18) !important;
+    backdrop-filter: blur(20px);
+}
+
+/* Sidebar — distinct deep slate, not same as cards */
+html[data-theme="dark"] aside { background-color: #131820; }
+
+/* Custom scrollbar in dark mode */
+html[data-theme="dark"] ::-webkit-scrollbar-track { background: oklch(var(--b2)); }
+html[data-theme="dark"] ::-webkit-scrollbar-thumb {
+    background: oklch(var(--bc) / 0.18);
+    border-radius: 5px;
+}
+html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: oklch(var(--bc) / 0.30); }

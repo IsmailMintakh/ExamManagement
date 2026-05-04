@@ -29,30 +29,29 @@ class StudentController extends Controller
         $user = $request->user();
         $currentSession = AcademicSession::currentSession();
 
+        // Use filled() not has() — has() returns true even when ?class_id= is in
+        // the URL with no value, which would then filter WHERE class_id = ''
+        // and silently drop every row. filled() requires a non-empty value.
         $students = Student::query()
-            ->when($user->isSuperAdmin(), function ($query) use ($request) {
-                if ($request->has('school_id')) {
-                    $query->where('school_id', $request->input('school_id'));
-                }
-            })
-            ->when($user->isSchoolAdmin(), function ($query) use ($user) {
-                $query->where('school_id', $user->school_id);
-            })
-            ->when($user->isClassTeacher(), function ($query) use ($user) {
+            ->when($user->isSuperAdmin() && $request->filled('school_id'),
+                fn ($q) => $q->where('school_id', $request->input('school_id')))
+            ->when($user->isSchoolAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->when($user->isClassTeacher(), function ($q) use ($user) {
                 $sectionIds = Section::where('class_teacher_id', $user->id)->pluck('id');
-                $query->whereIn('section_id', $sectionIds);
+                $q->whereIn('section_id', $sectionIds);
             })
-            ->when($request->has('search'), function ($query) use ($request) {
+            ->when($request->filled('search'), function ($q) use ($request) {
                 $search = $request->input('search');
-                $query->where(function ($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('admission_no', 'like', "%{$search}%")
-                      ->orWhere('father_name', 'like', "%{$search}%");
+                $q->where(function ($qq) use ($search) {
+                    $qq->where('name', 'like', "%{$search}%")
+                       ->orWhere('admission_no', 'like', "%{$search}%")
+                       ->orWhere('roll_no', 'like', "%{$search}%")
+                       ->orWhere('father_name', 'like', "%{$search}%");
                 });
             })
-            ->when($request->has('class_id'), fn ($q) => $q->where('school_class_id', $request->input('class_id')))
-            ->when($request->has('section_id'), fn ($q) => $q->where('section_id', $request->input('section_id')))
-            ->when($request->has('status'), fn ($q) => $q->where('status', $request->input('status')))
+            ->when($request->filled('class_id'), fn ($q) => $q->where('school_class_id', $request->input('class_id')))
+            ->when($request->filled('section_id'), fn ($q) => $q->where('section_id', $request->input('section_id')))
+            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->input('status')))
             ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
             ->with(['school', 'schoolClass', 'section'])
             ->orderBy('name')
@@ -62,12 +61,26 @@ class StudentController extends Controller
         $schools = $user->isSuperAdmin() ? School::active()->orderBy('name')->get(['id', 'name']) : [];
         $classes = SchoolClass::query()
             ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
-            ->active()->ordered()->get(['id', 'name', 'school_id']);
+            ->ordered()->get(['id', 'name', 'school_id']);
+
+        // Sections are scoped to the user's school and carry school_class_id so
+        // the frontend can cascade-filter them when a class is picked. We don't
+        // restrict to active() here because students may exist in legacy/inactive
+        // sections — filtering them out would leave the dropdown empty when the
+        // class actually has data.
+        $sections = Section::query()
+            ->whereHas('schoolClass', function ($q) use ($user) {
+                $q->when(!$user->isSuperAdmin(), fn ($q2) => $q2->where('school_id', $user->school_id));
+            })
+            ->orderBy('name')
+            ->get(['id', 'name', 'school_class_id']);
 
         return Inertia::render('Students/Index', [
             'students' => $students,
             'schools' => $schools,
             'classes' => $classes,
+            'sections' => $sections,
+            'isSuperAdmin' => $user->isSuperAdmin(),
             'filters' => $request->only(['search', 'school_id', 'class_id', 'section_id', 'status']),
         ]);
     }

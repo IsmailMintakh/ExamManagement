@@ -324,8 +324,8 @@ const absentStudents = computed(() =>
                             <div class="text-base sm:text-lg font-extrabold text-primary tabular-nums leading-tight">{{ totalMarks }}</div>
                             <div class="text-[9px] uppercase tracking-widest text-base-content/55 font-semibold">Total</div>
                         </div>
-                        <div class="flex-1 lg:flex-none px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl bg-amber-100 text-center lg:min-w-[64px]">
-                            <div class="text-base sm:text-lg font-extrabold text-amber-700 tabular-nums leading-tight">{{ passingMarks }}</div>
+                        <div class="flex-1 lg:flex-none px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl bg-amber-500/15 text-center lg:min-w-[64px]">
+                            <div class="text-base sm:text-lg font-extrabold text-amber-700 dark:text-amber-300 tabular-nums leading-tight">{{ passingMarks }}</div>
                             <div class="text-[9px] uppercase tracking-widest text-base-content/55 font-semibold">Pass</div>
                         </div>
                         <div class="flex-1 lg:flex-none px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl bg-base-200 text-center lg:min-w-[64px]">
@@ -337,13 +337,13 @@ const absentStudents = computed(() =>
             </div>
 
             <!-- ═══════════ SUBMITTED BANNER ═══════════ -->
-            <div v-if="isSubmitted" class="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 flex items-center gap-3">
+            <div v-if="isSubmitted" class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0">
                     <CheckCircleIcon class="w-5 h-5" />
                 </div>
                 <div>
-                    <div class="font-bold text-emerald-900">Marks Submitted</div>
-                    <div class="text-xs text-emerald-800/75">These marks are locked and can no longer be edited.</div>
+                    <div class="font-bold text-emerald-900 dark:text-emerald-100">Marks Submitted</div>
+                    <div class="text-xs text-emerald-800/75 dark:text-emerald-200/75">These marks are locked and can no longer be edited.</div>
                 </div>
             </div>
 
@@ -413,7 +413,7 @@ const absentStudents = computed(() =>
             </div>
 
             <!-- ═══════════ HELP HINT (desktop only — keyboard-focused tips) ═══════════ -->
-            <div v-if="!isSubmitted" class="hidden sm:flex rounded-xl bg-sky-50 border border-sky-200 p-3 items-start gap-2.5 text-xs text-sky-900">
+            <div v-if="!isSubmitted" class="hidden sm:flex rounded-xl bg-sky-500/10 border border-sky-500/30 p-3 items-start gap-2.5 text-xs text-sky-900 dark:text-sky-100">
                 <InformationCircleIcon class="w-4 h-4 text-sky-600 flex-shrink-0 mt-0.5" />
                 <div>
                     <span class="font-semibold">Tip:</span>
@@ -453,7 +453,7 @@ const absentStudents = computed(() =>
                         </div>
                         <!-- Pass / Fail / Absent / Error pill -->
                         <span v-if="row.is_absent"
-                              class="px-2 py-1 rounded-md bg-amber-100 text-amber-800 text-[10px] font-bold uppercase tracking-wider shrink-0">Absent</span>
+                              class="px-2 py-1 rounded-md bg-amber-500/20 text-amber-800 dark:text-amber-200 text-[10px] font-bold uppercase tracking-wider shrink-0">Absent</span>
                         <ExclamationTriangleIcon v-else-if="rowErrors[idx]" class="w-5 h-5 text-rose-600 shrink-0" />
                         <CheckCircleIcon v-else-if="row.marks_obtained !== '' && row.marks_obtained != null && (parseMarks(row.marks_obtained) ?? -1) >= passingMarks"
                             class="w-5 h-5 text-emerald-600 shrink-0" />
@@ -493,20 +493,20 @@ const absentStudents = computed(() =>
                         <span v-if="rowPercentage(row) !== null"
                               class="px-2 py-0.5 rounded-md font-bold tabular-nums shrink-0"
                               :class="rowPercentage(row) >= (passingMarks / totalMarks * 100)
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-rose-100 text-rose-700'">
+                                  ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200'
+                                  : 'bg-rose-500/20 text-rose-700 dark:text-rose-300'">
                             {{ rowPercentage(row) }}%
                         </span>
                         <div class="flex-1"></div>
                         <label class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer active:bg-base-200 shrink-0"
-                               :class="row.is_absent ? 'bg-amber-50 text-amber-800' : 'text-base-content/70'">
+                               :class="row.is_absent ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200' : 'text-base-content/70'">
                             <input type="checkbox" v-model="row.is_absent" @change="toggleAbsent(row)" :disabled="isSubmitted"
                                    class="checkbox checkbox-warning checkbox-xs" />
                             <span class="text-[10px] font-bold uppercase tracking-wider">Absent</span>
                         </label>
                     </div>
 
-                    <div v-if="rowErrors[idx]" class="mx-3 mb-3 px-2.5 py-1.5 rounded-lg bg-rose-100 text-rose-700 text-[11px] font-medium">
+                    <div v-if="rowErrors[idx]" class="mx-3 mb-3 px-2.5 py-1.5 rounded-lg bg-rose-500/15 text-rose-700 dark:text-rose-300 text-[11px] font-medium">
                         {{ rowErrors[idx] }} — enter 0 to {{ totalMarks }}
                     </div>
                 </div>
@@ -539,7 +539,7 @@ const absentStudents = computed(() =>
                                 class="transition-colors"
                                 :class="{
                                     'bg-base-200/30': row.is_absent,
-                                    'bg-rose-50/50': rowErrors[idx],
+                                    'bg-rose-500/10': rowErrors[idx],
                                     'hover:bg-base-200/40': !row.is_absent && !rowErrors[idx],
                                 }">
                                 <td class="px-3 py-2.5 text-base-content/40 text-xs tabular-nums hidden sm:table-cell">{{ idx + 1 }}</td>
@@ -660,7 +660,7 @@ const absentStudents = computed(() =>
                     </button>
                 </div>
                 <!-- Inline error hint -->
-                <div v-if="hasErrors" class="mt-2 px-2 py-1 rounded-md bg-rose-50 text-rose-700 text-[10.5px] font-medium flex items-center gap-1.5">
+                <div v-if="hasErrors" class="mt-2 px-2 py-1 rounded-md bg-rose-500/10 text-rose-700 dark:text-rose-300 text-[10.5px] font-medium flex items-center gap-1.5">
                     <ExclamationTriangleIcon class="w-3.5 h-3.5 shrink-0" />
                     Fix highlighted rows before submitting
                 </div>
@@ -744,7 +744,7 @@ const absentStudents = computed(() =>
                             <div class="text-[11px] uppercase tracking-wider font-bold text-rose-600 mb-2 flex items-center gap-1.5">
                                 <XCircleIcon class="w-3.5 h-3.5" /> Below passing ({{ failedStudents.length }})
                             </div>
-                            <div class="rounded-xl bg-rose-50 border border-rose-100 p-3 max-h-32 overflow-y-auto">
+                            <div class="rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 max-h-32 overflow-y-auto">
                                 <ul class="space-y-1 text-xs">
                                     <li v-for="(s, i) in failedStudents" :key="i" class="flex justify-between">
                                         <span>{{ s.name }}</span>
@@ -759,7 +759,7 @@ const absentStudents = computed(() =>
                             <div class="text-[11px] uppercase tracking-wider font-bold text-amber-700 mb-2 flex items-center gap-1.5">
                                 <ExclamationTriangleIcon class="w-3.5 h-3.5" /> Marked absent ({{ absentStudents.length }})
                             </div>
-                            <div class="rounded-xl bg-amber-50 border border-amber-100 p-3 max-h-32 overflow-y-auto">
+                            <div class="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 max-h-32 overflow-y-auto">
                                 <ul class="space-y-1 text-xs">
                                     <li v-for="(n, i) in absentStudents" :key="i">{{ n }}</li>
                                 </ul>

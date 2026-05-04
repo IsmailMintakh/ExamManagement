@@ -10,6 +10,7 @@ import {
     PlusIcon, ArrowDownTrayIcon, TrashIcon, EyeIcon,
     TrophyIcon, StarIcon, CheckBadgeIcon, AcademicCapIcon, Cog6ToothIcon,
 } from '@heroicons/vue/24/outline'
+import { formatDate } from '@/Utils/format'
 
 defineProps({
     certificates: Object,
@@ -46,11 +47,6 @@ const typeLabel = {
     custom: 'Custom',
 }
 
-function formatDate(d) {
-    if (!d) return '—'
-    try { return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) }
-    catch { return d }
-}
 </script>
 
 <template>
@@ -84,63 +80,63 @@ function formatDate(d) {
             </div>
 
             <!-- Certificates table -->
-            <div class="card bg-base-100 shadow-md">
-                <div class="card-body p-0">
-                    <div v-if="certificates.data.length === 0" class="p-8">
-                        <EmptyState
-                            title="No certificates yet"
-                            description="Generate your first certificate to get started."
-                            :icon="AcademicCapIcon"
-                        />
-                    </div>
-                    <div v-else class="overflow-x-auto">
-                        <table class="table table-zebra">
-                            <thead>
-                                <tr>
-                                    <th>Cert. No.</th>
-                                    <th>Student</th>
-                                    <th>Type</th>
-                                    <th>Exam</th>
-                                    <th>Template</th>
-                                    <th>Issued</th>
-                                    <th class="text-right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="c in certificates.data" :key="c.id">
-                                    <td class="font-mono text-xs">{{ c.certificate_number }}</td>
-                                    <td>
-                                        <div class="font-medium">{{ c.student?.name }}</div>
-                                        <div class="text-xs text-base-content/60">{{ c.student?.admission_no }}</div>
-                                    </td>
-                                    <td>
-                                        <span class="badge badge-sm" :class="typeBadge[c.type]">
-                                            {{ typeLabel[c.type] }}
-                                        </span>
-                                    </td>
-                                    <td class="text-sm">{{ c.exam?.name || '—' }}</td>
-                                    <td class="text-sm">{{ c.template?.name || '—' }}</td>
-                                    <td class="text-sm">{{ formatDate(c.issued_at) }}</td>
-                                    <td>
-                                        <div class="flex justify-end gap-1">
-                                            <a :href="route('certificates.download', c.id)" target="_blank"
-                                               class="btn btn-ghost btn-sm" title="Download">
-                                                <ArrowDownTrayIcon class="w-4 h-4" />
-                                            </a>
-                                            <button @click="askRevoke(c)" class="btn btn-ghost btn-sm text-error" title="Revoke">
-                                                <TrashIcon class="w-4 h-4" />
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div v-if="certificates.data.length" class="p-4 border-t border-base-200">
-                        <Pagination :links="certificates.links" />
-                    </div>
+            <section class="surface overflow-hidden">
+                <div v-if="certificates.data.length === 0" class="p-8">
+                    <EmptyState
+                        title="No certificates yet"
+                        description="Generate your first certificate to get started."
+                        :icon="AcademicCapIcon"
+                    />
                 </div>
-            </div>
+                <div v-else class="table-sticky-wrap" style="--table-max-h: 65vh;">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Cert. No.</th>
+                                <th>Student</th>
+                                <th>Type</th>
+                                <th>Exam</th>
+                                <th>Template</th>
+                                <th>Issued</th>
+                                <th class="text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="c in certificates.data" :key="c.id">
+                                <td><span class="font-mono text-xs text-base-content/75">{{ c.certificate_number }}</span></td>
+                                <td>
+                                    <div class="font-bold text-sm">{{ c.student?.name }}</div>
+                                    <div class="text-[11px] text-base-content/55 font-mono">{{ c.student?.admission_no }}</div>
+                                </td>
+                                <td>
+                                    <span class="badge badge-sm" :class="typeBadge[c.type]">{{ typeLabel[c.type] }}</span>
+                                </td>
+                                <td class="text-[13px] text-base-content/75 truncate max-w-[200px]" :title="c.exam?.name">{{ c.exam?.name || '—' }}</td>
+                                <td class="text-[13px] text-base-content/75">{{ c.template?.name || '—' }}</td>
+                                <td class="text-[13px] text-base-content/75 whitespace-nowrap tabular-nums">{{ formatDate(c.issued_at) }}</td>
+                                <td>
+                                    <div class="flex justify-end gap-0.5">
+                                        <a :href="route('certificates.download', c.id)" target="_blank"
+                                           class="btn btn-ghost btn-xs btn-square" title="Download">
+                                            <ArrowDownTrayIcon class="w-4 h-4" />
+                                        </a>
+                                        <button @click="askRevoke(c)" class="btn btn-ghost btn-xs btn-square text-error" title="Revoke">
+                                            <TrashIcon class="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <footer v-if="certificates.data.length && certificates.last_page > 1" class="surface-footer">
+                    <span class="text-xs text-base-content/55 font-medium">
+                        Showing <span class="text-base-content font-bold">{{ certificates.from }}–{{ certificates.to }}</span>
+                        of <span class="text-base-content font-bold">{{ certificates.total }}</span>
+                    </span>
+                    <Pagination :links="certificates.links" />
+                </footer>
+            </section>
         </div>
 
         <ConfirmDialog

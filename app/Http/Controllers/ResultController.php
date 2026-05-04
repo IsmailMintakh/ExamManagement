@@ -12,9 +12,12 @@ use App\Models\ResultSubmission;
 use App\Models\SchoolClass;
 use App\Models\Section;
 use App\Models\Subject;
+use App\Models\School;
 use App\Models\User;
 use App\Notifications\ResultApprovedNotification;
+use App\Notifications\ResultGeneratedNotification;
 use App\Notifications\ResultReturnedForCorrectionNotification;
+use App\Notifications\ResultSubmittedToDdoNotification;
 use App\Services\ResultProcessingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -176,6 +179,27 @@ class ResultController extends Controller
 
         try {
             $resultService->generateResults($exam, $validated['school_class_id'], $validated['section_id']);
+
+            // Notify the school admin(s) that results are ready to review/submit
+            try {
+                $section = Section::with('schoolClass')->find($validated['section_id']);
+                if ($section?->schoolClass) {
+                    $admins = User::where('school_id', $section->schoolClass->school_id)
+                        ->whereHas('roles', fn ($q) => $q->where('name', 'school-admin'))
+                        ->where('id', '!=', $request->user()->id)
+                        ->get();
+                    if ($admins->isNotEmpty()) {
+                        Notification::send($admins, new ResultGeneratedNotification(
+                            $exam,
+                            $section->schoolClass->name,
+                            $section->name
+                        ));
+                    }
+                }
+            } catch (\Throwable $e) {
+                \Log::warning('ResultGeneratedNotification failed: ' . $e->getMessage());
+            }
+
             return redirect()->back()->with('success', 'Results generated successfully.');
         } catch (\Exception $e) {
             return redirect()->back()->with('error', 'Failed to generate results: ' . $e->getMessage());
@@ -273,6 +297,19 @@ class ResultController extends Controller
         Result::where('exam_id', $exam->id)
             ->where('school_id', $schoolId)
             ->update(['status' => 'submitted_to_ddo', 'submitted_by' => $user->id, 'submitted_at' => now()]);
+
+        // Notify all super-admins (DDO) that a school's results need review
+        try {
+            $school = School::find($schoolId);
+            if ($school) {
+                $ddoUsers = User::whereHas('roles', fn ($q) => $q->where('name', 'super-admin'))->get();
+                if ($ddoUsers->isNotEmpty()) {
+                    Notification::send($ddoUsers, new ResultSubmittedToDdoNotification($exam, $school));
+                }
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('ResultSubmittedToDdoNotification failed: ' . $e->getMessage());
+        }
 
         return redirect()->back()->with('success', 'Results submitted to DDO successfully.');
     }
@@ -419,16 +456,15 @@ class ResultController extends Controller
                 'finalized_at' => now(),
             ]);
 
-        // Notify the school admin(s) of the school
-        $schoolAdmins = User::where('school_id', $submission->school_id)
-            ->whereHas('roles', fn ($q) => $q->where('name', 'school-admin'))
-            ->get();
-
-        if ($schoolAdmins->isNotEmpty()) {
-            Notification::send(
-                $schoolAdmins,
-                new ResultApprovedNotification($submission->exam, $submission)
-            );
+        try {
+            $schoolAdmins = User::where('school_id', $submission->school_id)
+                ->whereHas('roles', fn ($q) => $q->where('name', 'school-admin'))
+                ->get();
+            if ($schoolAdmins->isNotEmpty()) {
+                Notification::send($schoolAdmins, new ResultApprovedNotification($submission->exam, $submission));
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('ResultApprovedNotification failed: ' . $e->getMessage());
         }
 
         return redirect()->back()->with('success', 'Result submission approved and finalized.');
@@ -463,16 +499,18 @@ class ResultController extends Controller
                 'status' => 'generated',
             ]);
 
-        // Notify the school admin(s)
-        $schoolAdmins = User::where('school_id', $submission->school_id)
-            ->whereHas('roles', fn ($q) => $q->where('name', 'school-admin'))
-            ->get();
-
-        if ($schoolAdmins->isNotEmpty()) {
-            Notification::send(
-                $schoolAdmins,
-                new ResultReturnedForCorrectionNotification($submission->exam, $submission, $validated['remarks'])
-            );
+        try {
+            $schoolAdmins = User::where('school_id', $submission->school_id)
+                ->whereHas('roles', fn ($q) => $q->where('name', 'school-admin'))
+                ->get();
+            if ($schoolAdmins->isNotEmpty()) {
+                Notification::send(
+                    $schoolAdmins,
+                    new ResultReturnedForCorrectionNotification($submission->exam, $submission, $validated['remarks'])
+                );
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('ResultReturnedForCorrectionNotification failed: ' . $e->getMessage());
         }
 
         return redirect()->back()->with('warning', 'Result submission returned to school for correction.');

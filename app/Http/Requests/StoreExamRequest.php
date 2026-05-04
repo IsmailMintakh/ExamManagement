@@ -60,7 +60,9 @@ class StoreExamRequest extends FormRequest
             'apply_to_all_schools' => ['boolean'],
             'applicable_class_ids' => ['nullable', 'array'],
             'applicable_class_ids.*' => ['exists:school_classes,id'],
-            'marks_entry_deadline' => ['nullable', 'date'],
+            // Marks can only be entered after the exam concludes — guard against
+            // setting a deadline before the exam window even ends.
+            'marks_entry_deadline' => ['nullable', 'date', 'after_or_equal:end_date'],
             'selected_school_ids' => ['nullable', 'array'],
             'selected_school_ids.*' => ['exists:schools,id'],
             'subjects' => ['nullable', 'array'],
@@ -68,7 +70,18 @@ class StoreExamRequest extends FormRequest
             'subjects.*.school_class_id' => ['required_with:subjects', 'exists:school_classes,id'],
             'subjects.*.total_marks' => ['required_with:subjects', 'numeric', 'min:0'],
             'subjects.*.passing_marks' => ['required_with:subjects', 'numeric', 'min:0'],
-            'subjects.*.exam_date' => ['nullable', 'date'],
+            // Per-subject paper date must fall inside the exam window.
+            'subjects.*.exam_date' => ['nullable', 'date', 'after_or_equal:start_date', 'before_or_equal:end_date'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'end_date.after_or_equal' => 'The exam end date must be the same as or after the start date.',
+            'marks_entry_deadline.after_or_equal' => 'The marks-entry deadline must be on or after the exam end date.',
+            'subjects.*.exam_date.after_or_equal' => 'Each subject paper date must fall on or after the exam start date.',
+            'subjects.*.exam_date.before_or_equal' => 'Each subject paper date must fall on or before the exam end date.',
         ];
     }
 }

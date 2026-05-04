@@ -6,6 +6,7 @@ use App\Models\AcademicSession;
 use App\Models\Exam;
 use App\Models\Mark;
 use App\Models\Result;
+use App\Models\School;
 use App\Models\SchoolClass;
 use App\Models\Section;
 use App\Models\Student;
@@ -41,14 +42,38 @@ class AnalyticsInsightsController extends Controller
                     'name' => $s->name,
                     'admission_no' => $s->admission_no,
                     'roll_no' => $s->roll_no,
+                    // IDs are needed by the picker's school/class/section filters
+                    // (string-name filtering is fragile when names repeat across schools)
+                    'school_id' => $s->school_id,
+                    'school_class_id' => $s->school_class_id,
+                    'section_id' => $s->section_id,
                     'school_name' => $s->school?->name,
                     'class_name' => $s->schoolClass?->name,
                     'section_name' => $s->section?->name,
                 ]);
 
+            // Filter dropdowns — only schools the user can see
+            $schools = $user->isSuperAdmin()
+                ? School::active()->orderBy('name')->get(['id', 'name'])
+                : ($user->school_id ? School::where('id', $user->school_id)->get(['id', 'name']) : collect());
+
+            $classes = SchoolClass::query()
+                ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+                ->active()->ordered()->get(['id', 'name', 'school_id']);
+
+            $sections = Section::query()
+                ->whereHas('schoolClass', function ($q) use ($user) {
+                    $q->when(!$user->isSuperAdmin(), fn ($q2) => $q2->where('school_id', $user->school_id));
+                })
+                ->active()->orderBy('name')->get(['id', 'name', 'school_class_id']);
+
             return Inertia::render('Insights/StudentProgress', [
                 'student' => null,
                 'students' => $students,
+                'schools' => $schools,
+                'classes' => $classes,
+                'sections' => $sections,
+                'isSuperAdmin' => $user->isSuperAdmin(),
                 'trend' => [],
                 'subjectTrend' => [],
                 'summary' => null,

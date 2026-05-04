@@ -12,6 +12,11 @@ const props = defineProps({
     helpText: { type: String, default: '' },
     icon: { type: [Object, Function], default: null },
     size: { type: String, default: 'md' }, // sm | md | lg
+    // HTML5 constraint passthrough — used by date/number inputs to enforce
+    // logical bounds (e.g. end_date min=start_date, dob max=today).
+    min: { type: [String, Number], default: null },
+    max: { type: [String, Number], default: null },
+    step: { type: [String, Number], default: null },
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -40,6 +45,9 @@ const sizeClasses = {
                 :placeholder="placeholder"
                 :required="required"
                 :disabled="disabled"
+                :min="min ?? undefined"
+                :max="max ?? undefined"
+                :step="step ?? undefined"
                 class="input input-bordered w-full"
                 :class="[
                     sizeClasses[size],

@@ -40,14 +40,13 @@ function destroy(id) {
         <div class="max-w-5xl mx-auto space-y-6">
             <div class="flex items-start justify-between gap-4 flex-wrap">
                 <div>
-                    <h1 class="text-2xl font-bold">Hero Slider</h1>
-                    <p class="text-sm text-base-content/60 mt-1">
-                        Slides shown in the homepage hero rotation. Drag to reorder.
+                    <h1 class="text-2xl font-extrabold tracking-tight">Hero Slider</h1>
+                    <p class="text-sm text-base-content/55 mt-0.5">
+                        {{ items.length }} slide{{ items.length === 1 ? '' : 's' }} in homepage rotation · drag to reorder
                     </p>
                 </div>
-                <Link :href="route('website.hero-slides.create')" class="btn btn-primary btn-sm gap-2">
-                    <PlusIcon class="w-4 h-4" />
-                    Add Slide
+                <Link :href="route('website.hero-slides.create')" class="btn btn-primary btn-sm gap-1.5">
+                    <PlusIcon class="w-4 h-4" /> Add Slide
                 </Link>
             </div>
 
@@ -64,9 +63,9 @@ function destroy(id) {
                     @dragstart="onDragStart(i)"
                     @dragover="onDragOver"
                     @drop="onDrop(i)"
-                    class="group card bg-base-100 shadow-sm border border-base-200 hover:shadow-md hover:border-primary/30 transition-all"
+                    class="surface surface-hover overflow-hidden"
                     :class="dragIndex === i ? 'opacity-50' : ''">
-                    <div class="card-body p-0">
+                    <div>
                         <div class="flex items-stretch">
                             <!-- Drag handle -->
                             <div class="flex items-center px-3 cursor-grab active:cursor-grabbing text-base-content/30 hover:text-base-content/60 border-r border-base-200">

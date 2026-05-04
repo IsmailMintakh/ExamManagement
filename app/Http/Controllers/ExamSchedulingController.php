@@ -183,15 +183,72 @@ class ExamSchedulingController extends Controller
      */
     public function storeSchedule(Request $request, Exam $exam): RedirectResponse
     {
+        // Bound paper dates to the exam window when the exam itself has dates.
+        // If the exam has no start/end set we fall back to plain 'date' validation.
+        $dateRules = ['nullable', 'date'];
+        if ($exam->start_date) {
+            $dateRules[] = 'after_or_equal:' . $exam->start_date->toDateString();
+        }
+        if ($exam->end_date) {
+            $dateRules[] = 'before_or_equal:' . $exam->end_date->toDateString();
+        }
+
         $validated = $request->validate([
             'schedules' => ['required', 'array'],
             'schedules.*.subject_id' => ['required', 'integer', 'exists:subjects,id'],
             'schedules.*.school_class_id' => ['required', 'integer', 'exists:school_classes,id'],
-            'schedules.*.exam_date' => ['nullable', 'date'],
-            'schedules.*.start_time' => ['nullable'],
-            'schedules.*.end_time' => ['nullable'],
+            'schedules.*.exam_date' => $dateRules,
+            'schedules.*.start_time' => ['nullable', 'date_format:H:i'],
+            'schedules.*.end_time' => ['nullable', 'date_format:H:i', 'after:schedules.*.start_time'],
             'schedules.*.instructions' => ['nullable', 'string', 'max:1000'],
+        ], [
+            'schedules.*.exam_date.after_or_equal' => 'Each paper date must fall on or after the exam start date (' . optional($exam->start_date)->format('d M Y') . ').',
+            'schedules.*.exam_date.before_or_equal' => 'Each paper date must fall on or before the exam end date (' . optional($exam->end_date)->format('d M Y') . ').',
+            'schedules.*.start_time.date_format' => 'Start time must be in HH:MM 24-hour format.',
+            'schedules.*.end_time.date_format' => 'End time must be in HH:MM 24-hour format.',
+            'schedules.*.end_time.after' => 'End time must be after the start time.',
         ]);
+
+        // ─── Conflict detection ───
+        // Two papers can't share the same date + overlapping time window for the
+        // same class, otherwise the same students would have two simultaneous
+        // exams. Check pairwise within the submitted batch.
+        $conflicts = [];
+        $rows = array_values($validated['schedules']);
+        for ($i = 0; $i < count($rows); $i++) {
+            $a = $rows[$i];
+            if (empty($a['exam_date']) || empty($a['start_time']) || empty($a['end_time'])) continue;
+
+            $aStart = Carbon::parse($a['exam_date'] . ' ' . $a['start_time']);
+            $aEnd = Carbon::parse($a['exam_date'] . ' ' . $a['end_time']);
+
+            for ($j = $i + 1; $j < count($rows); $j++) {
+                $b = $rows[$j];
+                if (empty($b['exam_date']) || empty($b['start_time']) || empty($b['end_time'])) continue;
+                if ((int) $a['school_class_id'] !== (int) $b['school_class_id']) continue;
+                if ($a['exam_date'] !== $b['exam_date']) continue;
+
+                $bStart = Carbon::parse($b['exam_date'] . ' ' . $b['start_time']);
+                $bEnd = Carbon::parse($b['exam_date'] . ' ' . $b['end_time']);
+
+                // Overlap when start < otherEnd && otherStart < end
+                if ($aStart->lt($bEnd) && $bStart->lt($aEnd)) {
+                    $cls = SchoolClass::find($a['school_class_id'])?->name ?? "class #{$a['school_class_id']}";
+                    $subjA = Subject::find($a['subject_id'])?->name ?? "subject #{$a['subject_id']}";
+                    $subjB = Subject::find($b['subject_id'])?->name ?? "subject #{$b['subject_id']}";
+                    $conflicts["schedules.{$j}.start_time"] = sprintf(
+                        '%s overlaps with %s on %s (%s–%s) for class %s. Pick a different time.',
+                        $subjB, $subjA,
+                        Carbon::parse($a['exam_date'])->format('d M Y'),
+                        $a['start_time'], $a['end_time'], $cls
+                    );
+                }
+            }
+        }
+
+        if (!empty($conflicts)) {
+            throw \Illuminate\Validation\ValidationException::withMessages($conflicts);
+        }
 
         $saved = 0;
 

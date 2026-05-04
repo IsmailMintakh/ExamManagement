@@ -4,14 +4,12 @@ namespace App\Notifications;
 
 use App\Models\Exam;
 use App\Models\School;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-class ResultSubmittedToDdoNotification extends Notification implements ShouldQueue
+// Sync (not queued) so it works on shared hosting without a queue worker.
+class ResultSubmittedToDdoNotification extends Notification
 {
-    use Queueable;
 
     public function __construct(
         public Exam $exam,

@@ -11,9 +11,12 @@ use App\Models\Section;
 use App\Models\Student;
 use App\Models\Subject;
 use App\Models\SubjectTeacher;
+use App\Models\User;
+use App\Notifications\MarksSubmittedNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Notification;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -387,6 +390,36 @@ class MarksController extends Controller
                 'submitted_at' => now(),
             ]
         );
+
+        // ─── Notify the people who care that marks just got submitted ───
+        // - Class teacher of this section: needs to know all subjects are coming in
+        // - School admin (Principal): tracks completion across the whole school
+        // We swallow notification failures (e.g. no email driver, dead push
+        // subscriptions) so the marks submission itself isn't blocked.
+        try {
+            $subjectModel = Subject::find($subject);
+            if ($subjectModel) {
+                $recipients = collect();
+                if ($sectionModel->class_teacher_id && $sectionModel->class_teacher_id !== $user->id) {
+                    $ct = User::find($sectionModel->class_teacher_id);
+                    if ($ct) $recipients->push($ct);
+                }
+                $schoolAdmins = User::where('school_id', $sectionModel->schoolClass->school_id)
+                    ->whereHas('roles', fn ($q) => $q->where('name', 'school-admin'))
+                    ->where('id', '!=', $user->id)
+                    ->get();
+                $recipients = $recipients->merge($schoolAdmins)->unique('id');
+
+                if ($recipients->isNotEmpty()) {
+                    Notification::send(
+                        $recipients,
+                        new MarksSubmittedNotification($examModel, $subjectModel, $sectionModel, $user->name)
+                    );
+                }
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('MarksSubmittedNotification failed: ' . $e->getMessage());
+        }
 
         return redirect()->back()->with('success', 'Marks submitted successfully.');
     }

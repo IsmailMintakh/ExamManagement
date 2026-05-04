@@ -6,25 +6,69 @@ import { computed, ref } from 'vue'
 import {
     ChartBarIcon, TrophyIcon, ArrowTrendingUpIcon, ArrowTrendingDownIcon,
     UserCircleIcon, MagnifyingGlassIcon, BookOpenIcon, CalendarIcon,
+    BuildingLibraryIcon, FunnelIcon, ChevronDownIcon, XMarkIcon, ArrowRightIcon,
 } from '@heroicons/vue/24/outline'
+import { watch } from 'vue'
+import { formatDate, formatNumber } from '@/Utils/format'
 
 const props = defineProps({
     student: { type: Object, default: null },
     students: { type: Array, default: () => [] },
+    schools: { type: Array, default: () => [] },
+    classes: { type: Array, default: () => [] },
+    sections: { type: Array, default: () => [] },
+    isSuperAdmin: { type: Boolean, default: false },
     trend: { type: Array, default: () => [] },
     subjectTrend: { type: Array, default: () => [] },
     summary: { type: Object, default: null },
 })
 
+// ─── Picker state — search + cascading filters (school → class → section) ───
 const search = ref('')
+const schoolId = ref('')
+const classId = ref('')
+const sectionId = ref('')
+
+// Cascade: child filter options narrow when parent is set
+const visibleClasses = computed(() => {
+    if (!schoolId.value) return props.classes
+    return props.classes.filter(c => Number(c.school_id) === Number(schoolId.value))
+})
+const visibleSections = computed(() => {
+    if (!classId.value) return props.sections
+    return props.sections.filter(s => Number(s.school_class_id) === Number(classId.value))
+})
+
+// Reset child selections when parent changes (a class from school A doesn't
+// belong to school B once you switch schools).
+watch(schoolId, () => { classId.value = ''; sectionId.value = '' })
+watch(classId, () => { sectionId.value = '' })
+
+const activeFilterCount = computed(() =>
+    [schoolId.value, classId.value, sectionId.value].filter(Boolean).length
+)
+const filtersOpen = ref(false)
+
+function clearFilters() {
+    schoolId.value = ''
+    classId.value = ''
+    sectionId.value = ''
+}
+
+// Apply search + all picker filters in one pass
 const filteredStudents = computed(() => {
     const q = search.value.trim().toLowerCase()
-    if (!q) return props.students
-    return props.students.filter((s) =>
-        (s.name || '').toLowerCase().includes(q) ||
-        (s.admission_no || '').toLowerCase().includes(q) ||
-        (s.class_name || '').toLowerCase().includes(q),
-    )
+    return props.students.filter((s) => {
+        if (q && !(
+            (s.name || '').toLowerCase().includes(q) ||
+            (s.admission_no || '').toLowerCase().includes(q) ||
+            (s.roll_no || '').toString().toLowerCase().includes(q)
+        )) return false
+        if (schoolId.value && Number(s.school_id) !== Number(schoolId.value)) return false
+        if (classId.value && Number(s.school_class_id) !== Number(classId.value)) return false
+        if (sectionId.value && Number(s.section_id) !== Number(sectionId.value)) return false
+        return true
+    })
 })
 
 function pickStudent(s) {
@@ -69,67 +113,145 @@ const maxPct = computed(() => {
     <AppLayout :breadcrumbs="[{ label: 'Insights', href: '/insights/student-progress' }, { label: 'Student Progress' }]">
         <div class="space-y-6">
             <!-- Page Header -->
-            <div class="page-header">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                    <h1 class="page-title">Student Progress</h1>
-                    <p class="page-subtitle">Year-over-year performance across all exams</p>
+                    <h1 class="text-2xl font-extrabold tracking-tight">Student Progress</h1>
+                    <p class="text-sm text-base-content/55 mt-0.5">Year-over-year performance across all exams</p>
                 </div>
-                <button v-if="student" class="btn btn-ghost btn-sm" @click="changeStudent">
-                    <UserCircleIcon class="h-4 w-4" />
-                    Change Student
+                <button v-if="student" class="btn btn-ghost btn-sm gap-1.5" @click="changeStudent">
+                    <UserCircleIcon class="h-4 w-4" /> Change Student
                 </button>
             </div>
 
-            <!-- Student Picker -->
-            <div v-if="!student" class="card-section">
-                <div class="card-content space-y-4">
-                    <div class="flex items-center gap-3 border-b border-base-200 pb-3">
-                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                            <MagnifyingGlassIcon class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <h3 class="text-sm font-bold">Pick a Student</h3>
-                            <p class="text-xs text-base-content/50">Search from the list below</p>
-                        </div>
+            <!-- ════════ STUDENT PICKER ════════ -->
+            <section v-if="!student" class="surface overflow-hidden">
+                <header class="surface-header">
+                    <div class="relative flex-1 max-w-md">
+                        <MagnifyingGlassIcon class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-base-content/40" />
+                        <input v-model="search" type="text"
+                            placeholder="Search by name, admission no, roll…"
+                            class="input input-bordered input-sm w-full pl-9 text-sm" />
                     </div>
+                    <button type="button" @click="filtersOpen = !filtersOpen"
+                        class="btn btn-sm gap-1.5"
+                        :class="filtersOpen ? 'btn-primary' : 'btn-outline'">
+                        <FunnelIcon class="w-4 h-4" /> Filters
+                        <span v-if="activeFilterCount > 0" class="badge badge-sm badge-warning text-warning-content tabular-nums">{{ activeFilterCount }}</span>
+                        <ChevronDownIcon class="w-3.5 h-3.5 transition-transform" :class="filtersOpen ? 'rotate-180' : ''" />
+                    </button>
+                </header>
 
-                    <div class="relative">
-                        <MagnifyingGlassIcon class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/40" />
-                        <input
-                            v-model="search"
-                            type="text"
-                            placeholder="Search by name, admission no, class..."
-                            class="input input-bordered w-full pl-9"
-                        />
+                <Transition name="filter-panel">
+                    <div v-if="filtersOpen" class="border-b border-base-200 bg-base-200/30 px-5 sm:px-6 py-4 space-y-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div v-if="isSuperAdmin">
+                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 flex items-center gap-1">
+                                    <BuildingLibraryIcon class="w-3 h-3" /> School
+                                </label>
+                                <select v-model="schoolId" class="select select-bordered select-sm w-full text-sm">
+                                    <option value="">All schools</option>
+                                    <option v-for="s in schools" :key="s.id" :value="s.id">{{ s.name }}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 block">Class</label>
+                                <select v-model="classId" class="select select-bordered select-sm w-full text-sm">
+                                    <option value="">All classes</option>
+                                    <option v-for="c in visibleClasses" :key="c.id" :value="c.id">{{ c.name }}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 block">
+                                    Section
+                                    <span v-if="!classId" class="text-base-content/40 normal-case font-medium">· pick a class first</span>
+                                </label>
+                                <select v-model="sectionId" class="select select-bordered select-sm w-full text-sm" :disabled="!visibleSections.length">
+                                    <option value="">All sections</option>
+                                    <option v-for="s in visibleSections" :key="s.id" :value="s.id">{{ s.name }}</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div v-if="activeFilterCount > 0" class="flex items-center justify-between gap-2 pt-2 border-t border-base-200">
+                            <span class="text-xs text-base-content/55">
+                                <span class="font-bold text-base-content">{{ activeFilterCount }}</span>
+                                filter{{ activeFilterCount === 1 ? '' : 's' }} applied
+                                · {{ filteredStudents.length }} student{{ filteredStudents.length === 1 ? '' : 's' }} match
+                            </span>
+                            <button type="button" @click="clearFilters" class="btn btn-ghost btn-xs gap-1 text-base-content/65">
+                                <XMarkIcon class="w-3.5 h-3.5" /> Clear all
+                            </button>
+                        </div>
                     </div>
+                </Transition>
 
-                    <div v-if="!filteredStudents.length" class="py-10 text-center text-sm text-base-content/40">
-                        No students found.
-                    </div>
-                    <div v-else class="max-h-[500px] overflow-y-auto">
-                        <ul class="space-y-1.5">
-                            <li v-for="s in filteredStudents" :key="s.id">
-                                <button
-                                    class="flex w-full items-center gap-3 rounded-xl border border-base-200 bg-base-100 px-4 py-3 text-left transition-all hover:border-primary/40 hover:bg-primary/5"
-                                    @click="pickStudent(s)"
-                                >
-                                    <div class="avatar-initial h-10 w-10 text-xs">
-                                        {{ s.name?.charAt(0)?.toUpperCase() || '?' }}
-                                    </div>
-                                    <div class="min-w-0 flex-1">
-                                        <p class="truncate text-sm font-semibold">{{ s.name }}</p>
-                                        <p class="text-xs text-base-content/50">
-                                            <span v-if="s.admission_no">{{ s.admission_no }} &middot; </span>
-                                            <span v-if="s.school_name">{{ s.school_name }} &middot; </span>
-                                            {{ s.class_name }}<span v-if="s.section_name"> - {{ s.section_name }}</span>
-                                        </p>
-                                    </div>
-                                </button>
-                            </li>
-                        </ul>
-                    </div>
+                <!-- Result count strip -->
+                <div class="px-5 sm:px-6 py-3 border-b border-base-200 flex items-center justify-between text-xs text-base-content/55">
+                    <span>
+                        <span class="font-bold text-base-content tabular-nums">{{ filteredStudents.length }}</span>
+                        of {{ students.length }} students
+                        <span v-if="search">matching "{{ search }}"</span>
+                    </span>
+                    <span v-if="students.length >= 500" class="text-warning font-semibold">
+                        Showing first 500 — narrow with filters for older entries
+                    </span>
                 </div>
-            </div>
+
+                <div v-if="!filteredStudents.length" class="py-16 text-center">
+                    <UserCircleIcon class="w-12 h-12 text-base-content/20 mx-auto mb-2" />
+                    <p class="text-sm font-medium text-base-content/55">No students match your filters</p>
+                    <p class="text-xs text-base-content/40 mt-1">Try a different search term or clear the filters.</p>
+                </div>
+
+                <!-- Picker table — sticky header so headers don't scroll away -->
+                <div v-else class="table-sticky-wrap" style="--table-max-h: 60vh;">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Student</th>
+                                <th class="hidden sm:table-cell">Adm. No</th>
+                                <th class="hidden md:table-cell">Roll</th>
+                                <th v-if="isSuperAdmin" class="hidden lg:table-cell">School</th>
+                                <th>Class / Section</th>
+                                <th class="text-right"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="s in filteredStudents" :key="s.id"
+                                class="cursor-pointer"
+                                @click="pickStudent(s)">
+                                <td>
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-700 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                            {{ s.name?.charAt(0)?.toUpperCase() || '?' }}
+                                        </div>
+                                        <div class="min-w-0">
+                                            <div class="font-bold text-sm truncate">{{ s.name }}</div>
+                                            <div class="text-[10px] text-base-content/55 sm:hidden mt-0.5 truncate">
+                                                {{ s.admission_no }} · {{ s.class_name }}<span v-if="s.section_name">-{{ s.section_name }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="hidden sm:table-cell"><span class="font-mono text-xs text-base-content/75">{{ s.admission_no || '—' }}</span></td>
+                                <td class="hidden md:table-cell text-[13px] text-base-content/75 tabular-nums">{{ s.roll_no || '—' }}</td>
+                                <td v-if="isSuperAdmin" class="hidden lg:table-cell text-[13px] text-base-content/75 truncate max-w-[180px]" :title="s.school_name">
+                                    <div class="inline-flex items-center gap-1.5">
+                                        <BuildingLibraryIcon class="w-3.5 h-3.5 text-base-content/40 flex-shrink-0" />
+                                        <span class="truncate">{{ s.school_name || '—' }}</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge badge-outline badge-sm font-bold">{{ s.class_name || '—' }}</span>
+                                    <span v-if="s.section_name" class="badge badge-ghost badge-sm ml-1">{{ s.section_name }}</span>
+                                </td>
+                                <td class="text-right">
+                                    <ArrowRightIcon class="w-4 h-4 text-base-content/30" />
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
 
             <!-- Student Info -->
             <div v-if="student" class="card-section">
@@ -275,8 +397,8 @@ const maxPct = computed(() => {
                         </div>
                     </div>
 
-                    <div class="overflow-x-auto">
-                        <table class="table-clean">
+                    <div class="table-sticky-wrap" style="--table-max-h: 60vh;">
+                        <table class="table">
                             <thead>
                                 <tr>
                                     <th>Session</th>
@@ -291,15 +413,15 @@ const maxPct = computed(() => {
                             </thead>
                             <tbody>
                                 <tr v-for="(t, i) in trend" :key="i">
-                                    <td class="text-xs">{{ t.session_name }}</td>
-                                    <td class="text-xs font-semibold">{{ t.exam_name }}</td>
-                                    <td class="text-xs text-base-content/60">{{ t.exam_date || '-' }}</td>
-                                    <td class="text-right text-xs">{{ Number(t.obtained_marks).toFixed(0) }} / {{ Number(t.total_marks).toFixed(0) }}</td>
-                                    <td class="text-right text-xs font-bold" :class="pctTextColor(t.percentage)">
+                                    <td class="text-[12px] text-base-content/75">{{ t.session_name }}</td>
+                                    <td class="text-[13px] font-bold">{{ t.exam_name }}</td>
+                                    <td class="text-[12px] text-base-content/65 whitespace-nowrap tabular-nums">{{ formatDate(t.exam_date) || '—' }}</td>
+                                    <td class="text-right text-[12px] font-mono tabular-nums">{{ formatNumber(t.obtained_marks, { decimals: 0 }) }} / {{ formatNumber(t.total_marks, { decimals: 0 }) }}</td>
+                                    <td class="text-right text-[13px] font-bold tabular-nums" :class="pctTextColor(t.percentage)">
                                         {{ Number(t.percentage).toFixed(2) }}%
                                     </td>
-                                    <td><span class="badge badge-sm" :class="gradeBadge(t.grade)">{{ t.grade || '-' }}</span></td>
-                                    <td class="text-right text-xs">{{ t.position || '-' }}</td>
+                                    <td><span class="badge badge-sm" :class="gradeBadge(t.grade)">{{ t.grade || '—' }}</span></td>
+                                    <td class="text-right text-[12px] font-mono tabular-nums">{{ t.position || '—' }}</td>
                                     <td>
                                         <span class="badge badge-sm" :class="t.is_passed ? 'badge-success' : 'badge-error'">
                                             {{ t.is_passed ? 'Passed' : 'Failed' }}
@@ -320,3 +442,21 @@ const maxPct = computed(() => {
         </div>
     </AppLayout>
 </template>
+
+<style scoped>
+.filter-panel-enter-active,
+.filter-panel-leave-active {
+    transition: opacity 0.2s ease, max-height 0.25s ease;
+    overflow: hidden;
+}
+.filter-panel-enter-from,
+.filter-panel-leave-to {
+    opacity: 0;
+    max-height: 0;
+}
+.filter-panel-enter-to,
+.filter-panel-leave-from {
+    opacity: 1;
+    max-height: 400px;
+}
+</style>

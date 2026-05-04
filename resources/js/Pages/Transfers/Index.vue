@@ -16,6 +16,7 @@ import {
     XCircleIcon,
     CheckIcon,
 } from '@heroicons/vue/24/outline'
+import { formatDate, formatStatus } from '@/Utils/format'
 
 const props = defineProps({
     transfers: { type: Object, required: true },
@@ -82,15 +83,6 @@ function submitReject() {
     })
 }
 
-function fmtDate(value) {
-    if (!value) return '-'
-    try {
-        return new Date(value).toLocaleDateString()
-    } catch (e) {
-        return value
-    }
-}
-
 function typeLabel(t) {
     return t === 'intra_school' ? 'Intra-School' : 'Inter-School'
 }
@@ -115,161 +107,120 @@ function typeLabel(t) {
 
             <!-- Stats -->
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div class="card bg-base-100 shadow-sm border border-base-200">
-                    <div class="card-body p-4 flex flex-row items-center gap-4">
-                        <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-warning/10 text-warning">
-                            <ClockIcon class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Pending</p>
-                            <p class="text-xl font-bold">{{ stats.pending ?? 0 }}</p>
-                        </div>
+                <div class="surface !p-4 flex flex-row items-center gap-4">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-warning/15 text-warning">
+                        <ClockIcon class="h-5 w-5" />
+                    </div>
+                    <div>
+                        <p class="section-eyebrow">Pending</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ stats.pending ?? 0 }}</p>
                     </div>
                 </div>
-                <div class="card bg-base-100 shadow-sm border border-base-200">
-                    <div class="card-body p-4 flex flex-row items-center gap-4">
-                        <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-success/10 text-success">
-                            <CheckCircleIcon class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Completed (Month)</p>
-                            <p class="text-xl font-bold">{{ stats.completed_this_month ?? 0 }}</p>
-                        </div>
+                <div class="surface !p-4 flex flex-row items-center gap-4">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-success/15 text-success">
+                        <CheckCircleIcon class="h-5 w-5" />
+                    </div>
+                    <div>
+                        <p class="section-eyebrow">Completed (Month)</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ stats.completed_this_month ?? 0 }}</p>
                     </div>
                 </div>
-                <div class="card bg-base-100 shadow-sm border border-base-200">
-                    <div class="card-body p-4 flex flex-row items-center gap-4">
-                        <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                            <BuildingOffice2Icon class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Inter-School</p>
-                            <p class="text-xl font-bold">{{ stats.inter_school ?? 0 }}</p>
-                        </div>
+                <div class="surface !p-4 flex flex-row items-center gap-4">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                        <BuildingOffice2Icon class="h-5 w-5" />
+                    </div>
+                    <div>
+                        <p class="section-eyebrow">Inter-School</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ stats.inter_school ?? 0 }}</p>
                     </div>
                 </div>
-                <div class="card bg-base-100 shadow-sm border border-base-200">
-                    <div class="card-body p-4 flex flex-row items-center gap-4">
-                        <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary/10 text-secondary">
-                            <BuildingOfficeIcon class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Intra-School</p>
-                            <p class="text-xl font-bold">{{ stats.intra_school ?? 0 }}</p>
-                        </div>
+                <div class="surface !p-4 flex flex-row items-center gap-4">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary/15 text-secondary">
+                        <BuildingOfficeIcon class="h-5 w-5" />
+                    </div>
+                    <div>
+                        <p class="section-eyebrow">Intra-School</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ stats.intra_school ?? 0 }}</p>
                     </div>
                 </div>
             </div>
 
             <!-- Table -->
-            <div class="card bg-base-100 shadow-sm border border-base-200">
-                <div class="card-body p-0">
-                    <div v-if="transfers.data && transfers.data.length" class="overflow-x-auto">
-                        <table class="table table-zebra">
-                            <thead>
-                                <tr>
-                                    <th>Student</th>
-                                    <th>From</th>
-                                    <th>To</th>
-                                    <th>Type</th>
-                                    <th>Status</th>
-                                    <th>Initiated</th>
-                                    <th class="text-right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="t in transfers.data" :key="t.id">
-                                    <td>
-                                        <div class="font-medium text-sm">{{ t.student?.name || '—' }}</div>
-                                        <div class="text-2xs text-base-content/50">
-                                            Adm: {{ t.student?.admission_no || '-' }}
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div class="text-sm">{{ t.from_school?.name || '-' }}</div>
-                                        <div class="text-2xs text-base-content/50">
-                                            {{ t.from_class?.name || '-' }}
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div class="text-sm">{{ t.to_school?.name || '-' }}</div>
-                                        <div class="text-2xs text-base-content/50">
-                                            {{ t.to_class?.name || '-' }}
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <span class="badge badge-sm" :class="TYPE_BADGE[t.type] || 'badge-ghost'">
-                                            {{ typeLabel(t.type) }}
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <span class="badge badge-sm capitalize" :class="STATUS_BADGE[t.status] || 'badge-ghost'">
-                                            {{ t.status }}
-                                        </span>
-                                    </td>
-                                    <td class="text-xs">
-                                        <div>{{ fmtDate(t.initiated_at) }}</div>
-                                        <div class="text-base-content/50">{{ t.initiated_by?.name || '-' }}</div>
-                                    </td>
-                                    <td>
-                                        <div class="flex justify-end gap-1">
-                                            <button
-                                                v-if="canApprove(t)"
-                                                type="button"
-                                                class="btn btn-ghost btn-xs gap-1 text-info"
-                                                @click="approve(t)"
-                                            >
-                                                <CheckIcon class="h-3.5 w-3.5" />
-                                                Approve
-                                            </button>
-                                            <button
-                                                v-if="canComplete(t)"
-                                                type="button"
-                                                class="btn btn-ghost btn-xs gap-1 text-success"
-                                                @click="complete(t)"
-                                            >
-                                                <CheckCircleIcon class="h-3.5 w-3.5" />
-                                                Complete
-                                            </button>
-                                            <button
-                                                v-if="canReject(t)"
-                                                type="button"
-                                                class="btn btn-ghost btn-xs gap-1 text-error"
-                                                @click="openReject(t)"
-                                            >
-                                                <XCircleIcon class="h-3.5 w-3.5" />
-                                                Reject
-                                            </button>
-                                            <Link
-                                                v-if="t.student?.id"
-                                                :href="route('students.show', t.student.id)"
-                                                class="btn btn-ghost btn-xs gap-1"
-                                            >
-                                                <EyeIcon class="h-3.5 w-3.5" />
-                                                View
-                                            </Link>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+            <section class="surface overflow-hidden">
+                <div class="table-sticky-wrap" style="--table-max-h: 65vh;" v-if="transfers.data && transfers.data.length">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Student</th>
+                                <th>From</th>
+                                <th>To</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>Initiated</th>
+                                <th class="text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="t in transfers.data" :key="t.id">
+                                <td>
+                                    <div class="font-bold text-sm">{{ t.student?.name || '—' }}</div>
+                                    <div class="text-[11px] text-base-content/55 font-mono">Adm: {{ t.student?.admission_no || '—' }}</div>
+                                </td>
+                                <td>
+                                    <div class="text-[13px] truncate max-w-[180px]" :title="t.from_school?.name">{{ t.from_school?.name || '—' }}</div>
+                                    <div class="text-[11px] text-base-content/55">{{ t.from_class?.name || '—' }}</div>
+                                </td>
+                                <td>
+                                    <div class="text-[13px] truncate max-w-[180px]" :title="t.to_school?.name">{{ t.to_school?.name || '—' }}</div>
+                                    <div class="text-[11px] text-base-content/55">{{ t.to_class?.name || '—' }}</div>
+                                </td>
+                                <td>
+                                    <span class="badge badge-sm whitespace-nowrap" :class="TYPE_BADGE[t.type] || 'badge-ghost'">
+                                        {{ typeLabel(t.type) }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge badge-sm whitespace-nowrap" :class="STATUS_BADGE[t.status] || 'badge-ghost'">
+                                        {{ formatStatus(t.status) }}
+                                    </span>
+                                </td>
+                                <td class="text-[12px] whitespace-nowrap">
+                                    <div class="tabular-nums">{{ formatDate(t.initiated_at) }}</div>
+                                    <div class="text-base-content/55">{{ t.initiated_by?.name || '—' }}</div>
+                                </td>
+                                <td>
+                                    <div class="flex justify-end gap-1">
+                                        <button v-if="canApprove(t)" type="button" class="btn btn-ghost btn-xs gap-1 text-info" @click="approve(t)">
+                                            <CheckIcon class="h-3.5 w-3.5" /> Approve
+                                        </button>
+                                        <button v-if="canComplete(t)" type="button" class="btn btn-ghost btn-xs gap-1 text-success" @click="complete(t)">
+                                            <CheckCircleIcon class="h-3.5 w-3.5" /> Complete
+                                        </button>
+                                        <button v-if="canReject(t)" type="button" class="btn btn-ghost btn-xs gap-1 text-error" @click="openReject(t)">
+                                            <XCircleIcon class="h-3.5 w-3.5" /> Reject
+                                        </button>
+                                        <Link v-if="t.student?.id" :href="route('students.show', t.student.id)" class="btn btn-ghost btn-xs btn-square" title="View student">
+                                            <EyeIcon class="h-3.5 w-3.5" />
+                                        </Link>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
 
-                    <EmptyState
-                        v-else
-                        title="No transfers yet"
-                        description="Student transfers will appear here once initiated from a student profile."
-                    />
-                </div>
-                <div v-if="transfers.data && transfers.data.length" class="px-4 pb-4">
-                    <Pagination
-                        :links="transfers.links"
-                        :from="transfers.from"
-                        :to="transfers.to"
-                        :total="transfers.total"
-                    />
-                </div>
-            </div>
+                <EmptyState v-else
+                    title="No transfers yet"
+                    description="Student transfers will appear here once initiated from a student profile." />
+
+                <footer v-if="transfers.data?.length && transfers.last_page > 1" class="surface-footer">
+                    <span class="text-xs text-base-content/55 font-medium">
+                        Showing <span class="text-base-content font-bold">{{ transfers.from }}–{{ transfers.to }}</span>
+                        of <span class="text-base-content font-bold">{{ transfers.total }}</span>
+                    </span>
+                    <Pagination :links="transfers.links" :from="transfers.from" :to="transfers.to" :total="transfers.total" />
+                </footer>
+            </section>
         </div>
 
         <!-- Reject Modal -->

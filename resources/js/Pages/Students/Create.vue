@@ -7,6 +7,9 @@ import FileUpload from '@/Components/FileUpload.vue'
 import { Head, useForm, Link } from '@inertiajs/vue3'
 import { invalidatePageCache } from '@/Composables/useCacheInvalidation'
 
+// today in YYYY-MM-DD for the DOB max — students obviously can't be born in the future.
+const today = new Date().toISOString().slice(0, 10)
+
 const props = defineProps({
     student: Object,
     schools: Array,
@@ -63,86 +66,120 @@ function submit() {
     <Head :title="isEdit ? 'Edit Student' : 'Add Student'" />
     <AppLayout :breadcrumbs="[{ label: 'Students', href: route('students.index') }, { label: isEdit ? 'Edit' : 'Create' }]">
         <div class="max-w-4xl mx-auto">
-            <h1 class="text-2xl font-bold mb-6">{{ isEdit ? 'Edit Student' : 'Add New Student' }}</h1>
+            <div class="mb-5">
+                <h1 class="text-2xl font-extrabold tracking-tight">{{ isEdit ? 'Edit Student' : 'Add New Student' }}</h1>
+                <p class="text-sm text-base-content/55 mt-1">
+                    {{ isEdit ? 'Update student information below.' : 'Fill in essential details, then optional info.' }}
+                </p>
+            </div>
 
-            <form @submit.prevent="submit" class="card bg-base-100 shadow-md">
-                <div class="card-body space-y-6">
-                    <!-- Basic Info -->
-                    <h3 class="text-lg font-semibold border-b border-base-200 pb-2">Basic Information</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <FormInput v-model="form.admission_no" label="Admission No" :error="form.errors.admission_no" required />
-                        <FormInput v-model="form.roll_no" label="Roll No" :error="form.errors.roll_no" />
-                        <FormInput v-model="form.name" label="Student Name" :error="form.errors.name" required />
-                    </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <FormInput v-model="form.father_name" label="Father's Name" :error="form.errors.father_name" />
-                        <FormInput v-model="form.mother_name" label="Mother's Name" :error="form.errors.mother_name" />
-                        <FormInput v-model="form.guardian_phone" label="Guardian Phone" :error="form.errors.guardian_phone" />
-                    </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <FormInput v-model="form.date_of_birth" label="Date of Birth" type="date" :error="form.errors.date_of_birth" />
-                        <FormSelect v-model="form.gender" label="Gender" :error="form.errors.gender" :options="[
-                            { value: 'male', label: 'Male' },
-                            { value: 'female', label: 'Female' },
-                            { value: 'other', label: 'Other' },
-                        ]" />
-                        <FormSelect v-model="form.blood_group" label="Blood Group" :error="form.errors.blood_group" :options="[
-                            { value: '', label: 'Select' },
-                            { value: 'A+', label: 'A+' }, { value: 'A-', label: 'A-' },
-                            { value: 'B+', label: 'B+' }, { value: 'B-', label: 'B-' },
-                            { value: 'AB+', label: 'AB+' }, { value: 'AB-', label: 'AB-' },
-                            { value: 'O+', label: 'O+' }, { value: 'O-', label: 'O-' },
-                        ]" />
-                    </div>
-
-                    <!-- Class/Section -->
-                    <h3 class="text-lg font-semibold border-b border-base-200 pb-2">Academic Details</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <FormSelect v-model="form.school_id" label="School" :error="form.errors.school_id" required
-                            :options="schools?.map(s => ({ value: s.id, label: s.name })) || []" placeholder="Select School" />
-                        <FormSelect v-model="form.school_class_id" label="Class" :error="form.errors.school_class_id" required
-                            :options="classes?.filter(c => !form.school_id || c.school_id == form.school_id).map(c => ({ value: c.id, label: c.name })) || []" placeholder="Select Class" />
-                        <FormSelect v-model="form.section_id" label="Section" :error="form.errors.section_id" required
-                            :options="sections?.filter(s => !form.school_class_id || s.school_class_id == form.school_class_id).map(s => ({ value: s.id, label: s.name })) || []" placeholder="Select Section" />
-                    </div>
-
-                    <!-- Additional -->
-                    <h3 class="text-lg font-semibold border-b border-base-200 pb-2">Additional Details</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <FormInput v-model="form.religion" label="Religion" placeholder="Islam" :error="form.errors.religion" />
-                        <FormInput v-model="form.cnic" label="CNIC / B-Form No"
-                            placeholder="12345-1234567-1"
-                            help-text="Pakistani CNIC for adults; B-Form number for minors."
-                            :error="form.errors.cnic" />
-                    </div>
-                    <div>
-                        <label class="text-[12px] font-semibold text-base-content/75 mb-1.5 block">Student Photo</label>
-                        <!-- Show the current photo when editing so the user knows what's already set. -->
-                        <div v-if="isEdit && student?.photo_url && !form.photo"
-                             class="flex items-center gap-4 p-3 rounded-xl bg-base-200/40 mb-3">
-                            <img :src="student.photo_url" alt="Current photo"
-                                 class="h-24 w-24 object-cover rounded-xl" />
-                            <div class="text-xs text-base-content/65">
-                                <div class="font-semibold text-base-content">Current photo</div>
-                                <div class="mt-1">Pick a new file below to replace it.</div>
-                            </div>
+            <form @submit.prevent="submit" class="space-y-5">
+                <!-- ───── Basic Info card ───── -->
+                <section class="surface">
+                    <header class="surface-header">
+                        <h3>
+                            <span class="w-7 h-7 rounded-lg bg-teal-500/15 text-teal-600 dark:text-teal-400 flex items-center justify-center">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                            </span>
+                            Basic Information
+                        </h3>
+                    </header>
+                    <div class="surface-body space-y-5">
+                        <div class="form-grid-3">
+                            <FormInput v-model="form.admission_no" label="Admission No" :error="form.errors.admission_no" required />
+                            <FormInput v-model="form.roll_no" label="Roll No" :error="form.errors.roll_no" />
+                            <FormInput v-model="form.name" label="Student Name" :error="form.errors.name" required />
                         </div>
-                        <FileUpload v-model="form.photo"
-                            accept="image/jpeg,image/png,image/webp"
-                            :max-size="4" :preview="true"
-                            :error="form.errors.photo" />
+                        <div class="form-grid-3">
+                            <FormInput v-model="form.father_name" label="Father's Name" :error="form.errors.father_name" />
+                            <FormInput v-model="form.mother_name" label="Mother's Name" :error="form.errors.mother_name" />
+                            <FormInput v-model="form.guardian_phone" label="Guardian Phone" :error="form.errors.guardian_phone" />
+                        </div>
+                        <div class="form-grid-3">
+                            <FormInput v-model="form.date_of_birth" label="Date of Birth" type="date" :error="form.errors.date_of_birth" :max="today" />
+                            <FormSelect v-model="form.gender" label="Gender" :error="form.errors.gender" :options="[
+                                { value: 'male', label: 'Male' },
+                                { value: 'female', label: 'Female' },
+                                { value: 'other', label: 'Other' },
+                            ]" />
+                            <FormSelect v-model="form.blood_group" label="Blood Group" :error="form.errors.blood_group" :options="[
+                                { value: '', label: 'Select' },
+                                { value: 'A+', label: 'A+' }, { value: 'A-', label: 'A-' },
+                                { value: 'B+', label: 'B+' }, { value: 'B-', label: 'B-' },
+                                { value: 'AB+', label: 'AB+' }, { value: 'AB-', label: 'AB-' },
+                                { value: 'O+', label: 'O+' }, { value: 'O-', label: 'O-' },
+                            ]" />
+                        </div>
                     </div>
-                    <FormTextarea v-model="form.address" label="Address" :error="form.errors.address" :rows="2" />
+                </section>
 
-                    <div class="flex justify-end gap-3 pt-4 border-t border-base-200">
-                        <Link :href="route('students.index')" class="btn btn-ghost">Cancel</Link>
-                        <button type="submit" class="btn btn-primary" :disabled="form.processing">
-                            <span v-if="form.processing" class="loading loading-spinner loading-sm"></span>
-                            {{ isEdit ? 'Update Student' : 'Add Student' }}
-                        </button>
+                <!-- ───── Academic card ───── -->
+                <section class="surface">
+                    <header class="surface-header">
+                        <h3>
+                            <span class="w-7 h-7 rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400 flex items-center justify-center">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 14l9-5-9-5-9 5 9 5z M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z"/></svg>
+                            </span>
+                            Academic Details
+                        </h3>
+                    </header>
+                    <div class="surface-body">
+                        <div class="form-grid-3">
+                            <FormSelect v-model="form.school_id" label="School" :error="form.errors.school_id" required
+                                :options="schools?.map(s => ({ value: s.id, label: s.name })) || []" placeholder="Select School" />
+                            <FormSelect v-model="form.school_class_id" label="Class" :error="form.errors.school_class_id" required
+                                :options="classes?.filter(c => !form.school_id || c.school_id == form.school_id).map(c => ({ value: c.id, label: c.name })) || []" placeholder="Select Class" />
+                            <FormSelect v-model="form.section_id" label="Section" :error="form.errors.section_id" required
+                                :options="sections?.filter(s => !form.school_class_id || s.school_class_id == form.school_class_id).map(s => ({ value: s.id, label: s.name })) || []" placeholder="Select Section" />
+                        </div>
                     </div>
+                </section>
+
+                <!-- ───── Additional / Photo / Address card ───── -->
+                <section class="surface">
+                    <header class="surface-header">
+                        <h3>
+                            <span class="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                            </span>
+                            Additional Details
+                        </h3>
+                    </header>
+                    <div class="surface-body space-y-5">
+                        <div class="form-grid">
+                            <FormInput v-model="form.religion" label="Religion" placeholder="Islam" :error="form.errors.religion" />
+                            <FormInput v-model="form.cnic" label="CNIC / B-Form No"
+                                placeholder="12345-1234567-1"
+                                help-text="Pakistani CNIC for adults; B-Form number for minors."
+                                :error="form.errors.cnic" />
+                        </div>
+                        <div>
+                            <label class="text-[12px] font-semibold text-base-content/75 mb-1.5 block">Student Photo</label>
+                            <div v-if="isEdit && student?.photo_url && !form.photo"
+                                 class="flex items-center gap-4 p-3 rounded-xl bg-base-200/40 mb-3 border border-base-200">
+                                <img :src="student.photo_url" alt="Current photo"
+                                     class="h-24 w-24 object-cover rounded-xl" />
+                                <div class="text-xs text-base-content/65">
+                                    <div class="font-semibold text-base-content">Current photo</div>
+                                    <div class="mt-1">Pick a new file below to replace it.</div>
+                                </div>
+                            </div>
+                            <FileUpload v-model="form.photo"
+                                accept="image/jpeg,image/png,image/webp"
+                                :max-size="4" :preview="true"
+                                :error="form.errors.photo" />
+                        </div>
+                        <FormTextarea v-model="form.address" label="Address" :error="form.errors.address" :rows="2" />
+                    </div>
+                </section>
+
+                <!-- ───── Sticky save bar ───── -->
+                <div class="sticky bottom-4 z-10 surface flex items-center justify-end gap-2 px-4 py-3">
+                    <Link :href="route('students.index')" class="btn btn-ghost btn-sm">Cancel</Link>
+                    <button type="submit" class="btn btn-primary btn-sm gap-1.5" :disabled="form.processing">
+                        <span v-if="form.processing" class="loading loading-spinner loading-xs"></span>
+                        {{ isEdit ? 'Update Student' : 'Add Student' }}
+                    </button>
                 </div>
             </form>
         </div>

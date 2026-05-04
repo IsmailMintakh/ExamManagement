@@ -71,48 +71,40 @@ function statusLabel(exam) {
 
             <!-- Summary Stats -->
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div class="card bg-base-100 shadow-sm border border-base-200">
-                    <div class="card-body p-4 flex flex-row items-center gap-4">
-                        <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                            <ClipboardDocumentListIcon class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Pending Exams</p>
-                            <p class="text-xl font-bold">{{ totals.pending_exams }}</p>
-                        </div>
+                <div class="surface !p-4 flex flex-row items-center gap-4">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                        <ClipboardDocumentListIcon class="h-5 w-5" />
+                    </div>
+                    <div>
+                        <p class="section-eyebrow">Pending Exams</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ totals.pending_exams }}</p>
                     </div>
                 </div>
-                <div class="card bg-base-100 shadow-sm border border-base-200">
-                    <div class="card-body p-4 flex flex-row items-center gap-4">
-                        <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-warning/10 text-warning">
-                            <UserGroupIcon class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Eligible Students</p>
-                            <p class="text-xl font-bold">{{ totals.eligible_students }}</p>
-                        </div>
+                <div class="surface !p-4 flex flex-row items-center gap-4">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-warning/15 text-warning">
+                        <UserGroupIcon class="h-5 w-5" />
+                    </div>
+                    <div>
+                        <p class="section-eyebrow">Eligible Students</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ totals.eligible_students }}</p>
                     </div>
                 </div>
-                <div class="card bg-base-100 shadow-sm border border-base-200">
-                    <div class="card-body p-4 flex flex-row items-center gap-4">
-                        <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-info/10 text-info">
-                            <ClockIcon class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Appeared</p>
-                            <p class="text-xl font-bold">{{ totals.appeared }}</p>
-                        </div>
+                <div class="surface !p-4 flex flex-row items-center gap-4">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-info/15 text-info">
+                        <ClockIcon class="h-5 w-5" />
+                    </div>
+                    <div>
+                        <p class="section-eyebrow">Appeared</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ totals.appeared }}</p>
                     </div>
                 </div>
-                <div class="card bg-base-100 shadow-sm border border-base-200">
-                    <div class="card-body p-4 flex flex-row items-center gap-4">
-                        <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-success/10 text-success">
-                            <CheckCircleIcon class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Passed</p>
-                            <p class="text-xl font-bold">{{ totals.passed }}</p>
-                        </div>
+                <div class="surface !p-4 flex flex-row items-center gap-4">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-success/15 text-success">
+                        <CheckCircleIcon class="h-5 w-5" />
+                    </div>
+                    <div>
+                        <p class="section-eyebrow">Passed</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ totals.passed }}</p>
                     </div>
                 </div>
             </div>
@@ -122,58 +114,50 @@ function statusLabel(exam) {
                 <div
                     v-for="exam in exams"
                     :key="exam.id"
-                    class="card bg-base-100 shadow-sm border border-base-200 hover:border-primary/40 hover:shadow-md transition-all"
+                    class="surface surface-hover !p-5"
                 >
-                    <div class="card-body p-5">
-                        <div class="flex items-start justify-between">
-                            <div class="flex items-center gap-3">
-                                <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                                    <AcademicCapIcon class="h-5 w-5" />
-                                </div>
-                                <div>
-                                    <h3 class="text-base font-bold leading-tight">{{ exam.name }}</h3>
-                                    <p v-if="exam.exam_type" class="text-2xs text-base-content/50 mt-0.5">
-                                        {{ exam.exam_type }}<span v-if="exam.session"> · {{ exam.session }}</span>
-                                    </p>
-                                </div>
-                            </div>
-                            <span class="badge badge-sm" :class="statusBadgeClass(exam)">{{ statusLabel(exam) }}</span>
-                        </div>
-
-                        <div class="mt-4 grid grid-cols-4 gap-2 rounded-lg border border-base-200 bg-base-200/40 p-3 text-center">
-                            <div>
-                                <p class="text-2xs uppercase tracking-wider text-base-content/50">Eligible</p>
-                                <p class="text-lg font-bold">{{ exam.eligible_count }}</p>
+                    <div class="flex items-start justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                                <AcademicCapIcon class="h-5 w-5" />
                             </div>
                             <div>
-                                <p class="text-2xs uppercase tracking-wider text-info/70">Appeared</p>
-                                <p class="text-lg font-bold text-info">{{ exam.appeared_count }}</p>
-                            </div>
-                            <div>
-                                <p class="text-2xs uppercase tracking-wider text-success/70">Passed</p>
-                                <p class="text-lg font-bold text-success">{{ exam.passed_count }}</p>
-                            </div>
-                            <div>
-                                <p class="text-2xs uppercase tracking-wider text-error/70">Failed</p>
-                                <p class="text-lg font-bold text-error">{{ exam.failed_count }}</p>
+                                <h3 class="text-base font-bold leading-tight">{{ exam.name }}</h3>
+                                <p v-if="exam.exam_type" class="text-[11px] text-base-content/55 mt-0.5">
+                                    {{ exam.exam_type }}<span v-if="exam.session"> · {{ exam.session }}</span>
+                                </p>
                             </div>
                         </div>
+                        <span class="badge badge-sm" :class="statusBadgeClass(exam)">{{ statusLabel(exam) }}</span>
+                    </div>
 
-                        <div class="card-actions mt-4">
-                            <Link
-                                :href="route('supplementary.show', exam.id)"
-                                class="btn btn-primary btn-sm w-full gap-2"
-                            >
-                                <ArrowPathIcon class="h-4 w-4" />
-                                Manage
-                            </Link>
+                    <div class="mt-4 grid grid-cols-4 gap-2 rounded-lg border border-base-200 bg-base-200/40 p-3 text-center">
+                        <div>
+                            <p class="section-eyebrow">Eligible</p>
+                            <p class="text-lg font-extrabold tabular-nums">{{ exam.eligible_count }}</p>
+                        </div>
+                        <div>
+                            <p class="section-eyebrow text-info/70">Appeared</p>
+                            <p class="text-lg font-extrabold text-info tabular-nums">{{ exam.appeared_count }}</p>
+                        </div>
+                        <div>
+                            <p class="section-eyebrow text-success/70">Passed</p>
+                            <p class="text-lg font-extrabold text-success tabular-nums">{{ exam.passed_count }}</p>
+                        </div>
+                        <div>
+                            <p class="section-eyebrow text-error/70">Failed</p>
+                            <p class="text-lg font-extrabold text-error tabular-nums">{{ exam.failed_count }}</p>
                         </div>
                     </div>
+
+                    <Link :href="route('supplementary.show', exam.id)" class="btn btn-primary btn-sm w-full gap-2 mt-4">
+                        <ArrowPathIcon class="h-4 w-4" /> Manage
+                    </Link>
                 </div>
             </div>
 
-            <div v-else class="card bg-base-100 shadow-sm border border-base-200">
-                <div class="card-body p-8 text-center">
+            <div v-else class="surface">
+                <div class="surface-body !p-8 text-center">
                     <div class="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary mx-auto mb-4">
                         <ArrowPathIcon class="h-8 w-8" />
                     </div>

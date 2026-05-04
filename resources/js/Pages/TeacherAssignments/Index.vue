@@ -5,9 +5,10 @@ import SearchFilter from '@/Components/SearchFilter.vue'
 import FormSelect from '@/Components/FormSelect.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
 import EmptyState from '@/Components/EmptyState.vue'
-import { Head, Link, router, useForm } from '@inertiajs/vue3'
+import { Head, router, useForm } from '@inertiajs/vue3'
 import { ref } from 'vue'
 import { PlusIcon, TrashIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { useDebouncedSearch } from '@/Composables/useDebouncedSearch'
 
 const props = defineProps({
     assignments: Object,
@@ -20,7 +21,12 @@ const props = defineProps({
     currentSession: Object,
 })
 
-const search = ref(props.filters?.search || '')
+const search = useDebouncedSearch({
+    routeName: 'teacher-assignments.index',
+    initial: props.filters?.search || '',
+    only: ['assignments', 'filters'],
+    delay: 0,
+})
 const confirmDelete = ref(false)
 const assignmentToDelete = ref(null)
 const showForm = ref(false)
@@ -32,10 +38,6 @@ const form = useForm({
     section_id: '',
     academic_session_id: props.currentSession?.id || '',
 })
-
-function handleSearch(val) {
-    router.get(route('teacher-assignments.index'), { search: val }, { preserveState: true, replace: true })
-}
 
 function confirmDeleteAssignment(assignment) {
     assignmentToDelete.value = assignment
@@ -63,20 +65,33 @@ function submitForm() {
 <template>
     <Head title="Teacher Assignments" />
     <AppLayout :breadcrumbs="[{ label: 'Teacher Assignments' }]">
-        <div class="space-y-4">
+        <div class="space-y-5">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <h1 class="text-2xl font-bold">Teacher Assignments</h1>
-                <button @click="showForm = !showForm" class="btn btn-primary gap-2">
-                    <PlusIcon v-if="!showForm" class="w-5 h-5" />
-                    <XMarkIcon v-else class="w-5 h-5" />
+                <div>
+                    <h1 class="text-2xl font-extrabold tracking-tight">Teacher Assignments</h1>
+                    <p class="text-sm text-base-content/55 mt-0.5">
+                        {{ assignments?.total || 0 }} assignment{{ (assignments?.total || 0) === 1 ? '' : 's' }}
+                        <span v-if="search">matching "{{ search }}"</span>
+                    </p>
+                </div>
+                <button @click="showForm = !showForm" class="btn btn-primary btn-sm gap-1.5">
+                    <PlusIcon v-if="!showForm" class="w-4 h-4" />
+                    <XMarkIcon v-else class="w-4 h-4" />
                     {{ showForm ? 'Cancel' : 'Add Assignment' }}
                 </button>
             </div>
 
             <!-- Inline Add Form -->
-            <div v-if="showForm" class="card bg-base-100 shadow-md border-2 border-primary/20">
-                <div class="card-body">
-                    <h3 class="text-lg font-semibold mb-4">New Teacher Assignment</h3>
+            <section v-if="showForm" class="surface surface-accent-left">
+                <header class="surface-header">
+                    <h3>
+                        <span class="w-7 h-7 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
+                            <PlusIcon class="w-4 h-4" />
+                        </span>
+                        New Teacher Assignment
+                    </h3>
+                </header>
+                <div class="surface-body">
                     <form @submit.prevent="submitForm" class="space-y-4">
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             <FormSelect v-model="form.user_id" label="Teacher" :error="form.errors.user_id" required
@@ -90,66 +105,74 @@ function submitForm() {
                             <FormSelect v-model="form.academic_session_id" label="Session" :error="form.errors.academic_session_id" required
                                 :options="sessions?.map(s => ({ value: s.id, label: s.name })) || []" placeholder="Select Session" />
                         </div>
-                        <div class="flex justify-end gap-3">
-                            <button type="button" @click="showForm = false" class="btn btn-ghost">Cancel</button>
-                            <button type="submit" class="btn btn-primary" :disabled="form.processing">
-                                <span v-if="form.processing" class="loading loading-spinner loading-sm"></span>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" @click="showForm = false" class="btn btn-ghost btn-sm">Cancel</button>
+                            <button type="submit" class="btn btn-primary btn-sm" :disabled="form.processing">
+                                <span v-if="form.processing" class="loading loading-spinner loading-xs"></span>
                                 Save Assignment
                             </button>
                         </div>
                     </form>
                 </div>
-            </div>
+            </section>
 
-            <div class="card bg-base-100 shadow-md">
-                <div class="card-body">
-                    <SearchFilter v-model="search" @update:model-value="handleSearch" />
-
-                    <div class="overflow-x-auto mt-4" v-if="assignments?.data?.length">
-                        <table class="table table-zebra">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Teacher</th>
-                                    <th>Subject</th>
-                                    <th>Class</th>
-                                    <th>Section</th>
-                                    <th>Session</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="(assignment, i) in assignments.data" :key="assignment.id">
-                                    <td>{{ assignments.from + i }}</td>
-                                    <td>
-                                        <div class="flex items-center gap-2">
-                                            <div class="avatar placeholder">
-                                                <div class="bg-neutral text-neutral-content rounded-full w-8 h-8">
-                                                    <span class="text-xs">{{ assignment.user?.name?.charAt(0) }}</span>
-                                                </div>
-                                            </div>
-                                            <span class="font-medium text-sm">{{ assignment.user?.name || '-' }}</span>
-                                        </div>
-                                    </td>
-                                    <td class="text-sm">{{ assignment.subject?.name || '-' }}</td>
-                                    <td class="text-sm">{{ assignment.school_class?.name || '-' }}</td>
-                                    <td class="text-sm">{{ assignment.section?.name || '-' }}</td>
-                                    <td class="text-sm">{{ assignment.academic_session?.name || '-' }}</td>
-                                    <td>
-                                        <button @click="confirmDeleteAssignment(assignment)" class="btn btn-ghost btn-xs text-error">
-                                            <TrashIcon class="w-4 h-4" />
-                                        </button>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <div class="mt-4">
-                            <Pagination :links="assignments.links" />
-                        </div>
+            <section class="surface overflow-hidden">
+                <header class="surface-header">
+                    <div class="flex-1 max-w-md">
+                        <SearchFilter v-model="search" placeholder="Search assignments…" />
                     </div>
-                    <EmptyState v-else title="No teacher assignments found" description="Assign teachers to subjects and classes to get started." />
+                </header>
+
+                <div class="table-sticky-wrap" style="--table-max-h: 65vh;" v-if="assignments?.data?.length">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th class="w-12">#</th>
+                                <th>Teacher</th>
+                                <th>Subject</th>
+                                <th>Class</th>
+                                <th>Section</th>
+                                <th>Session</th>
+                                <th class="text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="(assignment, i) in assignments.data" :key="assignment.id">
+                                <td class="text-xs font-mono text-base-content/55 tabular-nums">{{ assignments.from + i }}</td>
+                                <td>
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-slate-500 to-slate-700 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                            {{ assignment.user?.name?.charAt(0)?.toUpperCase() }}
+                                        </div>
+                                        <span class="font-bold text-sm truncate">{{ assignment.user?.name || '—' }}</span>
+                                    </div>
+                                </td>
+                                <td class="text-[13px] text-base-content/75">{{ assignment.subject?.name || '—' }}</td>
+                                <td class="text-[13px] text-base-content/75">{{ assignment.school_class?.name || '—' }}</td>
+                                <td class="text-[13px] text-base-content/75">{{ assignment.section?.name || '—' }}</td>
+                                <td class="text-[13px] text-base-content/75">{{ assignment.academic_session?.name || '—' }}</td>
+                                <td class="text-right whitespace-nowrap">
+                                    <button @click="confirmDeleteAssignment(assignment)" class="btn btn-ghost btn-xs btn-square text-error" title="Remove">
+                                        <TrashIcon class="w-4 h-4" />
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
-            </div>
+
+                <EmptyState v-if="!assignments?.data?.length"
+                    title="No teacher assignments found"
+                    :description="search ? 'Try a different search term.' : 'Assign teachers to subjects and classes to get started.'" />
+
+                <footer v-if="assignments?.data?.length && assignments.last_page > 1" class="surface-footer">
+                    <span class="text-xs text-base-content/55 font-medium">
+                        Showing <span class="text-base-content font-bold">{{ assignments.from }}–{{ assignments.to }}</span>
+                        of <span class="text-base-content font-bold">{{ assignments.total }}</span>
+                    </span>
+                    <Pagination :links="assignments.links" />
+                </footer>
+            </section>
         </div>
 
         <ConfirmDialog

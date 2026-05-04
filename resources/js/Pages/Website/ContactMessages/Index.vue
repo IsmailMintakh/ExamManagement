@@ -8,6 +8,7 @@ import {
     EnvelopeIcon, EnvelopeOpenIcon, MagnifyingGlassIcon,
     ArchiveBoxIcon, TrashIcon, ArrowUturnLeftIcon, InboxIcon, ChevronRightIcon,
 } from '@heroicons/vue/24/outline'
+import { formatRelative } from '@/Utils/format'
 
 const props = defineProps({
     messages: { type: Object, default: () => ({ data: [] }) },
@@ -56,17 +57,6 @@ function bulk(action) {
         { preserveScroll: true, onSuccess: () => { selected.value = new Set() } })
 }
 
-function fmt(d) {
-    if (!d) return ''
-    const dt = new Date(d)
-    const now = new Date()
-    const diffMs = now - dt
-    const days = Math.floor(diffMs / 86400000)
-    if (days === 0) return dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-    if (days === 1) return 'Yesterday'
-    if (days < 7) return `${days} days ago`
-    return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-}
 </script>
 
 <template>
@@ -139,53 +129,61 @@ function fmt(d) {
                 description="When visitors submit the public Contact form, their messages will land here." />
 
             <template v-else>
-                <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden">
-                    <table class="table table-sm">
-                        <thead>
-                            <tr class="text-[11px] uppercase tracking-wider text-base-content/50">
-                                <th class="w-10 text-center">
-                                    <input type="checkbox" class="checkbox checkbox-xs"
-                                        :checked="selected.size === messages.data.length && messages.data.length > 0"
-                                        @change="selectAll" />
-                                </th>
-                                <th class="w-10"></th>
-                                <th>From</th>
-                                <th>Subject &amp; Preview</th>
-                                <th class="w-28">Received</th>
-                                <th class="w-10"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="m in messages.data" :key="m.id"
-                                class="hover cursor-pointer"
-                                :class="!m.is_read && !m.is_archived ? 'font-semibold bg-emerald-50/30' : ''"
-                                @click="$inertia.visit(route('website.contact-messages.show', m.id))">
-                                <td @click.stop class="text-center">
-                                    <input type="checkbox" class="checkbox checkbox-xs"
-                                        :checked="selected.has(m.id)" @change="toggleSelected(m.id)" />
-                                </td>
-                                <td>
-                                    <EnvelopeIcon v-if="!m.is_read && !m.is_archived" class="w-4 h-4 text-emerald-600" />
-                                    <EnvelopeOpenIcon v-else class="w-4 h-4 text-base-content/30" />
-                                </td>
-                                <td>
-                                    <div class="text-sm truncate max-w-[140px]">{{ m.name }}</div>
-                                    <div class="text-[11px] text-base-content/55 truncate max-w-[180px]">{{ m.email }}</div>
-                                </td>
-                                <td>
-                                    <div class="text-sm truncate max-w-md">{{ m.subject || '(No subject)' }}</div>
-                                    <div class="text-[11px] text-base-content/55 truncate max-w-md mt-0.5">{{ m.message }}</div>
-                                </td>
-                                <td class="text-xs text-base-content/60 whitespace-nowrap">{{ fmt(m.created_at) }}</td>
-                                <td>
-                                    <ChevronRightIcon class="w-4 h-4 text-base-content/30" />
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+                <section class="surface overflow-hidden">
+                    <div class="table-sticky-wrap" style="--table-max-h: 65vh;">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th class="w-10 text-center">
+                                        <input type="checkbox" class="checkbox checkbox-xs"
+                                            :checked="selected.size === messages.data.length && messages.data.length > 0"
+                                            @change="selectAll" />
+                                    </th>
+                                    <th class="w-10"></th>
+                                    <th>From</th>
+                                    <th>Subject &amp; Preview</th>
+                                    <th class="w-28">Received</th>
+                                    <th class="w-10"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="m in messages.data" :key="m.id"
+                                    class="cursor-pointer"
+                                    :class="!m.is_read && !m.is_archived ? 'font-semibold' : ''"
+                                    @click="$inertia.visit(route('website.contact-messages.show', m.id))">
+                                    <td @click.stop class="text-center">
+                                        <input type="checkbox" class="checkbox checkbox-xs"
+                                            :checked="selected.has(m.id)" @change="toggleSelected(m.id)" />
+                                    </td>
+                                    <td>
+                                        <EnvelopeIcon v-if="!m.is_read && !m.is_archived" class="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                                        <EnvelopeOpenIcon v-else class="w-4 h-4 text-base-content/30" />
+                                    </td>
+                                    <td>
+                                        <div class="text-sm truncate max-w-[140px]">{{ m.name }}</div>
+                                        <div class="text-[11px] text-base-content/55 truncate max-w-[180px]">{{ m.email }}</div>
+                                    </td>
+                                    <td>
+                                        <div class="text-sm truncate max-w-md">{{ m.subject || '(No subject)' }}</div>
+                                        <div class="text-[11px] text-base-content/55 truncate max-w-md mt-0.5">{{ m.message }}</div>
+                                    </td>
+                                    <td class="text-xs text-base-content/65 whitespace-nowrap tabular-nums">{{ formatRelative(m.created_at) }}</td>
+                                    <td>
+                                        <ChevronRightIcon class="w-4 h-4 text-base-content/30" />
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
 
-                <Pagination :links="messages.links" :from="messages.from" :to="messages.to" :total="messages.total" />
+                    <footer v-if="messages.last_page > 1" class="surface-footer">
+                        <span class="text-xs text-base-content/55 font-medium">
+                            Showing <span class="text-base-content font-bold">{{ messages.from }}–{{ messages.to }}</span>
+                            of <span class="text-base-content font-bold">{{ messages.total }}</span>
+                        </span>
+                        <Pagination :links="messages.links" :from="messages.from" :to="messages.to" :total="messages.total" />
+                    </footer>
+                </section>
             </template>
         </div>
     </AppLayout>

@@ -6,14 +6,14 @@ use App\Models\Exam;
 use App\Models\Subject;
 use App\Models\Section;
 use App\Notifications\Channels\WebPushChannel;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-class MarksSubmittedNotification extends Notification implements ShouldQueue
+// Sync (not queued) — keeps the notification system functional on shared
+// hosting where there's no `php artisan queue:work` process running.
+// The cost is ~50-200ms added to the request that triggers it.
+class MarksSubmittedNotification extends Notification
 {
-    use Queueable;
 
     public function __construct(
         public Exam $exam,

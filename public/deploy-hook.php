@@ -12,10 +12,13 @@
  *   2. composer install --no-dev --optimize-autoloader
  *   3. artisan down (maintenance mode)
  *   4. artisan migrate --force
- *   5. artisan storage:link
- *   6. artisan optimize:clear + cache config/routes/views/events
- *   7. artisan queue:restart
- *   8. artisan up
+ *   5. artisan db:seed --force        (production-safe; all seeders are idempotent —
+ *                                      use firstOrCreate / count()===0 guards, so
+ *                                      re-running just inserts what's missing)
+ *   6. artisan storage:link
+ *   7. artisan optimize:clear + cache config/routes/views/events
+ *   8. artisan queue:restart
+ *   9. artisan up
  *
  * Composer detection:
  *   Tries `composer`, `/usr/local/bin/composer`, `/usr/bin/composer`, then
@@ -155,6 +158,10 @@ function runArtisan(array &$log, string $command): void
 logLine($log, '═══ Step 2: artisan commands ═══');
 runArtisan($log, 'down --retry=15');
 runArtisan($log, 'migrate --force');
+// Run seeders. Production-safe because every called seeder uses
+// firstOrCreate/updateOrCreate or guards on Model::count()===0 / ->exists()
+// — so this only inserts data that's missing, never duplicates.
+runArtisan($log, 'db:seed --force');
 runArtisan($log, 'storage:link');
 runArtisan($log, 'optimize:clear');
 runArtisan($log, 'config:cache');

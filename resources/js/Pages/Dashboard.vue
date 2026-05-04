@@ -1,33 +1,46 @@
 <script setup>
+/**
+ * Dashboard — hybrid layout, role-aware, mobile-first.
+ *
+ * Sections (in order):
+ *   1. Slim greeting strip (1 line)
+ *   2. "Needs attention" cards — only renders for roles + stats with > 0 items
+ *   3. Stats grid — large tiles, role-specific
+ *   4. Quick actions — 4 big icon tiles (permission-gated)
+ *   5. Recent exams — card list on mobile, table on desktop
+ *   6. Role section — schools (DDO), classes (Principal), sections / assignments (teachers)
+ */
 import AppLayout from '@/Layouts/AppLayout.vue'
-import StatCard from '@/Components/StatCard.vue'
 import { Head, Link, usePage } from '@inertiajs/vue3'
 import { computed } from 'vue'
 import {
     AcademicCapIcon, BuildingOfficeIcon, UserGroupIcon,
-    ClipboardDocumentListIcon, ChartBarIcon, CheckCircleIcon,
-    ArrowTrendingUpIcon, CalendarDaysIcon, DocumentTextIcon,
-    BookOpenIcon, ClockIcon, PlusCircleIcon, TableCellsIcon,
-    ArrowRightIcon, SparklesIcon, BoltIcon, FireIcon,
-    TrophyIcon,
+    ClipboardDocumentListIcon, ChartBarIcon, ArrowTrendingUpIcon,
+    CalendarDaysIcon, DocumentTextIcon, BookOpenIcon, ClockIcon,
+    ArrowRightIcon, BoltIcon, TrophyIcon, ExclamationCircleIcon,
+    PlusIcon, PencilSquareIcon, EnvelopeIcon, CheckBadgeIcon,
+    ChevronRightIcon, RectangleStackIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
-    stats: Object,
-    role: String,
-    currentSession: Object,
-    recentExams: Array,
-    schoolWiseComparison: Array,
-    classWisePerformance: Array,
-    sections: Array,
-    assignments: Array,
-    pendingExams: Array,
+    stats: { type: Object, default: () => ({}) },
+    role: { type: String, default: '' },
+    currentSession: { type: Object, default: null },
+    recentExams: { type: Array, default: () => [] },
+    schoolWiseComparison: { type: Array, default: () => [] },
+    classWisePerformance: { type: Array, default: () => [] },
+    sections: { type: Array, default: () => [] },
+    assignments: { type: Array, default: () => [] },
+    pendingExams: { type: Array, default: () => [] },
 })
 
 const page = usePage()
-const userName = computed(() => page.props.auth?.user?.name?.split(' ')[0] || 'User')
+const userName = computed(() => page.props.auth?.user?.name?.split(' ')[0] || 'there')
+const userPhoto = computed(() => page.props.auth?.user?.avatar_url || null)
 const roles = computed(() => page.props.auth?.user?.roles || [])
 const permissions = computed(() => page.props.auth?.user?.permissions || [])
+const contactMessageCount = computed(() => page.props.contactMessageCount || 0)
+
 const hasRole = (r) => roles.value.includes(r)
 const hasPerm = (p) => hasRole('super-admin') || permissions.value.includes(p)
 
@@ -38,365 +51,376 @@ const greeting = computed(() => {
     return 'Good evening'
 })
 
-const todayLabel = computed(() => new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }))
+const todayLabel = computed(() => new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'short', day: 'numeric',
+}))
 
 const roleLabels = {
-    'super-admin': 'District Admin',
-    'school-admin': 'Principal',
-    'class-teacher': 'Class Teacher',
+    'super-admin':     'District Drawing Officer',
+    'school-admin':    'Principal',
+    'class-teacher':   'Class Teacher',
     'subject-teacher': 'Subject Teacher',
 }
 
+// ─── "Needs attention" — items the user should act on right now ───
+const attentionItems = computed(() => {
+    const items = []
+
+    if (props.role === 'super-admin') {
+        if (props.stats?.pendingResults > 0) {
+            items.push({
+                icon: CheckBadgeIcon, color: 'amber',
+                title: `${props.stats.pendingResults} exam${props.stats.pendingResults === 1 ? '' : 's'} awaiting results`,
+                desc: 'Schools have submitted marks; review and approve them.',
+                href: '/result-review',
+            })
+        }
+        if (contactMessageCount.value > 0) {
+            items.push({
+                icon: EnvelopeIcon, color: 'sky',
+                title: `${contactMessageCount.value} new contact message${contactMessageCount.value === 1 ? '' : 's'}`,
+                desc: 'From visitors who used the public website contact form.',
+                href: '/website/contact-messages',
+            })
+        }
+    }
+
+    if (props.role === 'school-admin') {
+        if (props.stats?.activeExams > 0) {
+            items.push({
+                icon: ClipboardDocumentListIcon, color: 'amber',
+                title: `${props.stats.activeExams} exam${props.stats.activeExams === 1 ? '' : 's'} in marks-entry`,
+                desc: 'Teachers are entering marks. Track progress.',
+                href: '/exams',
+            })
+        }
+    }
+
+    if (props.role === 'class-teacher' || props.role === 'subject-teacher') {
+        if (props.stats?.pendingMarksEntry > 0) {
+            items.push({
+                icon: PencilSquareIcon, color: 'amber',
+                title: `${props.stats.pendingMarksEntry} marks entry pending`,
+                desc: 'Open exams waiting for your marks submission.',
+                href: '/marks',
+            })
+        }
+    }
+
+    return items
+})
+
+// ─── Status pill colours ───
 const statusBadge = (status) => ({
-    draft: 'badge-ghost',
-    published: 'badge-info',
-    marks_entry: 'badge-warning',
-    completed: 'badge-success',
+    draft:        'badge-ghost',
+    published:    'badge-info',
+    marks_entry:  'badge-warning',
+    completed:    'badge-success',
 }[status] || 'badge-ghost')
 
 const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
+
+// ─── Quick-action tiles (filter by permission) ───
+const quickActions = computed(() => {
+    const all = [
+        { perm: 'exams.create',    label: 'New Exam',     desc: 'Set up an exam',     href: '/exams/create',     icon: ClipboardDocumentListIcon, color: 'primary' },
+        { perm: 'students.create', label: 'Add Student',  desc: 'Enroll a student',   href: '/students/create',  icon: UserGroupIcon,             color: 'emerald' },
+        { perm: 'marks.enter',     label: 'Enter Marks',  desc: 'Submit your marks',  href: '/marks',            icon: DocumentTextIcon,          color: 'amber' },
+        { perm: 'reports.view',    label: 'Reports',      desc: 'PDF result cards',   href: '/reports',          icon: ChartBarIcon,              color: 'sky' },
+        { perm: 'questions.create',label: 'Add Question', desc: 'Question bank',      href: '/questions/create', icon: BookOpenIcon,              color: 'violet' },
+        { perm: 'scheduling.view', label: 'Scheduling',   desc: 'Date sheets, rooms', href: '/scheduling',       icon: CalendarDaysIcon,          color: 'rose' },
+    ]
+    return all.filter(a => hasPerm(a.perm)).slice(0, 4)
+})
+
+// Tile color presets — gradient surfaces with brand-accent identities.
+// Each color has its own personality so the dashboard isn't monochrome.
+// Opacity-based so the same class string adapts to light + dark themes.
+const tileColors = {
+    primary: { iconBg: 'bg-teal-500/15',    iconText: 'text-teal-600 dark:text-teal-400',       hover: 'hover:border-teal-500/40' },
+    emerald: { iconBg: 'bg-emerald-500/15', iconText: 'text-emerald-600 dark:text-emerald-400', hover: 'hover:border-emerald-500/40' },
+    amber:   { iconBg: 'bg-amber-500/15',   iconText: 'text-amber-600 dark:text-amber-400',     hover: 'hover:border-amber-500/40' },
+    sky:     { iconBg: 'bg-sky-500/15',     iconText: 'text-sky-600 dark:text-sky-400',         hover: 'hover:border-sky-500/40' },
+    violet:  { iconBg: 'bg-violet-500/15',  iconText: 'text-violet-600 dark:text-violet-400',   hover: 'hover:border-violet-500/40' },
+    rose:    { iconBg: 'bg-rose-500/15',    iconText: 'text-rose-600 dark:text-rose-400',       hover: 'hover:border-rose-500/40' },
+}
+
+// Attention banners — translucent fills so dark mode shows tinted-dark
+// surfaces, not blinding light. Text uses semantic shades that have
+// proper contrast against either background.
+const attentionColors = {
+    amber: 'bg-amber-500/10 border-amber-500/30 text-amber-900 dark:text-amber-100',
+    sky:   'bg-sky-500/10   border-sky-500/30   text-sky-900   dark:text-sky-100',
+    rose:  'bg-rose-500/10  border-rose-500/30  text-rose-900  dark:text-rose-100',
+}
+const attentionIconBg = {
+    amber: 'bg-amber-500/20 text-amber-700 dark:text-amber-300',
+    sky:   'bg-sky-500/20   text-sky-700   dark:text-sky-300',
+    rose:  'bg-rose-500/20  text-rose-700  dark:text-rose-300',
+}
+
+// ─── Stats grid (per role) ───
+const statTiles = computed(() => {
+    if (props.role === 'super-admin') return [
+        { label: 'Schools',      value: props.stats?.totalSchools ?? 0,      icon: BuildingOfficeIcon, color: 'primary' },
+        { label: 'Students',     value: props.stats?.totalStudents ?? 0,     icon: UserGroupIcon,      color: 'emerald' },
+        { label: 'Teachers',     value: props.stats?.totalTeachers ?? 0,     icon: AcademicCapIcon,    color: 'sky' },
+        { label: 'Pass Rate',    value: (props.stats?.passRate ?? 0) + '%',  icon: ArrowTrendingUpIcon, color: 'amber' },
+    ]
+    if (props.role === 'school-admin') return [
+        { label: 'Students',     value: props.stats?.totalStudents ?? 0,     icon: UserGroupIcon,      color: 'primary' },
+        { label: 'Classes',      value: props.stats?.totalClasses ?? 0,      icon: AcademicCapIcon,    color: 'emerald' },
+        { label: 'Teachers',     value: props.stats?.totalTeachers ?? 0,     icon: BookOpenIcon,       color: 'sky' },
+        { label: 'Pass Rate',    value: (props.stats?.passRate ?? 0) + '%',  icon: ArrowTrendingUpIcon, color: 'amber' },
+    ]
+    if (props.role === 'class-teacher') return [
+        { label: 'My Sections',  value: props.stats?.totalSections ?? 0,     icon: RectangleStackIcon, color: 'primary' },
+        { label: 'Students',     value: props.stats?.totalStudents ?? 0,     icon: UserGroupIcon,      color: 'emerald' },
+        { label: 'Pending Marks', value: props.stats?.pendingMarksEntry ?? 0, icon: ClockIcon,          color: 'amber' },
+    ]
+    if (props.role === 'subject-teacher') return [
+        { label: 'Subjects',     value: props.stats?.assignedSubjects ?? 0,  icon: BookOpenIcon,       color: 'primary' },
+        { label: 'Sections',     value: props.stats?.assignedSections ?? 0,  icon: RectangleStackIcon, color: 'emerald' },
+        { label: 'Pending Marks', value: props.stats?.pendingMarksEntry ?? 0, icon: ClockIcon,          color: 'amber' },
+    ]
+    return []
+})
 </script>
 
 <template>
     <Head title="Dashboard" />
     <AppLayout :breadcrumbs="[{ label: 'Dashboard' }]">
-        <div class="space-y-6">
+        <div class="space-y-5 sm:space-y-6">
 
-            <!-- ============ HERO BANNER ============ -->
-            <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-secondary p-6 text-primary-content shadow-xl shadow-primary/30 sm:p-8">
-                <div class="relative z-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                        <p class="text-xs font-medium uppercase tracking-widest opacity-75">{{ todayLabel }}</p>
-                        <h1 class="mt-2 text-2xl font-extrabold tracking-tight sm:text-[1.75rem]">
-                            {{ greeting }}, {{ userName }}!
-                        </h1>
-                        <p class="mt-1.5 text-sm opacity-85">Here's what's happening with your exams today.</p>
-                        <div class="mt-4 flex flex-wrap items-center gap-2">
-                            <span class="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-medium backdrop-blur-sm">
-                                <CalendarDaysIcon class="h-3.5 w-3.5" />
-                                {{ currentSession?.name || 'No Active Session' }}
-                            </span>
-                            <span class="inline-flex items-center gap-1 rounded-lg bg-white/20 px-3 py-1.5 text-xs font-bold backdrop-blur-sm">
-                                <SparklesIcon class="h-3 w-3" />
-                                {{ roleLabels[role] || role }}
-                            </span>
-                        </div>
+            <!-- ════════ 1. GREETING STRIP — slate hero card ════════ -->
+            <div class="flex items-center gap-3 sm:gap-4 rounded-2xl p-3.5 sm:p-4 bg-base-100 border border-base-200">
+                <div class="relative shrink-0">
+                    <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl text-white flex items-center justify-center font-bold text-lg overflow-hidden shadow-md"
+                         style="background: linear-gradient(135deg, #4b545c 0%, #2c3138 100%);">
+                        <img v-if="userPhoto" :src="userPhoto" :alt="userName" class="w-full h-full object-cover" />
+                        <span v-else>{{ userName.charAt(0).toUpperCase() }}</span>
                     </div>
-                    <div class="flex flex-wrap gap-2">
-                        <Link v-if="role === 'super-admin'" :href="route('exams.create')"
-                            class="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2.5 text-sm font-semibold backdrop-blur-md transition-all hover:bg-white/25">
-                            <PlusCircleIcon class="h-4 w-4" /> New Exam
-                        </Link>
-                        <Link :href="route('reports.index')"
-                            class="inline-flex items-center gap-2 rounded-xl bg-white text-primary px-4 py-2.5 text-sm font-semibold shadow-lg transition-all hover:shadow-xl">
-                            <DocumentTextIcon class="h-4 w-4" /> Reports
-                        </Link>
-                    </div>
+                    <span class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 ring-2 ring-base-100"></span>
                 </div>
-                <!-- Decorative -->
-                <div class="absolute -right-10 -top-10 h-48 w-48 rounded-full bg-white/5 blur-2xl" />
-                <div class="absolute -bottom-16 right-32 h-40 w-40 rounded-full bg-white/5 blur-3xl" />
-                <div class="absolute -bottom-8 -right-4 h-32 w-32 rounded-full bg-white/5" />
-            </div>
-
-            <!-- ============ STATS ============ -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-                <template v-if="role === 'super-admin'">
-                    <StatCard title="Schools" :value="stats?.totalSchools ?? 0" subtitle="Active schools" color="primary">
-                        <template #icon><BuildingOfficeIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                    <StatCard title="Students" :value="stats?.totalStudents ?? 0" subtitle="Enrolled this session" color="secondary">
-                        <template #icon><UserGroupIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                    <StatCard title="Teachers" :value="stats?.totalTeachers ?? 0" subtitle="All schools" color="accent">
-                        <template #icon><AcademicCapIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                    <StatCard title="Pass Rate" :value="(stats?.passRate ?? 0) + '%'" subtitle="Overall performance" color="success">
-                        <template #icon><ArrowTrendingUpIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                </template>
-
-                <template v-if="role === 'school-admin'">
-                    <StatCard title="Students" :value="stats?.totalStudents ?? 0" subtitle="Enrolled" color="primary">
-                        <template #icon><UserGroupIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                    <StatCard title="Classes" :value="stats?.totalClasses ?? 0" subtitle="Active" color="secondary">
-                        <template #icon><AcademicCapIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                    <StatCard title="Teachers" :value="stats?.totalTeachers ?? 0" subtitle="In your school" color="accent">
-                        <template #icon><BookOpenIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                    <StatCard title="Pass Rate" :value="(stats?.passRate ?? 0) + '%'" subtitle="School performance" color="success">
-                        <template #icon><ArrowTrendingUpIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                </template>
-
-                <template v-if="role === 'class-teacher'">
-                    <StatCard title="My Sections" :value="stats?.totalSections ?? 0" subtitle="Assigned" color="primary">
-                        <template #icon><TableCellsIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                    <StatCard title="Students" :value="stats?.totalStudents ?? 0" subtitle="In your sections" color="secondary">
-                        <template #icon><UserGroupIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                    <StatCard title="Pending Entry" :value="stats?.pendingMarksEntry ?? 0" subtitle="Marks to enter" color="warning">
-                        <template #icon><ClockIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                </template>
-
-                <template v-if="role === 'subject-teacher'">
-                    <StatCard title="Subjects" :value="stats?.assignedSubjects ?? 0" subtitle="Assigned" color="primary">
-                        <template #icon><BookOpenIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                    <StatCard title="Sections" :value="stats?.assignedSections ?? 0" subtitle="Teaching" color="secondary">
-                        <template #icon><TableCellsIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                    <StatCard title="Pending Marks" :value="stats?.pendingMarksEntry ?? 0" subtitle="Need entry" color="warning">
-                        <template #icon><ClockIcon class="h-5 w-5" /></template>
-                    </StatCard>
-                </template>
-            </div>
-
-            <!-- ============ QUICK ACTIONS ============ -->
-            <div class="surface">
-                <div class="surface-header">
-                    <h3 class="flex items-center gap-2"><BoltIcon class="h-4 w-4 text-warning" /> Quick Actions</h3>
-                </div>
-                <div class="surface-body">
-                    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                        <Link v-if="hasPerm('exams.create')" :href="route('exams.create')"
-                            class="group flex flex-col items-start gap-2 rounded-xl border border-base-200 p-4 transition-all hover:border-primary/40 hover:bg-primary/5 hover:shadow-md">
-                            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 transition-transform group-hover:scale-110">
-                                <ClipboardDocumentListIcon class="h-5 w-5 text-primary" />
-                            </div>
-                            <p class="text-[13px] font-semibold leading-tight">Create Exam</p>
-                            <p class="text-[11px] text-base-content/50">Set up a new exam</p>
-                        </Link>
-                        <Link v-if="hasPerm('students.create')" :href="route('students.create')"
-                            class="group flex flex-col items-start gap-2 rounded-xl border border-base-200 p-4 transition-all hover:border-secondary/40 hover:bg-secondary/5 hover:shadow-md">
-                            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary/10 transition-transform group-hover:scale-110">
-                                <UserGroupIcon class="h-5 w-5 text-secondary" />
-                            </div>
-                            <p class="text-[13px] font-semibold leading-tight">Add Student</p>
-                            <p class="text-[11px] text-base-content/50">Enroll new student</p>
-                        </Link>
-                        <Link v-if="hasPerm('marks.enter')" :href="route('marks.index')"
-                            class="group flex flex-col items-start gap-2 rounded-xl border border-base-200 p-4 transition-all hover:border-accent/40 hover:bg-accent/5 hover:shadow-md">
-                            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10 transition-transform group-hover:scale-110">
-                                <DocumentTextIcon class="h-5 w-5 text-accent" />
-                            </div>
-                            <p class="text-[13px] font-semibold leading-tight">Enter Marks</p>
-                            <p class="text-[11px] text-base-content/50">Submit student marks</p>
-                        </Link>
-                        <Link :href="route('reports.index')"
-                            class="group flex flex-col items-start gap-2 rounded-xl border border-base-200 p-4 transition-all hover:border-info/40 hover:bg-info/5 hover:shadow-md">
-                            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-info/10 transition-transform group-hover:scale-110">
-                                <ChartBarIcon class="h-5 w-5 text-info" />
-                            </div>
-                            <p class="text-[13px] font-semibold leading-tight">View Reports</p>
-                            <p class="text-[11px] text-base-content/50">Generate PDF reports</p>
-                        </Link>
-                    </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-[10px] text-base-content/55 font-bold uppercase tracking-wider">{{ todayLabel }}</p>
+                    <h1 class="text-xl sm:text-2xl font-extrabold tracking-tight truncate mt-0.5">
+                        {{ greeting }}, {{ userName }}
+                    </h1>
+                    <p class="text-[11px] text-base-content/55 mt-0.5 truncate">
+                        <span class="font-semibold text-base-content/75">{{ roleLabels[role] || role }}</span>
+                        <span v-if="currentSession?.name"> · {{ currentSession.name }}</span>
+                    </p>
                 </div>
             </div>
 
-            <!-- ============ CONTENT GRID ============ -->
-            <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                <!-- Recent Exams (2 cols) -->
-                <div class="surface xl:col-span-2">
-                    <div class="surface-header">
-                        <h3 class="flex items-center gap-2"><ClipboardDocumentListIcon class="h-4 w-4 text-primary" /> Recent Exams</h3>
-                        <Link v-if="hasPerm('exams.view')" :href="route('exams.index')"
-                            class="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
-                            View All <ArrowRightIcon class="h-3 w-3" />
-                        </Link>
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table v-if="recentExams?.length" class="table">
-                            <thead>
-                                <tr>
-                                    <th>Exam</th>
-                                    <th>Type</th>
-                                    <th class="hidden sm:table-cell">Schedule</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="exam in recentExams" :key="exam.id" class="hover">
-                                    <td>
-                                        <Link :href="route('exams.show', exam.id)" class="font-semibold hover:text-primary transition-colors">
-                                            {{ exam.name }}
-                                        </Link>
-                                    </td>
-                                    <td>
-                                        <span class="badge badge-sm badge-outline">{{ exam.type }}</span>
-                                    </td>
-                                    <td class="hidden sm:table-cell text-xs text-base-content/55">
-                                        {{ exam.start_date }} → {{ exam.end_date }}
-                                    </td>
-                                    <td>
-                                        <span class="badge badge-sm capitalize" :class="statusBadge(exam.status)">{{ statusLabel(exam.status) }}</span>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <div v-else class="empty-state py-12">
-                            <div class="empty-state-icon">
-                                <ClipboardDocumentListIcon class="h-7 w-7 text-base-content/30" />
-                            </div>
-                            <p class="text-sm font-semibold">No exams yet</p>
-                            <p class="mt-1 text-xs text-base-content/50">Create your first exam to get started.</p>
-                        </div>
-                    </div>
+            <!-- ════════ 2. NEEDS ATTENTION ════════ -->
+            <section v-if="attentionItems.length" class="space-y-2">
+                <div class="flex items-center gap-2 px-1">
+                    <ExclamationCircleIcon class="w-4 h-4 text-amber-600" />
+                    <h2 class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Needs your attention</h2>
                 </div>
-
-                <!-- Session Info -->
-                <div class="surface">
-                    <div class="surface-header">
-                        <h3 class="flex items-center gap-2"><CalendarDaysIcon class="h-4 w-4 text-secondary" /> Overview</h3>
-                    </div>
-                    <div class="surface-body space-y-4">
-                        <div class="rounded-xl bg-gradient-to-br from-primary/5 to-secondary/5 p-4">
-                            <p class="text-[10px] uppercase tracking-widest text-base-content/45">Current Session</p>
-                            <p class="mt-1 text-lg font-extrabold text-gradient-primary">{{ currentSession?.name || 'None' }}</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <Link v-for="(item, i) in attentionItems" :key="i"
+                          :href="item.href"
+                          class="group flex items-center gap-3 rounded-2xl border p-3 sm:p-3.5 transition-all active:scale-[0.99] hover:shadow-md"
+                          :class="attentionColors[item.color]">
+                        <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                             :class="attentionIconBg[item.color]">
+                            <component :is="item.icon" class="w-5 h-5" />
                         </div>
-
-                        <div class="space-y-3">
-                            <div v-if="role === 'super-admin'" class="flex items-center justify-between text-[13px]">
-                                <span class="text-base-content/55">Pending Results</span>
-                                <span class="font-bold text-warning">{{ stats?.pendingResults ?? 0 }}</span>
-                            </div>
-                            <div v-if="role === 'school-admin'" class="flex items-center justify-between text-[13px]">
-                                <span class="text-base-content/55">Total Sections</span>
-                                <span class="font-bold">{{ stats?.totalSections ?? 0 }}</span>
-                            </div>
-                            <div v-if="role === 'school-admin'" class="flex items-center justify-between text-[13px]">
-                                <span class="text-base-content/55">Active Exams</span>
-                                <span class="font-bold text-info">{{ stats?.activeExams ?? 0 }}</span>
-                            </div>
-                            <div class="flex items-center justify-between text-[13px]">
-                                <span class="text-base-content/55">Your Role</span>
-                                <span class="font-bold">{{ roleLabels[role] || role }}</span>
-                            </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="font-bold text-[13.5px] leading-tight">{{ item.title }}</p>
+                            <p class="text-[11.5px] opacity-75 mt-0.5 truncate">{{ item.desc }}</p>
                         </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ============ SCHOOL COMPARISON (Super Admin) ============ -->
-            <div v-if="role === 'super-admin' && schoolWiseComparison?.length" class="surface">
-                <div class="surface-header">
-                    <h3 class="flex items-center gap-2"><TrophyIcon class="h-4 w-4 text-warning" /> School Performance</h3>
-                    <Link :href="route('analytics.index')" class="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
-                        Full Analytics <ArrowRightIcon class="h-3 w-3" />
+                        <ChevronRightIcon class="w-4 h-4 opacity-50 shrink-0 group-hover:translate-x-0.5 transition-transform" />
                     </Link>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>School</th>
-                                <th class="hidden sm:table-cell">Students</th>
-                                <th>Pass Rate</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="(school, idx) in schoolWiseComparison" :key="school.id" class="hover">
-                                <td>
-                                    <div class="flex items-center gap-3">
-                                        <div class="flex h-9 w-9 items-center justify-center rounded-lg text-xs font-bold"
-                                            :class="idx === 0 ? 'bg-warning/15 text-warning' : idx === 1 ? 'bg-base-300 text-base-content/70' : idx === 2 ? 'bg-orange-500/15 text-orange-600' : 'bg-primary/10 text-primary'">
-                                            #{{ idx + 1 }}
-                                        </div>
-                                        <div class="min-w-0">
-                                            <p class="font-semibold text-sm truncate">{{ school.name }}</p>
-                                            <p class="text-[11px] text-base-content/45">{{ school.code }}</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td class="hidden sm:table-cell font-semibold">{{ school.students_count ?? 0 }}</td>
-                                <td>
-                                    <div class="flex items-center gap-3 min-w-[180px]">
-                                        <div class="progress-bar flex-1">
-                                            <div class="progress-bar-fill bg-success" :style="{ width: (school.pass_percentage || 0) + '%' }" />
-                                        </div>
-                                        <span class="text-xs font-bold w-10 text-right">{{ school.pass_percentage || 0 }}%</span>
-                                    </div>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            </section>
 
-            <!-- ============ CLASS PERFORMANCE (School Admin) ============ -->
-            <div v-if="role === 'school-admin' && classWisePerformance?.length" class="surface">
-                <div class="surface-header">
-                    <h3 class="flex items-center gap-2"><AcademicCapIcon class="h-4 w-4 text-secondary" /> Class Performance</h3>
+            <!-- ════════ 3. STATS ════════ -->
+            <section v-if="statTiles.length" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
+                <div v-for="tile in statTiles" :key="tile.label"
+                     class="group relative rounded-2xl bg-base-100 border border-base-200 p-4 sm:p-5 shadow-card hover:shadow-card-md transition-all overflow-hidden"
+                     :class="tileColors[tile.color]?.hover">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="w-10 h-10 rounded-xl flex items-center justify-center"
+                             :class="tileColors[tile.color]?.iconBg + ' ' + tileColors[tile.color]?.iconText">
+                            <component :is="tile.icon" class="w-5 h-5" />
+                        </div>
+                    </div>
+                    <p class="mt-4 stat-number text-base-content">{{ tile.value }}</p>
+                    <p class="section-eyebrow mt-2">{{ tile.label }}</p>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="table">
-                        <thead>
-                            <tr><th>Class</th><th class="hidden sm:table-cell">Students</th><th>Pass Rate</th></tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="cls in classWisePerformance" :key="cls.id" class="hover">
-                                <td class="font-semibold">{{ cls.name }}</td>
-                                <td class="hidden sm:table-cell">{{ cls.total_students ?? 0 }}</td>
-                                <td>
-                                    <div class="flex items-center gap-3 min-w-[180px]">
-                                        <div class="progress-bar flex-1">
-                                            <div class="progress-bar-fill bg-primary" :style="{ width: (cls.pass_percentage || 0) + '%' }" />
-                                        </div>
-                                        <span class="text-xs font-bold w-10 text-right">{{ cls.pass_percentage || 0 }}%</span>
-                                    </div>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            </section>
 
-            <!-- ============ MY SECTIONS (Class Teacher) ============ -->
-            <div v-if="role === 'class-teacher' && sections?.length" class="surface">
-                <div class="surface-header">
-                    <h3 class="flex items-center gap-2"><TableCellsIcon class="h-4 w-4 text-accent" /> My Sections</h3>
+            <!-- ════════ 4. QUICK ACTIONS ════════ -->
+            <section v-if="quickActions.length" class="space-y-3">
+                <div class="flex items-center gap-2 px-1">
+                    <BoltIcon class="w-4 h-4 text-amber-500" />
+                    <h2 class="section-eyebrow">Quick Actions</h2>
                 </div>
-                <div class="surface-body">
-                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        <div v-for="section in sections" :key="section.id" class="rounded-xl border border-base-200 p-4 transition-all hover:border-primary/30 hover:shadow-md">
-                            <div class="flex items-center gap-3">
-                                <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10 text-sm font-bold text-accent">
-                                    {{ section.name?.charAt(0) }}
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <p class="font-semibold text-sm truncate">{{ section.class_name }} - {{ section.name }}</p>
-                                    <p class="text-xs text-base-content/55">{{ section.students_count }} students</p>
-                                </div>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
+                    <Link v-for="a in quickActions" :key="a.href"
+                          :href="a.href"
+                          class="group rounded-2xl bg-base-100 border border-base-200 p-4 sm:p-5 shadow-card hover:shadow-card-md transition-all active:scale-[0.98] flex flex-col gap-3"
+                          :class="tileColors[a.color]?.hover">
+                        <div class="w-11 h-11 rounded-xl flex items-center justify-center"
+                             :class="tileColors[a.color]?.iconBg + ' ' + tileColors[a.color]?.iconText">
+                            <component :is="a.icon" class="w-5 h-5" />
+                        </div>
+                        <div>
+                            <p class="font-bold text-sm leading-tight">{{ a.label }}</p>
+                            <p class="text-[11px] text-base-content/55 mt-1 leading-snug">{{ a.desc }}</p>
+                        </div>
+                    </Link>
+                </div>
+            </section>
+
+            <!-- ════════ 5. RECENT EXAMS ════════ -->
+            <section v-if="recentExams?.length" class="space-y-2.5">
+                <div class="flex items-center justify-between px-1">
+                    <div class="flex items-center gap-2">
+                        <ClipboardDocumentListIcon class="w-4 h-4 text-primary" />
+                        <h2 class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Recent Exams</h2>
+                    </div>
+                    <Link v-if="hasPerm('exams.view')" :href="route('exams.index')"
+                          class="text-xs font-semibold text-primary inline-flex items-center gap-1 hover:gap-1.5 transition-all">
+                        View all <ArrowRightIcon class="w-3 h-3" />
+                    </Link>
+                </div>
+                <div class="rounded-2xl bg-base-100 border border-base-200 overflow-hidden divide-y divide-base-200">
+                    <Link v-for="exam in recentExams" :key="exam.id"
+                          :href="route('exams.show', exam.id)"
+                          class="flex items-center gap-3 p-3.5 active:bg-base-200/40 transition-colors min-w-0">
+                        <div class="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                            <ClipboardDocumentListIcon class="w-5 h-5" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <p class="font-bold text-sm truncate">{{ exam.name }}</p>
+                                <span :class="['badge badge-xs capitalize', statusBadge(exam.status)]">{{ statusLabel(exam.status) }}</span>
                             </div>
+                            <p class="text-[11px] text-base-content/55 mt-0.5 truncate">
+                                <span v-if="exam.type">{{ exam.type }}</span>
+                                <span v-if="exam.start_date"> · {{ exam.start_date }} → {{ exam.end_date }}</span>
+                            </p>
+                        </div>
+                        <ChevronRightIcon class="w-4 h-4 text-base-content/30 shrink-0" />
+                    </Link>
+                </div>
+            </section>
+
+            <!-- ════════ 6a. ROLE: super-admin → school comparison ════════ -->
+            <section v-if="role === 'super-admin' && schoolWiseComparison?.length" class="space-y-2.5">
+                <div class="flex items-center justify-between px-1">
+                    <div class="flex items-center gap-2">
+                        <TrophyIcon class="w-4 h-4 text-amber-500" />
+                        <h2 class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">School Performance</h2>
+                    </div>
+                    <Link :href="route('analytics.index')" class="text-xs font-semibold text-primary inline-flex items-center gap-1 hover:gap-1.5 transition-all">
+                        Full analytics <ArrowRightIcon class="w-3 h-3" />
+                    </Link>
+                </div>
+                <div class="rounded-2xl bg-base-100 border border-base-200 divide-y divide-base-200">
+                    <div v-for="(school, idx) in schoolWiseComparison" :key="school.id" class="flex items-center gap-3 p-3.5">
+                        <div class="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black shrink-0"
+                             :class="idx === 0 ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : idx === 1 ? 'bg-base-300 text-base-content/70' : idx === 2 ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300' : 'bg-primary/15 text-primary'">
+                            #{{ idx + 1 }}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="font-bold text-sm truncate">{{ school.name }}</p>
+                            <p class="text-[11px] text-base-content/55 mt-0.5">{{ school.students_count ?? 0 }} students</p>
+                        </div>
+                        <div class="flex items-center gap-2 w-32 sm:w-40 shrink-0">
+                            <div class="flex-1 h-1.5 rounded-full bg-base-200 overflow-hidden">
+                                <div class="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all"
+                                     :style="{ width: (school.pass_percentage || 0) + '%' }"></div>
+                            </div>
+                            <span class="text-xs font-bold tabular-nums w-10 text-right">{{ school.pass_percentage || 0 }}%</span>
                         </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <!-- ============ MY ASSIGNMENTS (Subject Teacher) ============ -->
-            <div v-if="role === 'subject-teacher' && assignments?.length" class="surface">
-                <div class="surface-header">
-                    <h3 class="flex items-center gap-2"><BookOpenIcon class="h-4 w-4 text-info" /> My Assignments</h3>
+            <!-- ════════ 6b. ROLE: school-admin → class performance ════════ -->
+            <section v-if="role === 'school-admin' && classWisePerformance?.length" class="space-y-2.5">
+                <div class="flex items-center gap-2 px-1">
+                    <AcademicCapIcon class="w-4 h-4 text-secondary" />
+                    <h2 class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Class Performance</h2>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="table">
-                        <thead><tr><th>Subject</th><th>Class</th><th>Section</th></tr></thead>
-                        <tbody>
-                            <tr v-for="a in assignments" :key="a.id" class="hover">
-                                <td class="font-semibold">{{ a.subject_name }}</td>
-                                <td>{{ a.class_name }}</td>
-                                <td>
-                                    <span class="badge badge-sm badge-outline">{{ a.section_name }}</span>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <div class="rounded-2xl bg-base-100 border border-base-200 divide-y divide-base-200">
+                    <div v-for="cls in classWisePerformance" :key="cls.id" class="flex items-center gap-3 p-3.5">
+                        <div class="w-9 h-9 rounded-xl bg-secondary/10 text-secondary flex items-center justify-center shrink-0">
+                            <AcademicCapIcon class="w-5 h-5" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="font-bold text-sm truncate">{{ cls.name }}</p>
+                            <p class="text-[11px] text-base-content/55 mt-0.5">{{ cls.total_students ?? 0 }} students</p>
+                        </div>
+                        <div class="flex items-center gap-2 w-32 sm:w-40 shrink-0">
+                            <div class="flex-1 h-1.5 rounded-full bg-base-200 overflow-hidden">
+                                <div class="h-full bg-gradient-to-r from-primary to-primary/80 transition-all"
+                                     :style="{ width: (cls.pass_percentage || 0) + '%' }"></div>
+                            </div>
+                            <span class="text-xs font-bold tabular-nums w-10 text-right">{{ cls.pass_percentage || 0 }}%</span>
+                        </div>
+                    </div>
                 </div>
+            </section>
+
+            <!-- ════════ 6c. ROLE: class-teacher → my sections ════════ -->
+            <section v-if="role === 'class-teacher' && sections?.length" class="space-y-2.5">
+                <div class="flex items-center justify-between px-1">
+                    <div class="flex items-center gap-2">
+                        <RectangleStackIcon class="w-4 h-4 text-accent" />
+                        <h2 class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">My Sections</h2>
+                    </div>
+                    <Link href="/my-class" class="text-xs font-semibold text-primary inline-flex items-center gap-1 hover:gap-1.5 transition-all">
+                        Open hub <ArrowRightIcon class="w-3 h-3" />
+                    </Link>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    <div v-for="s in sections" :key="s.id" class="rounded-2xl bg-base-100 border border-base-200 p-4 flex items-center gap-3">
+                        <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-accent/20 to-accent/10 text-accent flex items-center justify-center font-black shrink-0">
+                            {{ s.name?.charAt(0) }}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="font-bold text-sm truncate">{{ s.class_name }} – {{ s.name }}</p>
+                            <p class="text-[11px] text-base-content/55 mt-0.5">{{ s.students_count }} students</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ════════ 6d. ROLE: subject-teacher → assignments ════════ -->
+            <section v-if="role === 'subject-teacher' && assignments?.length" class="space-y-2.5">
+                <div class="flex items-center gap-2 px-1">
+                    <BookOpenIcon class="w-4 h-4 text-info" />
+                    <h2 class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">My Subjects</h2>
+                </div>
+                <div class="rounded-2xl bg-base-100 border border-base-200 divide-y divide-base-200">
+                    <div v-for="a in assignments" :key="a.id" class="flex items-center gap-3 p-3.5">
+                        <div class="w-10 h-10 rounded-xl bg-info/10 text-info flex items-center justify-center shrink-0">
+                            <BookOpenIcon class="w-5 h-5" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="font-bold text-sm truncate">{{ a.subject_name }}</p>
+                            <p class="text-[11px] text-base-content/55 mt-0.5">{{ a.class_name }} – {{ a.section_name }}</p>
+                        </div>
+                        <Link :href="route('marks.index')" class="text-xs font-semibold text-primary inline-flex items-center gap-0.5 hover:gap-1 transition-all">
+                            Marks <ArrowRightIcon class="w-3 h-3" />
+                        </Link>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ════════ EMPTY STATE — only when truly nothing ════════ -->
+            <div v-if="!recentExams?.length && !attentionItems.length && statTiles.length === 0"
+                 class="rounded-2xl border border-dashed border-base-300 p-10 text-center">
+                <ClipboardDocumentListIcon class="w-12 h-12 mx-auto text-base-content/30" />
+                <h3 class="mt-4 font-bold">Nothing to show yet</h3>
+                <p class="mt-1 text-xs text-base-content/55">Once data flows in, this dashboard will fill up.</p>
             </div>
         </div>
     </AppLayout>

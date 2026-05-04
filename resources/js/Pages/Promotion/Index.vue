@@ -58,37 +58,31 @@ const totalPending = computed(() => props.classes.reduce((acc, c) => acc + (c.pe
 
             <!-- Summary Stats -->
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div class="card bg-base-100 shadow-sm border border-base-200">
-                    <div class="card-body p-4 flex flex-row items-center gap-4">
-                        <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                            <UserGroupIcon class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Total Students</p>
-                            <p class="text-xl font-bold">{{ totalStudents }}</p>
-                        </div>
+                <div class="surface !p-4 flex flex-row items-center gap-4">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                        <UserGroupIcon class="h-5 w-5" />
+                    </div>
+                    <div>
+                        <p class="section-eyebrow">Total Students</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ totalStudents }}</p>
                     </div>
                 </div>
-                <div class="card bg-base-100 shadow-sm border border-base-200">
-                    <div class="card-body p-4 flex flex-row items-center gap-4">
-                        <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-success/10 text-success">
-                            <CheckCircleIcon class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Processed</p>
-                            <p class="text-xl font-bold">{{ totalPromoted }}</p>
-                        </div>
+                <div class="surface !p-4 flex flex-row items-center gap-4">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-success/15 text-success">
+                        <CheckCircleIcon class="h-5 w-5" />
+                    </div>
+                    <div>
+                        <p class="section-eyebrow">Processed</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ totalPromoted }}</p>
                     </div>
                 </div>
-                <div class="card bg-base-100 shadow-sm border border-base-200">
-                    <div class="card-body p-4 flex flex-row items-center gap-4">
-                        <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-warning/10 text-warning">
-                            <ClockIcon class="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Pending</p>
-                            <p class="text-xl font-bold">{{ totalPending }}</p>
-                        </div>
+                <div class="surface !p-4 flex flex-row items-center gap-4">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-warning/15 text-warning">
+                        <ClockIcon class="h-5 w-5" />
+                    </div>
+                    <div>
+                        <p class="section-eyebrow">Pending</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ totalPending }}</p>
                     </div>
                 </div>
             </div>
@@ -98,58 +92,48 @@ const totalPending = computed(() => props.classes.reduce((acc, c) => acc + (c.pe
                 <div
                     v-for="cls in classes"
                     :key="cls.id"
-                    class="card bg-base-100 shadow-sm border border-base-200 hover:border-primary/40 hover:shadow-md transition-all"
+                    class="surface surface-hover !p-5"
                 >
-                    <div class="card-body p-5">
-                        <div class="flex items-start justify-between">
-                            <div class="flex items-center gap-3">
-                                <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                                    <AcademicCapIcon class="h-5 w-5" />
-                                </div>
-                                <div>
-                                    <h3 class="text-base font-bold leading-tight">{{ cls.name }}</h3>
-                                    <p v-if="cls.school_name" class="text-2xs text-base-content/50 mt-0.5">
-                                        {{ cls.school_name }}
-                                    </p>
-                                </div>
+                    <div class="flex items-start justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                                <AcademicCapIcon class="h-5 w-5" />
                             </div>
-                            <span
-                                v-if="cls.pending_count === 0 && cls.total_students > 0"
-                                class="badge badge-success badge-sm"
-                            >Done</span>
-                            <span
-                                v-else-if="cls.promoted_count > 0"
-                                class="badge badge-warning badge-sm"
-                            >In Progress</span>
-                            <span v-else class="badge badge-ghost badge-sm">Pending</span>
-                        </div>
-
-                        <div class="mt-4 grid grid-cols-3 gap-2 rounded-lg border border-base-200 bg-base-200/40 p-3">
-                            <div class="text-center">
-                                <p class="text-2xs uppercase tracking-wider text-base-content/50">Total</p>
-                                <p class="text-lg font-bold">{{ cls.total_students }}</p>
-                            </div>
-                            <div class="text-center border-x border-base-300/40">
-                                <p class="text-2xs uppercase tracking-wider text-success/70">Promoted</p>
-                                <p class="text-lg font-bold text-success">{{ cls.promoted_count }}</p>
-                            </div>
-                            <div class="text-center">
-                                <p class="text-2xs uppercase tracking-wider text-warning/80">Pending</p>
-                                <p class="text-lg font-bold text-warning">{{ cls.pending_count }}</p>
+                            <div>
+                                <h3 class="text-base font-bold leading-tight">{{ cls.name }}</h3>
+                                <p v-if="cls.school_name" class="text-[11px] text-base-content/55 mt-0.5">
+                                    {{ cls.school_name }}
+                                </p>
                             </div>
                         </div>
+                        <span v-if="cls.pending_count === 0 && cls.total_students > 0" class="badge badge-success badge-sm">Done</span>
+                        <span v-else-if="cls.promoted_count > 0" class="badge badge-warning badge-sm">In Progress</span>
+                        <span v-else class="badge badge-ghost badge-sm">Pending</span>
+                    </div>
 
-                        <div class="card-actions mt-4">
-                            <Link
-                                :href="route('promotion.show', cls.id)"
-                                class="btn btn-primary btn-sm w-full gap-2"
-                                :class="{ 'btn-disabled opacity-50': cls.total_students === 0 }"
-                            >
-                                <ArrowPathIcon class="h-4 w-4" />
-                                Manage Promotion
-                            </Link>
+                    <div class="mt-4 grid grid-cols-3 gap-2 rounded-lg border border-base-200 bg-base-200/40 p-3">
+                        <div class="text-center">
+                            <p class="section-eyebrow">Total</p>
+                            <p class="text-lg font-extrabold tabular-nums">{{ cls.total_students }}</p>
+                        </div>
+                        <div class="text-center border-x border-base-300/40">
+                            <p class="section-eyebrow text-success/70">Promoted</p>
+                            <p class="text-lg font-extrabold text-success tabular-nums">{{ cls.promoted_count }}</p>
+                        </div>
+                        <div class="text-center">
+                            <p class="section-eyebrow text-warning/80">Pending</p>
+                            <p class="text-lg font-extrabold text-warning tabular-nums">{{ cls.pending_count }}</p>
                         </div>
                     </div>
+
+                    <Link
+                        :href="route('promotion.show', cls.id)"
+                        class="btn btn-primary btn-sm w-full gap-2 mt-4"
+                        :class="{ 'btn-disabled opacity-50': cls.total_students === 0 }"
+                    >
+                        <ArrowPathIcon class="h-4 w-4" />
+                        Manage Promotion
+                    </Link>
                 </div>
             </div>
 

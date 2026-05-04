@@ -9,6 +9,7 @@ import {
     CheckIcon,
     ArrowLeftIcon,
     ClockIcon,
+    ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -48,7 +49,49 @@ function computeDuration(row) {
     return mins > 0 ? mins : null
 }
 
+// ─── Live conflict detection (mirrors the backend check) ───
+// Two papers in the same class can't share a time window on the same date.
+// We compute conflicts client-side so the user sees them as they type, instead
+// of only after submitting.
+const conflictMap = computed(() => {
+    const map = new Map() // index → conflicting subject name
+    const rows = form.schedules
+    for (let i = 0; i < rows.length; i++) {
+        const a = rows[i]
+        if (!a.exam_date || !a.start_time || !a.end_time) continue
+        const aStart = new Date(`${a.exam_date}T${a.start_time}`).getTime()
+        const aEnd = new Date(`${a.exam_date}T${a.end_time}`).getTime()
+        if (!aStart || !aEnd || aEnd <= aStart) continue
+        for (let j = i + 1; j < rows.length; j++) {
+            const b = rows[j]
+            if (!b.exam_date || !b.start_time || !b.end_time) continue
+            if (Number(a.school_class_id) !== Number(b.school_class_id)) continue
+            if (a.exam_date !== b.exam_date) continue
+            const bStart = new Date(`${b.exam_date}T${b.start_time}`).getTime()
+            const bEnd = new Date(`${b.exam_date}T${b.end_time}`).getTime()
+            if (aStart < bEnd && bStart < aEnd) {
+                if (!map.has(i)) map.set(i, [])
+                if (!map.has(j)) map.set(j, [])
+                map.get(i).push(b._subject_name)
+                map.get(j).push(a._subject_name)
+            }
+        }
+    }
+    return map
+})
+
+function rowConflict(row) {
+    const idx = form.schedules.indexOf(row)
+    return conflictMap.value.get(idx) || null
+}
+
+const totalConflicts = computed(() => conflictMap.value.size)
+
 function save() {
+    if (totalConflicts.value > 0) {
+        // Submit anyway — backend will reject and show field-level errors.
+        // Frontend won't block in case the user wants to see the server message.
+    }
     form.post(route('scheduling.store-schedule', props.exam.id), {
         preserveScroll: true,
     })
@@ -93,6 +136,20 @@ function openPdf() {
                 </div>
             </div>
 
+            <!-- Conflict alert — only when client-side detection finds overlaps -->
+            <div v-if="totalConflicts > 0"
+                class="rounded-xl border border-error/30 bg-error/10 px-4 py-3 flex items-start gap-3">
+                <ExclamationTriangleIcon class="h-5 w-5 text-error flex-shrink-0 mt-0.5" />
+                <div class="flex-1 text-sm">
+                    <p class="font-bold text-error">
+                        {{ totalConflicts }} schedule conflict{{ totalConflicts === 1 ? '' : 's' }} detected
+                    </p>
+                    <p class="text-[12px] text-error/85 mt-0.5">
+                        The same class can't sit two papers at the same time. Conflicting rows are highlighted below — adjust the date or time before saving.
+                    </p>
+                </div>
+            </div>
+
             <div class="card-section">
                 <div class="card-header flex items-center justify-between">
                     <h3>Subject Schedule ({{ filtered.length }})</h3>
@@ -116,21 +173,38 @@ function openPdf() {
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="row in filtered" :key="row.subject_id + '-' + row.school_class_id" class="hover">
+                            <tr v-for="row in filtered" :key="row.subject_id + '-' + row.school_class_id"
+                                :class="rowConflict(row) ? 'bg-error/5' : ''">
                                 <td class="text-sm">{{ row._class_name }}</td>
                                 <td>
-                                    <div class="font-medium">{{ row._subject_name }}</div>
-                                    <div v-if="row._subject_code" class="text-2xs text-base-content/50">{{ row._subject_code }}</div>
+                                    <div class="flex items-center gap-1.5">
+                                        <ExclamationTriangleIcon v-if="rowConflict(row)"
+                                            class="h-4 w-4 text-error flex-shrink-0"
+                                            :title="`Overlaps with: ${rowConflict(row).join(', ')}`" />
+                                        <div>
+                                            <div class="font-medium">{{ row._subject_name }}</div>
+                                            <div v-if="row._subject_code" class="text-2xs text-base-content/50">{{ row._subject_code }}</div>
+                                        </div>
+                                    </div>
                                 </td>
                                 <td><span class="badge badge-sm badge-ghost">{{ row._total_marks }}</span></td>
                                 <td>
-                                    <input v-model="row.exam_date" type="date" class="input input-bordered input-xs w-full" />
+                                    <input v-model="row.exam_date" type="date"
+                                        :min="exam.start_date || undefined"
+                                        :max="exam.end_date || undefined"
+                                        class="input input-bordered input-xs w-full"
+                                        :class="rowConflict(row) ? 'input-error' : ''" />
                                 </td>
                                 <td>
-                                    <input v-model="row.start_time" type="time" class="input input-bordered input-xs w-full" />
+                                    <input v-model="row.start_time" type="time"
+                                        class="input input-bordered input-xs w-full"
+                                        :class="rowConflict(row) ? 'input-error' : ''" />
                                 </td>
                                 <td>
-                                    <input v-model="row.end_time" type="time" class="input input-bordered input-xs w-full" />
+                                    <input v-model="row.end_time" type="time"
+                                        :min="row.start_time || undefined"
+                                        class="input input-bordered input-xs w-full"
+                                        :class="rowConflict(row) ? 'input-error' : ''" />
                                 </td>
                                 <td class="text-xs">
                                     <span v-if="computeDuration(row)" class="inline-flex items-center gap-1 text-base-content/60">

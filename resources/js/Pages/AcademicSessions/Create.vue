@@ -36,7 +36,8 @@ function submit() {
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <FormInput v-model="form.start_date" label="Start Date" type="date" :error="form.errors.start_date" required />
-                        <FormInput v-model="form.end_date" label="End Date" type="date" :error="form.errors.end_date" required />
+                        <FormInput v-model="form.end_date" label="End Date" type="date" :error="form.errors.end_date" required
+                            :min="form.start_date || null" />
                     </div>
 
                     <div class="flex flex-col gap-3">

@@ -138,12 +138,48 @@ const availableClasses = computed(() => {
     return (props.classes || []).filter(c => form.selected_school_ids.includes(c.school_id))
 })
 
+// Subjects are scoped to the classes the user has selected — only subjects
+// actually assigned to those classes (via the class_subjects pivot) are
+// offered. Otherwise the form would let users create exam papers for subjects
+// that the class doesn't even teach.
+const availableSubjects = computed(() => {
+    if (!bulkSelectedClasses.value.length) return []
+    const allowedIds = new Set()
+    for (const classId of bulkSelectedClasses.value) {
+        const cls = (props.classes || []).find(c => Number(c.id) === Number(classId))
+        if (cls?.subjects) {
+            for (const s of cls.subjects) allowedIds.add(s.id)
+        }
+    }
+    return (props.subjects || []).filter(s => allowedIds.has(s.id))
+})
+
+// Auto-select every available subject the moment a class is picked. This
+// matches the common case ("create papers for all subjects this class teaches")
+// while still letting the user un-tick a subject before applying.
+watch(bulkSelectedClasses, () => {
+    bulkSelectedSubjects.value = availableSubjects.value.map(s => s.id)
+}, { deep: true })
+
+function toggleAllBulkSubjects() {
+    if (bulkSelectedSubjects.value.length === availableSubjects.value.length) {
+        bulkSelectedSubjects.value = []
+    } else {
+        bulkSelectedSubjects.value = availableSubjects.value.map(s => s.id)
+    }
+}
+
 function applyBulkSubjects() {
     if (!bulkSelectedClasses.value.length || !bulkSelectedSubjects.value.length) return
     let added = 0
     for (const classId of bulkSelectedClasses.value) {
+        // Per-class scope: only add the subjects this specific class teaches
+        // (a subject ticked in bulk shouldn't get added to a class that doesn't
+        // teach it, even if another picked class does).
+        const cls = (props.classes || []).find(c => Number(c.id) === Number(classId))
+        const classSubjectIds = new Set((cls?.subjects || []).map(s => s.id))
         for (const subjectId of bulkSelectedSubjects.value) {
-            // Skip duplicates
+            if (!classSubjectIds.has(Number(subjectId))) continue
             const exists = form.subjects.some(s =>
                 Number(s.school_class_id) === Number(classId) && Number(s.subject_id) === Number(subjectId))
             if (exists) continue
@@ -158,10 +194,18 @@ function applyBulkSubjects() {
         }
     }
     if (added > 0) {
-        // Reset selection so it's clear bulk has been applied
         bulkSelectedClasses.value = []
         bulkSelectedSubjects.value = []
     }
+}
+
+// For the per-row subject dropdown — only show subjects assigned to that row's class
+function subjectsForClass(classId) {
+    if (!classId) return props.subjects || []
+    const cls = (props.classes || []).find(c => Number(c.id) === Number(classId))
+    if (!cls?.subjects) return props.subjects || []
+    const allowedIds = new Set(cls.subjects.map(s => s.id))
+    return (props.subjects || []).filter(s => allowedIds.has(s.id))
 }
 
 function addSubjectRow() {
@@ -322,38 +366,39 @@ function submit() {
         { label: isEdit ? `Edit ${exam.name}` : 'Create Exam' },
     ]">
         <div class="max-w-5xl mx-auto space-y-5">
-            <!-- ═══════════ HEADER ═══════════ -->
-            <div class="flex items-center justify-between gap-4 flex-wrap">
-                <div>
-                    <div class="text-[11px] uppercase tracking-[0.2em] font-bold text-base-content/55 mb-1">
-                        {{ isEdit ? 'Edit Exam' : 'Create Exam' }}
+            <!-- ═══════════ HEADER + STEPPER (unified hero card) ═══════════ -->
+            <section class="surface overflow-hidden">
+                <div class="px-5 sm:px-6 pt-5 pb-4 flex items-start justify-between gap-4 flex-wrap">
+                    <div>
+                        <div class="text-[11px] uppercase tracking-[0.2em] font-bold text-primary/80 mb-1.5">
+                            {{ isEdit ? 'Edit Exam' : 'Create Exam' }}
+                        </div>
+                        <h1 class="text-2xl font-extrabold tracking-tight">
+                            {{ isEdit ? exam?.name : 'New Exam · Setup Wizard' }}
+                        </h1>
+                        <p class="text-sm text-base-content/55 mt-1">
+                            Configure marks, schools, subjects and passing rules in five guided steps.
+                        </p>
                     </div>
-                    <h1 class="text-2xl font-extrabold tracking-tight">
-                        {{ isEdit ? exam?.name : 'New Exam · Setup Wizard' }}
-                    </h1>
+                    <Link :href="route('exams.index')" class="btn btn-ghost btn-sm gap-1.5">
+                        <ArrowLeftIcon class="w-4 h-4" /> Cancel
+                    </Link>
                 </div>
-                <Link :href="route('exams.index')" class="btn btn-ghost btn-sm rounded-xl gap-1.5">
-                    <ArrowLeftIcon class="w-4 h-4" /> Cancel
-                </Link>
-            </div>
-
-            <!-- ═══════════ STEPPER ═══════════ -->
-            <div class="rounded-2xl border border-base-200 bg-base-100 p-4">
-                <ol class="grid grid-cols-5 gap-2">
+                <ol class="grid grid-cols-5 gap-1.5 px-3 sm:px-4 pb-4 pt-1 border-t border-base-200/60">
                     <li v-for="s in steps" :key="s.num" class="relative">
-                        <button @click="gotoStep(s.num)"
-                            class="w-full text-left p-3 rounded-xl transition-all"
+                        <button @click="gotoStep(s.num)" type="button"
+                            class="w-full text-left p-2.5 rounded-xl transition-all border"
                             :class="step === s.num
-                                ? 'bg-primary/10 ring-2 ring-primary/30'
+                                ? 'bg-primary/10 border-primary/30 ring-1 ring-primary/20'
                                 : step > s.num
-                                    ? 'bg-emerald-50 hover:bg-emerald-100/50'
-                                    : 'hover:bg-base-200/50'">
+                                    ? 'bg-emerald-500/10 border-emerald-500/25 hover:bg-emerald-500/15 dark:bg-emerald-500/15'
+                                    : 'border-transparent hover:bg-base-200/50'">
                             <div class="flex items-center gap-2">
                                 <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
                                     :class="step === s.num
-                                        ? 'bg-primary text-primary-content'
+                                        ? 'bg-primary text-primary-content shadow-sm'
                                         : step > s.num
-                                            ? 'bg-emerald-500 text-white'
+                                            ? 'bg-emerald-500 text-white shadow-sm'
                                             : 'bg-base-300 text-base-content/55'">
                                     <CheckIcon v-if="step > s.num" class="w-4 h-4" />
                                     <span v-else>{{ s.num }}</span>
@@ -366,247 +411,296 @@ function submit() {
                         </button>
                     </li>
                 </ol>
-            </div>
+            </section>
 
             <form @submit.prevent="submit">
 
             <!-- ═══════════ STEP 1: BASICS + TEMPLATES ═══════════ -->
             <div v-show="step === 1" class="space-y-5">
                 <!-- Templates -->
-                <div class="rounded-2xl border border-base-200 bg-base-100 p-5">
-                    <div class="flex items-center gap-2 mb-3">
-                        <BookmarkIcon class="w-4 h-4 text-amber-600" />
-                        <h2 class="text-sm font-bold">Quick Start · Pick a Template</h2>
-                        <span class="text-[10px] text-base-content/45 ml-auto">Optional · pre-fills sensible defaults</span>
+                <section class="surface surface-accent-left accent-amber">
+                    <header class="surface-header">
+                        <h3>
+                            <span class="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                                <BookmarkIcon class="w-4 h-4" />
+                            </span>
+                            Quick Start · Pick a Template
+                        </h3>
+                        <span class="text-[10px] text-base-content/45">Optional · pre-fills sensible defaults</span>
+                    </header>
+                    <div class="surface-body">
+                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                            <button v-for="p in presets" :key="p.key" type="button"
+                                @click="applyPreset(p)"
+                                class="text-left p-4 rounded-xl border-2 transition-all bg-base-100"
+                                :class="activePreset === p.key
+                                    ? 'border-primary bg-primary/5 shadow-md'
+                                    : 'border-base-200 hover:border-primary/40 hover:bg-base-200/40'">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <component :is="p.icon" class="w-5 h-5 text-primary" />
+                                    <span class="font-bold text-sm">{{ p.label }}</span>
+                                    <CheckIcon v-if="activePreset === p.key" class="w-4 h-4 text-primary ml-auto" />
+                                </div>
+                                <p class="text-[11px] text-base-content/55 leading-relaxed">{{ p.desc }}</p>
+                            </button>
+                        </div>
                     </div>
-                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                        <button v-for="p in presets" :key="p.key" type="button"
-                            @click="applyPreset(p)"
-                            class="text-left p-4 rounded-xl border-2 transition-all"
-                            :class="activePreset === p.key
-                                ? 'border-primary bg-primary/5 shadow-md'
-                                : 'border-base-200 hover:border-primary/40 hover:bg-base-200/30'">
-                            <div class="flex items-center gap-2 mb-2">
-                                <component :is="p.icon" class="w-5 h-5 text-primary" />
-                                <span class="font-bold text-sm">{{ p.label }}</span>
-                                <CheckIcon v-if="activePreset === p.key" class="w-4 h-4 text-primary ml-auto" />
-                            </div>
-                            <p class="text-[11px] text-base-content/55 leading-relaxed">{{ p.desc }}</p>
-                        </button>
-                    </div>
-                </div>
+                </section>
 
-                <!-- Basics form -->
-                <div class="rounded-2xl border border-base-200 bg-base-100 p-5">
-                    <h2 class="text-sm font-bold mb-4 flex items-center gap-2">
-                        <ClipboardDocumentListIcon class="w-4 h-4" />
-                        Exam Details
-                    </h2>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="md:col-span-2">
+                <!-- Basics form — modern card with header + form-grid -->
+                <section class="surface">
+                    <header class="surface-header">
+                        <h3>
+                            <span class="w-7 h-7 rounded-lg bg-teal-500/15 text-teal-600 dark:text-teal-400 flex items-center justify-center">
+                                <ClipboardDocumentListIcon class="w-4 h-4" />
+                            </span>
+                            Exam Details
+                        </h3>
+                    </header>
+                    <div class="surface-body space-y-5">
+                        <div>
                             <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Exam Name *</label>
                             <input v-model="form.name" type="text" required
                                 placeholder="e.g. First Term Examination 2025-26"
-                                class="input input-bordered input-sm rounded-xl w-full mt-1" />
-                            <p v-if="form.errors.name" class="text-xs text-rose-600 mt-1">{{ form.errors.name }}</p>
+                                class="input input-bordered w-full mt-1.5" />
+                            <p v-if="form.errors.name" class="text-xs text-error mt-1.5">{{ form.errors.name }}</p>
                         </div>
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Exam Type *</label>
-                            <select v-model="form.exam_type_id" required class="select select-bordered select-sm rounded-xl w-full mt-1">
-                                <option value="">Select type...</option>
-                                <option v-for="t in examTypes" :key="t.id" :value="t.id">{{ t.name }}</option>
-                            </select>
+                        <div class="form-grid">
+                            <div>
+                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Exam Type *</label>
+                                <select v-model="form.exam_type_id" required class="select select-bordered w-full mt-1.5">
+                                    <option value="">Select type...</option>
+                                    <option v-for="t in examTypes" :key="t.id" :value="t.id">{{ t.name }}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Academic Session *</label>
+                                <select v-model="form.academic_session_id" required class="select select-bordered w-full mt-1.5">
+                                    <option value="">Select session...</option>
+                                    <option v-for="s in sessions" :key="s.id" :value="s.id">{{ s.name }}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Start Date *</label>
+                                <input v-model="form.start_date" type="date" required
+                                    class="input input-bordered w-full mt-1.5" />
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">End Date *</label>
+                                <input v-model="form.end_date" type="date" required
+                                    :min="form.start_date || undefined"
+                                    class="input input-bordered w-full mt-1.5" />
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Marks Entry Deadline</label>
+                                <input v-model="form.marks_entry_deadline" type="date"
+                                    :min="form.end_date || form.start_date || undefined"
+                                    class="input input-bordered w-full mt-1.5" />
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Grading Scale</label>
+                                <select v-model="form.grading_scale_id" class="select select-bordered w-full mt-1.5">
+                                    <option value="">Default</option>
+                                    <option v-for="g in gradingScales" :key="g.id" :value="g.id">{{ g.name }}</option>
+                                </select>
+                            </div>
                         </div>
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Academic Session *</label>
-                            <select v-model="form.academic_session_id" required class="select select-bordered select-sm rounded-xl w-full mt-1">
-                                <option value="">Select session...</option>
-                                <option v-for="s in sessions" :key="s.id" :value="s.id">{{ s.name }}</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Start Date *</label>
-                            <input v-model="form.start_date" type="date" required
-                                class="input input-bordered input-sm rounded-xl w-full mt-1" />
-                        </div>
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">End Date *</label>
-                            <input v-model="form.end_date" type="date" required
-                                class="input input-bordered input-sm rounded-xl w-full mt-1" />
-                        </div>
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Marks Entry Deadline</label>
-                            <input v-model="form.marks_entry_deadline" type="date"
-                                class="input input-bordered input-sm rounded-xl w-full mt-1" />
-                        </div>
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Grading Scale</label>
-                            <select v-model="form.grading_scale_id" class="select select-bordered select-sm rounded-xl w-full mt-1">
-                                <option value="">Default</option>
-                                <option v-for="g in gradingScales" :key="g.id" :value="g.id">{{ g.name }}</option>
-                            </select>
-                        </div>
-                    </div>
 
-                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5 pt-5 border-t border-base-200">
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Total Marks *</label>
-                            <input v-model.number="form.total_marks" type="number" min="1"
-                                class="input input-bordered input-sm rounded-xl w-full mt-1 font-mono" />
+                        <div class="pt-5 border-t border-base-200">
+                            <p class="section-eyebrow mb-3">Marks &amp; Position</p>
+                            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                <div>
+                                    <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Total Marks *</label>
+                                    <input v-model.number="form.total_marks" type="number" min="1"
+                                        class="input input-bordered w-full mt-1.5 font-mono" />
+                                </div>
+                                <div>
+                                    <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Passing %</label>
+                                    <input v-model.number="form.passing_percentage" type="number" min="0" max="100"
+                                        class="input input-bordered w-full mt-1.5 font-mono" />
+                                </div>
+                                <div>
+                                    <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Passing Marks</label>
+                                    <input v-model.number="form.passing_marks" type="number" min="0" readonly
+                                        class="input input-bordered w-full mt-1.5 font-mono bg-base-200/50" />
+                                </div>
+                                <div>
+                                    <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Position by</label>
+                                    <select v-model="form.position_calculation" class="select select-bordered w-full mt-1.5">
+                                        <option value="section">Section</option>
+                                        <option value="class">Class</option>
+                                        <option value="school">School</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Passing %</label>
-                            <input v-model.number="form.passing_percentage" type="number" min="0" max="100"
-                                class="input input-bordered input-sm rounded-xl w-full mt-1 font-mono" />
-                        </div>
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Passing Marks</label>
-                            <input v-model.number="form.passing_marks" type="number" min="0" readonly
-                                class="input input-bordered input-sm rounded-xl w-full mt-1 font-mono bg-base-200/50" />
-                        </div>
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Position by</label>
-                            <select v-model="form.position_calculation" class="select select-bordered select-sm rounded-xl w-full mt-1">
-                                <option value="section">Section</option>
-                                <option value="class">Class</option>
-                                <option value="school">School</option>
-                            </select>
-                        </div>
-                    </div>
 
-                    <div class="mt-4">
-                        <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Description</label>
-                        <textarea v-model="form.description" rows="2" placeholder="Optional notes about this exam..."
-                            class="textarea textarea-bordered textarea-sm rounded-xl w-full mt-1 text-sm"></textarea>
+                        <div>
+                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Description</label>
+                            <textarea v-model="form.description" rows="2" placeholder="Optional notes about this exam..."
+                                class="textarea textarea-bordered w-full mt-1.5"></textarea>
+                        </div>
                     </div>
-                </div>
+                </section>
             </div>
 
             <!-- ═══════════ STEP 2: SCOPE ═══════════ -->
             <div v-show="step === 2" class="space-y-5">
-                <div class="rounded-2xl border border-base-200 bg-base-100 p-5">
-                    <h2 class="text-sm font-bold mb-4 flex items-center gap-2">
-                        <BuildingOfficeIcon class="w-4 h-4" />
-                        Which schools will run this exam?
-                    </h2>
+                <section class="surface">
+                    <header class="surface-header">
+                        <h3>
+                            <span class="w-7 h-7 rounded-lg bg-sky-500/15 text-sky-600 dark:text-sky-400 flex items-center justify-center">
+                                <BuildingOfficeIcon class="w-4 h-4" />
+                            </span>
+                            Which schools will run this exam?
+                        </h3>
+                    </header>
+                    <div class="surface-body space-y-4">
+                        <!-- Principal info banner -->
+                        <div v-if="!isSuperAdmin" class="rounded-xl bg-sky-500/10 border border-sky-500/25 p-3 flex items-start gap-2 text-sm">
+                            <InformationCircleIcon class="w-5 h-5 text-sky-600 dark:text-sky-400 flex-shrink-0 mt-0.5" />
+                            <div>
+                                <p class="font-semibold text-sky-900 dark:text-sky-200">School-scoped automatically</p>
+                                <p class="text-xs text-sky-800/85 dark:text-sky-200/75 mt-0.5">As Principal, this exam will only apply to your own school. The DDO can create district-wide exams.</p>
+                            </div>
+                        </div>
 
-                    <!-- Principal info banner -->
-                    <div v-if="!isSuperAdmin" class="rounded-xl bg-sky-50 border border-sky-200 p-3 flex items-start gap-2 text-sm text-sky-900 mb-4">
-                        <InformationCircleIcon class="w-5 h-5 text-sky-600 flex-shrink-0 mt-0.5" />
-                        <div>
-                            <p class="font-semibold">School-scoped automatically</p>
-                            <p class="text-xs text-sky-800/85 mt-0.5">As Principal, this exam will only apply to your own school. The DDO can create district-wide exams.</p>
+                        <!-- Apply-to-all toggle (super-admin only) -->
+                        <label v-if="isSuperAdmin" class="flex items-start gap-3 p-4 rounded-xl border-2 transition-colors cursor-pointer"
+                            :class="form.apply_to_all_schools ? 'border-primary bg-primary/5' : 'border-base-200 hover:bg-base-200/40'">
+                            <input type="checkbox" v-model="form.apply_to_all_schools"
+                                class="checkbox checkbox-primary mt-0.5" />
+                            <div class="flex-1">
+                                <div class="font-semibold">Apply to ALL active schools</div>
+                                <p class="text-xs text-base-content/55 mt-0.5">Every school in the district will get this exam in their portal.</p>
+                            </div>
+                        </label>
+
+                        <!-- Specific schools picker (DDO only when not all-schools) -->
+                        <div v-if="isSuperAdmin && !form.apply_to_all_schools">
+                            <p class="section-eyebrow mb-2">Pick specific schools</p>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <label v-for="school in schools" :key="school.id"
+                                    class="flex items-center gap-2 p-3 rounded-xl border transition-colors cursor-pointer"
+                                    :class="form.selected_school_ids.includes(school.id)
+                                        ? 'border-primary bg-primary/5'
+                                        : 'border-base-200 hover:bg-base-200/40'">
+                                    <input type="checkbox" :value="school.id" v-model="form.selected_school_ids"
+                                        class="checkbox checkbox-sm checkbox-primary" />
+                                    <span class="text-sm font-medium">{{ school.name }}</span>
+                                </label>
+                            </div>
                         </div>
                     </div>
-
-                    <!-- Apply-to-all toggle (super-admin only) -->
-                    <label v-if="isSuperAdmin" class="flex items-start gap-3 p-4 rounded-xl border-2 transition-colors cursor-pointer mb-3"
-                        :class="form.apply_to_all_schools ? 'border-primary bg-primary/5' : 'border-base-200 hover:bg-base-200/30'">
-                        <input type="checkbox" v-model="form.apply_to_all_schools"
-                            class="checkbox checkbox-primary mt-0.5" />
-                        <div class="flex-1">
-                            <div class="font-semibold">Apply to ALL active schools</div>
-                            <p class="text-xs text-base-content/55 mt-0.5">Every school in the district will get this exam in their portal.</p>
-                        </div>
-                    </label>
-
-                    <!-- Specific schools picker (DDO only when not all-schools) -->
-                    <div v-if="isSuperAdmin && !form.apply_to_all_schools">
-                        <p class="text-[11px] font-bold uppercase tracking-wider text-base-content/65 mb-2">Pick specific schools</p>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <label v-for="school in schools" :key="school.id"
-                                class="flex items-center gap-2 p-3 rounded-xl border transition-colors cursor-pointer"
-                                :class="form.selected_school_ids.includes(school.id)
-                                    ? 'border-primary bg-primary/5'
-                                    : 'border-base-200 hover:bg-base-200/30'">
-                                <input type="checkbox" :value="school.id" v-model="form.selected_school_ids"
-                                    class="checkbox checkbox-sm checkbox-primary" />
-                                <span class="text-sm font-medium">{{ school.name }}</span>
-                            </label>
-                        </div>
-                    </div>
-                </div>
+                </section>
             </div>
 
             <!-- ═══════════ STEP 3: SUBJECTS (with bulk apply) ═══════════ -->
             <div v-show="step === 3" class="space-y-5">
                 <!-- Bulk-apply card -->
-                <div class="rounded-2xl border-2 border-primary/30 bg-primary/[0.03] p-5">
-                    <div class="flex items-center gap-2 mb-3">
-                        <BoltIcon class="w-5 h-5 text-primary" />
-                        <h2 class="text-sm font-bold">Bulk Apply · Map subjects to multiple classes at once</h2>
-                    </div>
-                    <p class="text-xs text-base-content/65 mb-4">
-                        Pick the classes, pick the subjects, set their marks once — the system fans out one row per (class, subject) pair below.
-                    </p>
+                <section class="surface surface-accent-left" style="--bc-accent: var(--p);">
+                    <header class="surface-header">
+                        <h3>
+                            <span class="w-7 h-7 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
+                                <BoltIcon class="w-4 h-4" />
+                            </span>
+                            Bulk Apply · Map subjects to multiple classes
+                        </h3>
+                    </header>
+                    <div class="surface-body space-y-4">
+                        <p class="text-xs text-base-content/65">
+                            Pick the classes, pick the subjects, set their marks once — the system fans out one row per (class, subject) pair below.
+                        </p>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65 mb-2 block">Classes</label>
-                            <div class="max-h-44 overflow-y-auto rounded-xl border border-base-200 p-2 bg-base-100">
-                                <p v-if="!availableClasses.length" class="text-xs text-base-content/45 p-2">
-                                    Pick at least one school in Step 2 first.
-                                </p>
-                                <label v-for="cls in availableClasses" :key="cls.id"
-                                    class="flex items-center gap-2 p-1.5 rounded-md hover:bg-base-200/50 cursor-pointer text-sm">
-                                    <input type="checkbox" :value="cls.id" v-model="bulkSelectedClasses"
-                                        class="checkbox checkbox-xs checkbox-primary" />
-                                    {{ cls.name }}
-                                </label>
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div>
+                                <label class="section-eyebrow mb-2 block">Classes</label>
+                                <div class="max-h-44 overflow-y-auto rounded-xl border border-base-200 p-2 bg-base-200/30">
+                                    <p v-if="!availableClasses.length" class="text-xs text-base-content/45 p-2">
+                                        Pick at least one school in Step 2 first.
+                                    </p>
+                                    <label v-for="cls in availableClasses" :key="cls.id"
+                                        class="flex items-center gap-2 p-1.5 rounded-md hover:bg-base-100 cursor-pointer text-sm">
+                                        <input type="checkbox" :value="cls.id" v-model="bulkSelectedClasses"
+                                            class="checkbox checkbox-xs checkbox-primary" />
+                                        {{ cls.name }}
+                                    </label>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex items-center justify-between mb-2">
+                                    <label class="section-eyebrow !mb-0">
+                                        Subjects
+                                        <span v-if="bulkSelectedClasses.length" class="text-base-content/45 normal-case font-medium">
+                                            · {{ availableSubjects.length }} assigned to picked class{{ bulkSelectedClasses.length === 1 ? '' : 'es' }}
+                                        </span>
+                                    </label>
+                                    <button v-if="availableSubjects.length" type="button" @click="toggleAllBulkSubjects"
+                                        class="text-[10px] font-bold text-primary hover:underline">
+                                        {{ bulkSelectedSubjects.length === availableSubjects.length ? 'Uncheck all' : 'Check all' }}
+                                    </button>
+                                </div>
+                                <div class="max-h-44 overflow-y-auto rounded-xl border border-base-200 p-2 bg-base-200/30">
+                                    <p v-if="!bulkSelectedClasses.length" class="text-xs text-base-content/45 p-2">
+                                        Pick at least one class first — its assigned subjects will appear here.
+                                    </p>
+                                    <p v-else-if="!availableSubjects.length" class="text-xs text-warning p-2">
+                                        No subjects are assigned to the selected class{{ bulkSelectedClasses.length === 1 ? '' : 'es' }} yet.
+                                        Add them under <strong>Classes → Edit → Subjects</strong> first.
+                                    </p>
+                                    <label v-for="s in availableSubjects" :key="s.id"
+                                        class="flex items-center gap-2 p-1.5 rounded-md hover:bg-base-100 cursor-pointer text-sm">
+                                        <input type="checkbox" :value="s.id" v-model="bulkSelectedSubjects"
+                                            class="checkbox checkbox-xs checkbox-primary" />
+                                        <span>{{ s.name }}</span>
+                                        <span v-if="s.is_main" class="badge badge-xs badge-primary ml-auto">Main</span>
+                                    </label>
+                                </div>
                             </div>
                         </div>
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65 mb-2 block">Subjects</label>
-                            <div class="max-h-44 overflow-y-auto rounded-xl border border-base-200 p-2 bg-base-100">
-                                <label v-for="s in subjects" :key="s.id"
-                                    class="flex items-center gap-2 p-1.5 rounded-md hover:bg-base-200/50 cursor-pointer text-sm">
-                                    <input type="checkbox" :value="s.id" v-model="bulkSelectedSubjects"
-                                        class="checkbox checkbox-xs checkbox-primary" />
-                                    <span>{{ s.name }}</span>
-                                    <span v-if="s.is_main" class="badge badge-xs badge-primary ml-auto">Main</span>
-                                </label>
+
+                        <div class="grid grid-cols-3 gap-3">
+                            <div>
+                                <label class="section-eyebrow">Total Marks</label>
+                                <input v-model.number="bulkTotalMarks" type="number" min="1"
+                                    class="input input-bordered input-sm w-full mt-1 font-mono" />
+                            </div>
+                            <div>
+                                <label class="section-eyebrow">Passing Marks</label>
+                                <input v-model.number="bulkPassingMarks" type="number" min="0"
+                                    class="input input-bordered input-sm w-full mt-1 font-mono" />
+                            </div>
+                            <div class="flex items-end">
+                                <button type="button" @click="applyBulkSubjects"
+                                    :disabled="!bulkSelectedClasses.length || !bulkSelectedSubjects.length"
+                                    class="btn btn-primary btn-sm w-full gap-1.5">
+                                    <BoltIcon class="w-4 h-4" /> Apply to {{ bulkSelectedClasses.length * bulkSelectedSubjects.length || 0 }} pairs
+                                </button>
                             </div>
                         </div>
                     </div>
-
-                    <div class="grid grid-cols-3 gap-3 mt-4">
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Total Marks</label>
-                            <input v-model.number="bulkTotalMarks" type="number" min="1"
-                                class="input input-bordered input-sm rounded-xl w-full mt-1 font-mono" />
-                        </div>
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Passing Marks</label>
-                            <input v-model.number="bulkPassingMarks" type="number" min="0"
-                                class="input input-bordered input-sm rounded-xl w-full mt-1 font-mono" />
-                        </div>
-                        <div class="flex items-end">
-                            <button type="button" @click="applyBulkSubjects"
-                                :disabled="!bulkSelectedClasses.length || !bulkSelectedSubjects.length"
-                                class="btn btn-primary btn-sm rounded-xl w-full gap-1.5">
-                                <BoltIcon class="w-4 h-4" /> Apply to {{ bulkSelectedClasses.length * bulkSelectedSubjects.length || 0 }} pairs
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                </section>
 
                 <!-- Per-class subject rows -->
-                <div class="rounded-2xl border border-base-200 bg-base-100 overflow-hidden">
-                    <div class="p-4 border-b border-base-200 flex items-center justify-between">
-                        <div>
-                            <h3 class="text-sm font-bold">Per-class subjects ({{ form.subjects.length }})</h3>
-                            <p class="text-[11px] text-base-content/55 mt-0.5">Edit total/passing marks per row, or remove individual rows.</p>
-                        </div>
+                <section class="surface overflow-hidden">
+                    <header class="surface-header">
+                        <h3>
+                            <span class="w-7 h-7 rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400 flex items-center justify-center">
+                                <AcademicCapIcon class="w-4 h-4" />
+                            </span>
+                            Per-class subjects
+                            <span class="badge badge-sm badge-ghost ml-1">{{ form.subjects.length }}</span>
+                        </h3>
                         <div class="flex gap-2">
-                            <button type="button" @click="addSubjectRow" class="btn btn-ghost btn-xs rounded-lg gap-1">
+                            <button type="button" @click="addSubjectRow" class="btn btn-ghost btn-xs gap-1">
                                 <PlusIcon class="w-3.5 h-3.5" /> Add row
                             </button>
                             <button v-if="form.subjects.length > 0" type="button" @click="clearAllSubjects"
-                                class="btn btn-ghost btn-xs rounded-lg text-rose-600 gap-1">
+                                class="btn btn-ghost btn-xs text-rose-600 gap-1">
                                 <TrashIcon class="w-3.5 h-3.5" /> Clear all
                             </button>
                         </div>
-                    </div>
+                    </header>
 
                     <div v-if="form.subjects.length === 0" class="p-10 text-center">
                         <AcademicCapIcon class="w-10 h-10 text-base-content/30 mx-auto mb-2" />
@@ -637,7 +731,7 @@ function submit() {
                                     <td class="px-3 py-2">
                                         <select v-model="row.subject_id" class="select select-bordered select-xs rounded-lg w-full">
                                             <option value="">—</option>
-                                            <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
+                                            <option v-for="s in subjectsForClass(row.school_class_id)" :key="s.id" :value="s.id">{{ s.name }}</option>
                                         </select>
                                     </td>
                                     <td class="px-3 py-2">
@@ -650,6 +744,8 @@ function submit() {
                                     </td>
                                     <td class="px-3 py-2">
                                         <input v-model="row.exam_date" type="date"
+                                            :min="form.start_date || undefined"
+                                            :max="form.end_date || undefined"
                                             class="input input-bordered input-xs rounded-lg w-full" />
                                     </td>
                                     <td class="px-2 py-2 text-right">
@@ -662,24 +758,29 @@ function submit() {
                             </tbody>
                         </table>
                     </div>
-                </div>
+                </section>
             </div>
 
             <!-- ═══════════ STEP 4: RULE BUILDER ═══════════ -->
             <div v-show="step === 4" class="space-y-5">
-                <div class="rounded-xl bg-sky-50 border border-sky-200 p-3 flex items-start gap-2 text-xs text-sky-900">
-                    <InformationCircleIcon class="w-4 h-4 text-sky-600 flex-shrink-0 mt-0.5" />
-                    <p>Build custom passing logic. Use the standard switches OR pick mandatory subjects below — combine them as needed. The next step <b>previews</b> outcomes.</p>
+                <div class="rounded-xl bg-sky-500/10 border border-sky-500/25 p-3 flex items-start gap-2 text-xs">
+                    <InformationCircleIcon class="w-4 h-4 text-sky-600 dark:text-sky-400 flex-shrink-0 mt-0.5" />
+                    <p class="text-sky-900 dark:text-sky-200">Build custom passing logic. Use the standard switches OR pick mandatory subjects below — combine them as needed. The next step <b>previews</b> outcomes.</p>
                 </div>
 
                 <!-- Standard rule switches -->
-                <div class="rounded-2xl border border-base-200 bg-base-100 p-5">
-                    <h2 class="text-sm font-bold mb-4 flex items-center gap-2">
-                        <Cog6ToothIcon class="w-4 h-4" /> Standard Rules
-                    </h2>
-                    <div class="space-y-3">
+                <section class="surface">
+                    <header class="surface-header">
+                        <h3>
+                            <span class="w-7 h-7 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
+                                <Cog6ToothIcon class="w-4 h-4" />
+                            </span>
+                            Standard Rules
+                        </h3>
+                    </header>
+                    <div class="surface-body space-y-3">
                         <label class="flex items-start gap-3 p-3 rounded-xl border-2 transition-colors cursor-pointer"
-                            :class="form.main_subjects_must_pass ? 'border-primary bg-primary/5' : 'border-base-200 hover:bg-base-200/30'">
+                            :class="form.main_subjects_must_pass ? 'border-primary bg-primary/5' : 'border-base-200 hover:bg-base-200/40'">
                             <input type="checkbox" v-model="form.main_subjects_must_pass"
                                 :disabled="form.all_subjects_must_pass"
                                 class="checkbox checkbox-primary mt-0.5" />
@@ -690,7 +791,7 @@ function submit() {
                         </label>
 
                         <label class="flex items-start gap-3 p-3 rounded-xl border-2 transition-colors cursor-pointer"
-                            :class="form.all_subjects_must_pass ? 'border-primary bg-primary/5' : 'border-base-200 hover:bg-base-200/30'">
+                            :class="form.all_subjects_must_pass ? 'border-primary bg-primary/5' : 'border-base-200 hover:bg-base-200/40'">
                             <input type="checkbox" v-model="form.all_subjects_must_pass"
                                 @change="form.all_subjects_must_pass && (form.main_subjects_must_pass = false)"
                                 class="checkbox checkbox-primary mt-0.5" />
@@ -702,130 +803,147 @@ function submit() {
 
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-3 border-t border-base-200">
                             <div>
-                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Min subjects to pass</label>
+                                <label class="section-eyebrow">Min subjects to pass</label>
                                 <input v-model.number="form.min_subjects_to_pass" type="number" min="0"
                                     placeholder="e.g. 5"
-                                    class="input input-bordered input-sm rounded-xl w-full mt-1 font-mono" />
+                                    class="input input-bordered input-sm w-full mt-1 font-mono" />
                             </div>
                             <div>
-                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Grace marks</label>
+                                <label class="section-eyebrow">Grace marks</label>
                                 <input v-model.number="form.grace_marks" type="number" min="0"
                                     placeholder="e.g. 5"
-                                    class="input input-bordered input-sm rounded-xl w-full mt-1 font-mono" />
+                                    class="input input-bordered input-sm w-full mt-1 font-mono" />
                             </div>
                             <div>
-                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Grace max subjects</label>
+                                <label class="section-eyebrow">Grace max subjects</label>
                                 <input v-model.number="form.grace_marks_max_subjects" type="number" min="0"
                                     placeholder="e.g. 2"
-                                    class="input input-bordered input-sm rounded-xl w-full mt-1 font-mono" />
+                                    class="input input-bordered input-sm w-full mt-1 font-mono" />
                             </div>
                         </div>
                         <p class="text-[11px] text-base-content/55 leading-relaxed">
                             💡 <b>Grace example:</b> "5 grace marks on max 2 subjects" means a student failing up to 2 subjects by ≤5 marks each is auto-promoted.
                         </p>
                     </div>
-                </div>
+                </section>
 
                 <!-- Mandatory subjects (custom) -->
-                <div class="rounded-2xl border border-base-200 bg-base-100 p-5">
-                    <h2 class="text-sm font-bold mb-3 flex items-center gap-2">
-                        <SparklesIcon class="w-4 h-4 text-amber-600" /> Mandatory Subjects
-                        <span class="text-[10px] text-base-content/45 ml-auto font-normal">Custom · Pick specific subjects</span>
-                    </h2>
-                    <p class="text-xs text-base-content/65 mb-3">Even more strict than "main subjects must pass" — these specific subjects are non-negotiable. Pass these or fail overall.</p>
+                <section class="surface surface-accent-left accent-amber">
+                    <header class="surface-header">
+                        <h3>
+                            <span class="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                                <SparklesIcon class="w-4 h-4" />
+                            </span>
+                            Mandatory Subjects
+                        </h3>
+                        <span class="text-[10px] text-base-content/45">Custom · Pick specific subjects</span>
+                    </header>
+                    <div class="surface-body">
+                        <p class="text-xs text-base-content/65 mb-3">Even more strict than "main subjects must pass" — these specific subjects are non-negotiable. Pass these or fail overall.</p>
 
-                    <div v-if="subjectsInUse.length === 0" class="text-xs text-base-content/45 p-4 bg-base-200/30 rounded-xl">
-                        Map subjects in Step 3 first to choose mandatory ones.
+                        <div v-if="subjectsInUse.length === 0" class="text-xs text-base-content/45 p-4 bg-base-200/40 rounded-xl">
+                            Map subjects in Step 3 first to choose mandatory ones.
+                        </div>
+                        <div v-else class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                            <button v-for="s in subjectsInUse" :key="s.id" type="button"
+                                @click="toggleMandatorySubject(s.id)"
+                                class="text-left px-3 py-2 rounded-lg border-2 text-sm font-medium transition-colors"
+                                :class="form.passing_rules.mandatory_subjects?.includes(s.id)
+                                    ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                                    : 'border-base-200 hover:bg-base-200/40'">
+                                <div class="flex items-center gap-2">
+                                    <CheckIcon v-if="form.passing_rules.mandatory_subjects?.includes(s.id)" class="w-4 h-4 text-amber-600" />
+                                    {{ s.name }}
+                                </div>
+                            </button>
+                        </div>
                     </div>
-                    <div v-else class="grid grid-cols-2 md:grid-cols-3 gap-2">
-                        <button v-for="s in subjectsInUse" :key="s.id" type="button"
-                            @click="toggleMandatorySubject(s.id)"
-                            class="text-left px-3 py-2 rounded-lg border-2 text-sm font-medium transition-colors"
-                            :class="form.passing_rules.mandatory_subjects?.includes(s.id)
-                                ? 'border-amber-500 bg-amber-50 text-amber-900'
-                                : 'border-base-200 hover:bg-base-200/30'">
-                            <div class="flex items-center gap-2">
-                                <CheckIcon v-if="form.passing_rules.mandatory_subjects?.includes(s.id)" class="w-4 h-4 text-amber-600" />
-                                {{ s.name }}
-                            </div>
-                        </button>
-                    </div>
-                </div>
+                </section>
             </div>
 
             <!-- ═══════════ STEP 5: LIVE PREVIEW ═══════════ -->
             <div v-show="step === 5" class="space-y-5">
-                <div class="rounded-xl bg-emerald-50 border border-emerald-200 p-3 flex items-start gap-2 text-xs text-emerald-900">
-                    <BeakerIcon class="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                    <p>We've simulated 3 sample students against your rules. Adjust Step 4 if any outcome looks wrong.</p>
+                <div class="rounded-xl bg-emerald-500/10 border border-emerald-500/25 p-3 flex items-start gap-2 text-xs">
+                    <BeakerIcon class="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <p class="text-emerald-900 dark:text-emerald-200">We've simulated 3 sample students against your rules. Adjust Step 4 if any outcome looks wrong.</p>
                 </div>
 
-                <div v-if="!subjectsInUse.length" class="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center">
+                <div v-if="!subjectsInUse.length" class="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6 text-center">
                     <ExclamationTriangleIcon class="w-10 h-10 text-amber-500 mx-auto mb-2" />
-                    <p class="text-sm font-medium text-amber-900">No subjects mapped yet</p>
-                    <p class="text-xs text-amber-800/75 mt-1">Go back to Step 3 to map subjects first.</p>
+                    <p class="text-sm font-medium text-amber-900 dark:text-amber-200">No subjects mapped yet</p>
+                    <p class="text-xs text-amber-800/75 dark:text-amber-200/75 mt-1">Go back to Step 3 to map subjects first.</p>
                 </div>
 
                 <div v-else class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                    <div v-for="(s, idx) in sampleStudents" :key="idx"
-                        class="rounded-2xl border-2 p-5"
+                    <section v-for="(s, idx) in sampleStudents" :key="idx"
+                        class="surface !border-2"
                         :class="s.eval.passed === true
-                            ? 'border-emerald-300 bg-emerald-50/40'
+                            ? '!border-emerald-400/50'
                             : s.eval.passed === false
-                                ? 'border-rose-300 bg-rose-50/40'
-                                : 'border-base-200 bg-base-100'">
-                        <div class="flex items-start justify-between mb-3">
-                            <div>
-                                <div class="text-[10px] uppercase tracking-wider font-bold"
-                                    :class="`text-${s.tone}-700`">{{ s.name }}</div>
-                                <p class="text-[11px] text-base-content/55 mt-0.5">{{ s.sublabel }}</p>
-                            </div>
-                            <span class="px-2.5 py-1 rounded-full text-[11px] font-bold ring-1"
-                                :class="s.eval.passed === true
-                                    ? 'bg-emerald-100 text-emerald-700 ring-emerald-200'
-                                    : s.eval.passed === false
-                                        ? 'bg-rose-100 text-rose-700 ring-rose-200'
-                                        : 'bg-base-200 text-base-content/60 ring-base-300'">
-                                <CheckCircleIcon v-if="s.eval.passed === true" class="w-3.5 h-3.5 inline mr-0.5" />
-                                <XCircleIcon v-else-if="s.eval.passed === false" class="w-3.5 h-3.5 inline mr-0.5" />
-                                {{ s.eval.passed === true ? 'PASSES' : s.eval.passed === false ? 'FAILS' : '—' }}
-                            </span>
-                        </div>
-
-                        <div class="text-xs text-base-content/65 mb-3 space-y-1">
-                            <div v-for="reason in s.eval.reasons" :key="reason"
-                                class="flex items-start gap-1.5">
-                                <span class="text-base-content/30 mt-0.5">•</span>
-                                <span>{{ reason }}</span>
-                            </div>
-                        </div>
-
-                        <div class="space-y-1 pt-3 border-t border-base-200/60">
-                            <div v-for="r in s.eval.subjectRows" :key="r.id"
-                                class="flex items-center justify-between text-[11px] py-0.5">
-                                <span class="truncate text-base-content/75 flex items-center gap-1">
-                                    {{ r.name }}
-                                    <span v-if="r.is_main" class="text-[8px] font-bold bg-primary/10 text-primary px-1 rounded">M</span>
-                                    <span v-if="form.passing_rules.mandatory_subjects?.includes(r.id)" class="text-[8px] font-bold bg-amber-100 text-amber-700 px-1 rounded">REQ</span>
-                                </span>
-                                <span class="font-mono font-bold tabular-nums"
-                                    :class="r.is_passed ? 'text-emerald-700' : 'text-rose-600'">
-                                    {{ r.percentage }}%
+                                ? '!border-rose-400/50'
+                                : ''">
+                        <div class="surface-body">
+                            <div class="flex items-start justify-between mb-3">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider font-bold"
+                                        :class="`text-${s.tone}-600 dark:text-${s.tone}-400`">{{ s.name }}</div>
+                                    <p class="text-[11px] text-base-content/55 mt-0.5">{{ s.sublabel }}</p>
+                                </div>
+                                <span class="px-2.5 py-1 rounded-full text-[11px] font-bold ring-1"
+                                    :class="s.eval.passed === true
+                                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-emerald-500/30'
+                                        : s.eval.passed === false
+                                            ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 ring-rose-500/30'
+                                            : 'bg-base-200 text-base-content/60 ring-base-300'">
+                                    <CheckCircleIcon v-if="s.eval.passed === true" class="w-3.5 h-3.5 inline mr-0.5" />
+                                    <XCircleIcon v-else-if="s.eval.passed === false" class="w-3.5 h-3.5 inline mr-0.5" />
+                                    {{ s.eval.passed === true ? 'PASSES' : s.eval.passed === false ? 'FAILS' : '—' }}
                                 </span>
                             </div>
-                        </div>
 
-                        <div class="mt-3 pt-3 border-t border-base-200/60 flex justify-between text-xs font-medium">
-                            <span class="text-base-content/55">Average</span>
-                            <span class="font-mono font-bold tabular-nums">{{ s.eval.overallPct?.toFixed(1) }}%</span>
+                            <div class="text-xs text-base-content/65 mb-3 space-y-1">
+                                <div v-for="reason in s.eval.reasons" :key="reason"
+                                    class="flex items-start gap-1.5">
+                                    <span class="text-base-content/30 mt-0.5">•</span>
+                                    <span>{{ reason }}</span>
+                                </div>
+                            </div>
+
+                            <div class="space-y-1 pt-3 border-t border-base-200/60">
+                                <div v-for="r in s.eval.subjectRows" :key="r.id"
+                                    class="flex items-center justify-between text-[11px] py-0.5">
+                                    <span class="truncate text-base-content/75 flex items-center gap-1">
+                                        {{ r.name }}
+                                        <span v-if="r.is_main" class="text-[8px] font-bold bg-primary/15 text-primary px-1 rounded">M</span>
+                                        <span v-if="form.passing_rules.mandatory_subjects?.includes(r.id)" class="text-[8px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 px-1 rounded">REQ</span>
+                                    </span>
+                                    <span class="font-mono font-bold tabular-nums"
+                                        :class="r.is_passed ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
+                                        {{ r.percentage }}%
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="mt-3 pt-3 border-t border-base-200/60 flex justify-between text-xs font-medium">
+                                <span class="text-base-content/55">Average</span>
+                                <span class="font-mono font-bold tabular-nums">{{ s.eval.overallPct?.toFixed(1) }}%</span>
+                            </div>
                         </div>
-                    </div>
+                    </section>
                 </div>
 
                 <!-- Final summary -->
-                <div class="rounded-2xl border border-base-200 bg-gradient-to-br from-base-100 to-primary/[0.03] p-5">
-                    <h3 class="text-sm font-bold mb-3">Configuration Summary</h3>
-                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                <section class="surface">
+                    <header class="surface-header">
+                        <h3>
+                            <span class="w-7 h-7 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
+                                <CheckCircleIcon class="w-4 h-4" />
+                            </span>
+                            Configuration Summary
+                        </h3>
+                    </header>
+                    <div class="surface-body">
+                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
                         <div><dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Total Marks</dt><dd class="font-mono font-bold mt-0.5">{{ form.total_marks }}</dd></div>
                         <div><dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Pass %</dt><dd class="font-mono font-bold mt-0.5">{{ form.passing_percentage }}%</dd></div>
                         <div><dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Grace</dt><dd class="font-mono font-bold mt-0.5">{{ form.grace_marks || 0 }} on max {{ form.grace_marks_max_subjects || 0 }}</dd></div>
@@ -840,28 +958,29 @@ function submit() {
                             </dd>
                         </div>
                         <div><dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Mandatory subjects</dt><dd class="font-bold mt-0.5">{{ form.passing_rules?.mandatory_subjects?.length || 0 }}</dd></div>
+                        </div>
                     </div>
-                </div>
+                </section>
             </div>
 
             <!-- ═══════════ NAV BAR ═══════════ -->
-            <div class="sticky bottom-4 rounded-2xl bg-base-100/95 backdrop-blur-xl border border-base-200 shadow-xl p-4 flex items-center justify-between gap-3">
-                <button v-if="step > 1" type="button" @click="back" class="btn btn-ghost btn-sm rounded-xl gap-1.5">
+            <div class="sticky bottom-4 z-10 surface backdrop-blur-xl bg-base-100/95 px-4 py-3 flex items-center justify-between gap-3 mt-5">
+                <button v-if="step > 1" type="button" @click="back" class="btn btn-ghost btn-sm gap-1.5">
                     <ArrowLeftIcon class="w-4 h-4" /> Back
                 </button>
                 <span v-else></span>
 
-                <div class="text-xs text-base-content/55 hidden sm:block">
-                    Step {{ step }} of {{ steps.length }}
+                <div class="text-xs font-medium text-base-content/55 hidden sm:block">
+                    Step <span class="font-bold text-base-content">{{ step }}</span> of {{ steps.length }}
                 </div>
 
                 <button v-if="step < 5" type="button" @click="next"
                     :disabled="!canAdvance(step)"
-                    class="btn btn-primary btn-sm rounded-xl gap-1.5">
+                    class="btn btn-primary btn-sm gap-1.5">
                     Next <ArrowRightIcon class="w-4 h-4" />
                 </button>
                 <button v-else type="submit" :disabled="form.processing"
-                    class="btn btn-primary btn-sm rounded-xl gap-1.5">
+                    class="btn btn-primary btn-sm gap-1.5">
                     <CheckCircleIcon class="w-4 h-4" />
                     {{ form.processing ? 'Saving...' : (isEdit ? 'Update Exam' : 'Create Exam') }}
                 </button>

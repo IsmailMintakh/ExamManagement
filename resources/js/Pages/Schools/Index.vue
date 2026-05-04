@@ -1,8 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import DataTable from '@/Components/DataTable.vue'
 import Pagination from '@/Components/Pagination.vue'
-import StatusBadge from '@/Components/StatusBadge.vue'
 import SearchFilter from '@/Components/SearchFilter.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
 import EmptyState from '@/Components/EmptyState.vue'
@@ -10,6 +8,7 @@ import { Head, Link, router } from '@inertiajs/vue3'
 import { ref } from 'vue'
 import { PlusIcon, PencilSquareIcon, TrashIcon, EyeIcon } from '@heroicons/vue/24/outline'
 import { usePermissions } from '@/Composables/usePermissions'
+import { useDebouncedSearch } from '@/Composables/useDebouncedSearch'
 
 const { can } = usePermissions()
 
@@ -18,22 +17,14 @@ const props = defineProps({
     filters: Object,
 })
 
-const search = ref(props.filters?.search || '')
+const search = useDebouncedSearch({
+    routeName: 'schools.index',
+    initial: props.filters?.search || '',
+    only: ['schools', 'filters'],
+    delay: 0,
+})
 const confirmDelete = ref(false)
 const schoolToDelete = ref(null)
-
-const columns = [
-    { key: 'code', label: 'Code', sortable: true },
-    { key: 'name', label: 'School Name', sortable: true },
-    { key: 'phone', label: 'Phone' },
-    { key: 'principal', label: 'Principal' },
-    { key: 'students_count', label: 'Students', sortable: true },
-    { key: 'is_active', label: 'Status' },
-]
-
-function handleSearch(val) {
-    router.get(route('schools.index'), { search: val }, { preserveState: true, replace: true })
-}
 
 function deleteSchool() {
     if (schoolToDelete.value) {
@@ -52,81 +43,99 @@ function confirmDeleteSchool(school) {
 <template>
     <Head title="Schools" />
     <AppLayout :breadcrumbs="[{ label: 'Schools' }]">
-        <div class="space-y-4">
+        <div class="space-y-5">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <h1 class="text-2xl font-bold">Schools Management</h1>
-                <Link v-if="can('schools.create')" :href="route('schools.create')" class="btn btn-primary gap-2">
-                    <PlusIcon class="w-5 h-5" /> Add School
+                <div>
+                    <h1 class="text-2xl font-extrabold tracking-tight">Schools Management</h1>
+                    <p class="text-sm text-base-content/55 mt-0.5">
+                        {{ schools?.total || 0 }} school{{ (schools?.total || 0) === 1 ? '' : 's' }}
+                        <span v-if="search">matching "{{ search }}"</span>
+                    </p>
+                </div>
+                <Link v-if="can('schools.create')" :href="route('schools.create')" class="btn btn-primary btn-sm gap-1.5">
+                    <PlusIcon class="w-4 h-4" /> Add School
                 </Link>
             </div>
 
-            <div class="card bg-base-100 shadow-md">
-                <div class="card-body">
-                    <SearchFilter v-model="search" @update:model-value="handleSearch" />
-
-                    <div class="overflow-x-auto mt-4" v-if="schools?.data?.length">
-                        <table class="table table-zebra">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Code</th>
-                                    <th>School Name</th>
-                                    <th>Phone</th>
-                                    <th>Principal</th>
-                                    <th>Students</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="(school, i) in schools.data" :key="school.id">
-                                    <td>{{ schools.from + i }}</td>
-                                    <td><span class="badge badge-ghost">{{ school.code }}</span></td>
-                                    <td>
-                                        <div class="flex items-center gap-3">
-                                            <div class="avatar placeholder" v-if="!school.logo_url">
-                                                <div class="bg-primary text-primary-content rounded-lg w-10 h-10">
-                                                    <span class="text-xs">{{ school.name?.charAt(0) }}</span>
-                                                </div>
-                                            </div>
-                                            <img v-else :src="school.logo_url" class="w-10 h-10 rounded-lg object-cover" />
-                                            <div>
-                                                <div class="font-bold text-sm">{{ school.name }}</div>
-                                                <div class="text-xs text-base-content/60">{{ school.email }}</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="text-sm">{{ school.phone || '-' }}</td>
-                                    <td class="text-sm">{{ school.principal?.name || '-' }}</td>
-                                    <td><span class="badge badge-info badge-sm">{{ school.students_count ?? 0 }}</span></td>
-                                    <td>
-                                        <span :class="['badge badge-sm', school.is_active ? 'badge-success' : 'badge-error']">
-                                            {{ school.is_active ? 'Active' : 'Inactive' }}
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <div class="flex gap-1">
-                                            <Link :href="route('schools.show', school.id)" class="btn btn-ghost btn-xs">
-                                                <EyeIcon class="w-4 h-4" />
-                                            </Link>
-                                            <Link v-if="can('schools.edit')" :href="route('schools.edit', school.id)" class="btn btn-ghost btn-xs">
-                                                <PencilSquareIcon class="w-4 h-4" />
-                                            </Link>
-                                            <button v-if="can('schools.delete')" @click="confirmDeleteSchool(school)" class="btn btn-ghost btn-xs text-error">
-                                                <TrashIcon class="w-4 h-4" />
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <div class="mt-4">
-                            <Pagination :links="schools.links" />
-                        </div>
+            <section class="surface overflow-hidden">
+                <header class="surface-header">
+                    <div class="flex-1 max-w-md">
+                        <SearchFilter v-model="search" placeholder="Search schools by name or code…" />
                     </div>
-                    <EmptyState v-else title="No schools found" description="Get started by adding your first school." action-text="Add School" :action-href="route('schools.create')" />
+                </header>
+
+                <div class="table-sticky-wrap" style="--table-max-h: 65vh;" v-if="schools?.data?.length">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th class="w-12">#</th>
+                                <th>Code</th>
+                                <th>School</th>
+                                <th>Phone</th>
+                                <th>Principal</th>
+                                <th class="text-center">Students</th>
+                                <th>Status</th>
+                                <th class="text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="(school, i) in schools.data" :key="school.id">
+                                <td class="text-xs font-mono text-base-content/55 tabular-nums">{{ schools.from + i }}</td>
+                                <td><span class="badge badge-outline badge-sm font-mono">{{ school.code }}</span></td>
+                                <td>
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <div v-if="!school.logo_url" class="w-10 h-10 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-sm font-bold flex-shrink-0">
+                                            {{ school.name?.charAt(0) }}
+                                        </div>
+                                        <img v-else :src="school.logo_url" class="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                                        <div class="min-w-0">
+                                            <Link :href="route('schools.show', school.id)" class="font-bold text-sm truncate hover:text-primary transition-colors">
+                                                {{ school.name }}
+                                            </Link>
+                                            <div class="text-[11px] text-base-content/55 truncate">{{ school.email || '—' }}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="text-[13px] text-base-content/75 tabular-nums whitespace-nowrap">{{ school.phone || '—' }}</td>
+                                <td class="text-[13px] text-base-content/75 truncate max-w-[180px]" :title="school.principal?.name">{{ school.principal?.name || '—' }}</td>
+                                <td class="text-center"><span class="badge badge-info badge-sm tabular-nums">{{ school.students_count ?? 0 }}</span></td>
+                                <td>
+                                    <span :class="['badge badge-sm', school.is_active ? 'badge-success' : 'badge-error']">
+                                        {{ school.is_active ? 'Active' : 'Inactive' }}
+                                    </span>
+                                </td>
+                                <td class="text-right whitespace-nowrap">
+                                    <div class="flex gap-0.5 justify-end">
+                                        <Link :href="route('schools.show', school.id)" class="btn btn-ghost btn-xs btn-square" title="View">
+                                            <EyeIcon class="w-4 h-4" />
+                                        </Link>
+                                        <Link v-if="can('schools.edit')" :href="route('schools.edit', school.id)" class="btn btn-ghost btn-xs btn-square" title="Edit">
+                                            <PencilSquareIcon class="w-4 h-4" />
+                                        </Link>
+                                        <button v-if="can('schools.delete')" @click="confirmDeleteSchool(school)" class="btn btn-ghost btn-xs btn-square text-error" title="Delete">
+                                            <TrashIcon class="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
-            </div>
+
+                <EmptyState v-if="!schools?.data?.length"
+                    title="No schools found"
+                    :description="search ? 'Try a different search term.' : 'Get started by adding your first school.'"
+                    action-text="Add School"
+                    :action-href="can('schools.create') ? route('schools.create') : null" />
+
+                <footer v-if="schools?.data?.length && schools.last_page > 1" class="surface-footer">
+                    <span class="text-xs text-base-content/55 font-medium">
+                        Showing <span class="text-base-content font-bold">{{ schools.from }}–{{ schools.to }}</span>
+                        of <span class="text-base-content font-bold">{{ schools.total }}</span>
+                    </span>
+                    <Pagination :links="schools.links" />
+                </footer>
+            </section>
         </div>
 
         <ConfirmDialog

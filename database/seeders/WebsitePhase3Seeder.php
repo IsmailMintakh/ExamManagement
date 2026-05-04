@@ -194,6 +194,10 @@ class WebsitePhase3Seeder extends Seeder
 
     private function insertBlocks(string $pageKey, array $blocks): void
     {
+        // Idempotent: skip if this page already has blocks. Re-running the
+        // seeder otherwise would silently duplicate every block.
+        if (PageBlock::where('page_key', $pageKey)->exists()) return;
+
         foreach ($blocks as $i => $block) {
             PageBlock::create([
                 'page_key'   => $pageKey,

@@ -5,14 +5,12 @@ namespace App\Notifications;
 use App\Models\Exam;
 use App\Models\ResultSubmission;
 use App\Notifications\Channels\WebPushChannel;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-class ResultReturnedForCorrectionNotification extends Notification implements ShouldQueue
+// Sync (not queued) so it works on shared hosting without a queue worker.
+class ResultReturnedForCorrectionNotification extends Notification
 {
-    use Queueable;
 
     public function __construct(
         public Exam $exam,

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { Link, usePage, router } from '@inertiajs/vue3'
 import {
     Bars3Icon, XMarkIcon, BellIcon, ChevronDownIcon,
@@ -43,6 +43,24 @@ const isActive = (href) => {
     if (href === '/dashboard') return currentPath.value === '/dashboard'
     return currentPath.value?.startsWith(href)
 }
+
+// ─── Auto-scroll the active sidebar link into view ───
+// When the user navigates to a deep menu item, the long sidebar list often
+// hides the active item below the fold. We scroll it into view after each
+// route change so the user can always see "you are here".
+const sidebarNavRef = ref(null)
+function scrollActiveLinkIntoView() {
+    nextTick(() => {
+        const nav = sidebarNavRef.value
+        if (!nav) return
+        const active = nav.querySelector('.sidebar-link.active')
+        if (!active) return
+        // 'nearest' avoids unnecessary scrolling when the item is already visible.
+        active.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    })
+}
+watch(currentPath, () => scrollActiveLinkIntoView())
+onMounted(() => scrollActiveLinkIntoView())
 
 // ─── Mobile back-button logic ───
 // Prefer the second-last breadcrumb (the parent page) as the back target.
@@ -246,28 +264,31 @@ watch(() => page.url, () => { sidebarOpen.value = false })
 
         <!-- ============ SIDEBAR ============ -->
         <aside
-            class="fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col bg-base-100 transition-transform duration-300 ease-out lg:relative lg:z-auto lg:translate-x-0"
+            class="fixed inset-y-0 left-0 z-50 flex w-[286px] flex-col bg-base-100 transition-transform duration-300 ease-out lg:relative lg:z-auto lg:translate-x-0"
             :class="sidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'"
             style="border-right: 1px solid oklch(var(--bc) / 0.08);"
         >
-            <!-- Brand / Logo -->
+            <!-- Brand / Logo — premium teal-to-deep-teal gradient -->
             <div class="flex h-16 shrink-0 items-center gap-3 px-5" style="border-bottom: 1px solid oklch(var(--bc) / 0.08);">
-                <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-secondary shadow-lg shadow-primary/30">
+                <div class="flex h-10 w-10 items-center justify-center rounded-xl shadow-lg shadow-primary/20"
+                     style="background: linear-gradient(135deg, #14b8a6 0%, #0d9488 50%, #0f766e 100%);">
                     <AcademicCapIcon class="h-5 w-5 text-white" />
                 </div>
                 <div class="flex-1 min-w-0">
-                    <p class="text-[15px] font-bold tracking-tight leading-tight">ExamPro</p>
-                    <p class="text-[10px] uppercase tracking-widest text-base-content/40">Management</p>
+                    <p class="text-[15px] font-extrabold tracking-tight leading-none">ExamPro</p>
+                    <p class="text-[10px] uppercase tracking-[0.18em] text-base-content/45 font-semibold mt-1">Management</p>
                 </div>
                 <button class="btn btn-ghost btn-xs btn-circle lg:hidden" @click="closeSidebar">
                     <XMarkIcon class="h-4 w-4" />
                 </button>
             </div>
 
-            <!-- User Card -->
-            <div class="mx-3 mt-3 mb-1 flex items-center gap-2.5 rounded-xl px-2.5 py-2" style="background: oklch(var(--bc) / 0.04);">
-                <div class="avatar-initial h-9 w-9 text-xs">
-                    {{ user?.name?.charAt(0)?.toUpperCase() || 'U' }}
+            <!-- User Card — refined with avatar, name, role pill -->
+            <div class="mx-3 mt-3 mb-2 flex items-center gap-2.5 rounded-xl px-2.5 py-2.5" style="background: oklch(var(--bc) / 0.04); border: 1px solid oklch(var(--bc) / 0.05);">
+                <div class="h-9 w-9 rounded-full text-white flex items-center justify-center text-xs font-bold shrink-0 overflow-hidden"
+                     style="background: linear-gradient(135deg, #4b545c 0%, #2c3138 100%);">
+                    <img v-if="user?.avatar" :src="user.avatar" :alt="user.name" class="w-full h-full object-cover" />
+                    <span v-else>{{ user?.name?.charAt(0)?.toUpperCase() || 'U' }}</span>
                 </div>
                 <div class="flex-1 min-w-0">
                     <p class="text-[12.5px] font-semibold truncate leading-tight">{{ user?.name }}</p>
@@ -278,7 +299,7 @@ watch(() => page.url, () => { sidebarOpen.value = false })
             </div>
 
             <!-- Navigation -->
-            <nav class="flex-1 overflow-y-auto px-2.5 pt-1 pb-4">
+            <nav ref="sidebarNavRef" class="flex-1 overflow-y-auto px-2.5 pt-1 pb-4">
                 <div v-for="group in menuGroups" :key="group.label" class="mb-0.5">
                     <!-- Single-item groups (Overview, My Account, Family) don't collapse -->
                     <template v-if="group.items?.length <= 1 || ['Overview','My Account','Family'].includes(group.label)">
@@ -478,33 +499,33 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                         leave-from-class="opacity-100 scale-100"
                         leave-to-class="opacity-0 scale-95"
                     >
-                        <div v-if="userMenuOpen" class="absolute right-0 top-full mt-2 w-64 origin-top-right overflow-hidden rounded-xl bg-base-100 shadow-lifted" style="border: 1px solid oklch(var(--bc) / 0.1);">
-                            <div class="flex items-center gap-3 px-4 py-3.5" style="background: linear-gradient(135deg, oklch(var(--p) / 0.05), oklch(var(--s) / 0.05));">
-                                <div class="avatar-initial h-10 w-10">
+                        <div v-if="userMenuOpen" class="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-1rem)] origin-top-right rounded-xl bg-base-100 shadow-lifted" style="border: 1px solid oklch(var(--bc) / 0.1);">
+                            <div class="flex items-center gap-3 px-4 py-3.5 rounded-t-xl" style="background: linear-gradient(135deg, oklch(var(--p) / 0.08), oklch(var(--s) / 0.05));">
+                                <div class="avatar-initial h-10 w-10 shrink-0">
                                     {{ user?.name?.charAt(0)?.toUpperCase() || 'U' }}
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <p class="text-sm font-bold truncate">{{ user?.name }}</p>
-                                    <p class="text-[11px] text-base-content/50 truncate">{{ user?.email }}</p>
+                                    <p class="text-sm font-bold break-words leading-tight">{{ user?.name }}</p>
+                                    <p class="text-[11px] text-base-content/55 break-all leading-tight mt-0.5">{{ user?.email }}</p>
                                 </div>
                             </div>
                             <div class="p-1.5">
                                 <Link :href="route('profile.edit')" @click="userMenuOpen = false"
-                                    class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-colors hover:bg-base-200">
-                                    <UserCircleIcon class="h-4 w-4 text-base-content/50" />
-                                    My Profile
+                                    class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13px] transition-colors hover:bg-base-200 active:bg-base-300">
+                                    <UserCircleIcon class="h-4 w-4 text-base-content/55 shrink-0" />
+                                    <span>My Profile</span>
                                 </Link>
                                 <Link v-if="hasPerm('settings.view') || hasRole('school-admin')" :href="route('settings.index')" @click="userMenuOpen = false"
-                                    class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-colors hover:bg-base-200">
-                                    <Cog6ToothIcon class="h-4 w-4 text-base-content/50" />
-                                    Settings
+                                    class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13px] transition-colors hover:bg-base-200 active:bg-base-300">
+                                    <Cog6ToothIcon class="h-4 w-4 text-base-content/55 shrink-0" />
+                                    <span>Settings</span>
                                 </Link>
                             </div>
-                            <div class="p-1.5" style="border-top: 1px solid oklch(var(--bc) / 0.06);">
+                            <div class="p-1.5 rounded-b-xl" style="border-top: 1px solid oklch(var(--bc) / 0.06);">
                                 <button @click="logout"
-                                    class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-error transition-colors hover:bg-error/10">
-                                    <ArrowRightStartOnRectangleIcon class="h-4 w-4" />
-                                    Sign Out
+                                    class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13px] text-error transition-colors hover:bg-error/10 active:bg-error/20">
+                                    <ArrowRightStartOnRectangleIcon class="h-4 w-4 shrink-0" />
+                                    <span>Sign Out</span>
                                 </button>
                             </div>
                         </div>
