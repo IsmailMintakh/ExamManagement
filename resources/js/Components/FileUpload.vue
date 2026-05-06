@@ -27,6 +27,17 @@ const props = defineProps({
         type: String,
         default: '',
     },
+    // URL of an already-saved image (e.g. when editing a record). Shown as the
+    // preview until the user picks a new file. Without this, edit screens
+    // looked empty even when a file was uploaded earlier.
+    existingUrl: {
+        type: String,
+        default: '',
+    },
+    helpText: {
+        type: String,
+        default: '',
+    },
 });
 
 const emit = defineEmits(['update:modelValue']);
@@ -119,10 +130,17 @@ function openPicker() {
             @dragover.prevent="onDragOver"
             @dragleave.prevent="onDragLeave"
         >
+            <!-- Preview priority: 1) freshly-picked file, 2) already-saved image,
+                 3) drop-zone hint. The existing-url preview kicks in on edit
+                 screens so users can see what's currently stored. -->
             <template v-if="previewUrl && preview">
                 <img :src="previewUrl" class="mb-2 max-h-32 rounded" alt="Preview" />
             </template>
-            <template v-if="!fileName">
+            <template v-else-if="existingUrl && preview && !fileName">
+                <img :src="existingUrl" class="mb-2 max-h-32 rounded border border-base-200" alt="Current" />
+                <p class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Current — replace?</p>
+            </template>
+            <template v-if="!fileName && !existingUrl">
                 <CloudArrowUpIcon class="mb-2 h-10 w-10 text-base-content/40" />
                 <p class="text-sm text-base-content/60">
                     Drag and drop or <span class="text-primary font-medium">browse</span>
@@ -132,8 +150,11 @@ function openPicker() {
                 </p>
                 <p class="text-xs text-base-content/40">Max size: {{ maxSize }}MB</p>
             </template>
-            <template v-else>
+            <template v-else-if="fileName">
                 <p class="text-sm font-medium">{{ fileName }}</p>
+            </template>
+            <template v-else-if="existingUrl && !preview">
+                <p class="text-sm text-base-content/60">Current file uploaded — pick a new one to replace</p>
             </template>
         </div>
 
@@ -155,5 +176,6 @@ function openPicker() {
         <label v-if="error || sizeError" class="label">
             <span class="label-text-alt text-error">{{ error || sizeError }}</span>
         </label>
+        <p v-else-if="helpText" class="mt-1 text-[11px] text-base-content/55">{{ helpText }}</p>
     </div>
 </template>

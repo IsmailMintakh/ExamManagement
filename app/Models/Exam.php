@@ -22,6 +22,7 @@ class Exam extends Model
         'position_calculation', 'passing_rules', 'combination_rules',
         'apply_to_all_schools', 'applicable_class_ids',
         'status', 'marks_entry_deadline', 'is_locked', 'created_by',
+        'exam_controller_id',
     ];
 
     protected function casts(): array
@@ -71,6 +72,12 @@ class Exam extends Model
     public function academicSession()
     {
         return $this->belongsTo(AcademicSession::class);
+    }
+
+    /** Optional teacher designated as Exam Controller for THIS exam. */
+    public function examController()
+    {
+        return $this->belongsTo(User::class, 'exam_controller_id');
     }
 
     public function gradingScale()

@@ -15,35 +15,55 @@ use Inertia\Response;
 class QuestionController extends Controller
 {
     /**
-     * Apply role-based scoping to a Question query.
+     * Apply role-based scoping + UI "source" filter to a Question query.
+     *
+     * $source values (view filter — never widens authorization):
+     *   - 'mine'    → only the user's own creations / school's questions
+     *   - 'library' → only the DDO global pool (school_id IS NULL)
+     *   - 'all'     → mine OR library
+     *
+     * Super-admin always sees everything regardless of $source — there is
+     * no "library" for the DDO (everything is theirs).
      */
-    protected function scopeForUser($query, $user)
+    protected function scopeForUser($query, $user, string $source = 'mine')
     {
         if ($user->isSuperAdmin()) {
             return $query;
         }
 
-        if ($user->isSchoolAdmin()) {
-            return $query->where(function ($q) use ($user) {
-                $q->where('school_id', $user->school_id)
-                  ->orWhereNull('school_id');
-            });
-        }
+        // Identify what counts as "mine" vs "library" for this role.
+        $ownClause = $user->isSchoolAdmin()
+            ? fn ($q) => $q->where('school_id', $user->school_id)
+            : fn ($q) => $q->where('created_by', $user->id);
 
-        // Subject teacher / class teacher: own creations OR unscoped questions.
-        return $query->where(function ($q) use ($user) {
-            $q->where('created_by', $user->id)
-              ->orWhereNull('school_id');
-        });
+        return match ($source) {
+            'library' => $query->whereNull('school_id'),
+            'all' => $query->where(function ($q) use ($ownClause) {
+                $ownClause($q);
+                $q->orWhereNull('school_id');
+            }),
+            default /* 'mine' */ => $query->where($ownClause),
+        };
+    }
+
+    /**
+     * Resolve the source param. Whitelisted values only — anything else
+     * collapses to the default so users can't break the query with garbage.
+     */
+    protected function resolveSource(Request $request, string $default = 'mine'): string
+    {
+        $s = $request->input('source', $default);
+        return in_array($s, ['mine', 'library', 'all'], true) ? $s : $default;
     }
 
     public function index(Request $request): Response
     {
         $user = $request->user();
+        $source = $this->resolveSource($request, 'mine');
 
         $questions = Question::query()
             ->with(['subject:id,name,code', 'schoolClass:id,name', 'creator:id,name'])
-            ->when(true, fn ($q) => $this->scopeForUser($q, $user))
+            ->when(true, fn ($q) => $this->scopeForUser($q, $user, $source))
             ->when($request->filled('subject_id'), fn ($q) => $q->where('subject_id', $request->input('subject_id')))
             ->when($request->filled('school_class_id'), fn ($q) => $q->where('school_class_id', $request->input('school_class_id')))
             ->when($request->filled('type'), fn ($q) => $q->where('type', $request->input('type')))
@@ -57,15 +77,25 @@ class QuestionController extends Controller
             ->paginate(20)
             ->withQueryString();
 
-        // Stats snapshot (for current filter scope)
+        // Stats reflect the active source so the count matches the visible list.
         $statsQuery = Question::query();
-        $this->scopeForUser($statsQuery, $user);
-        $statsSnapshot = $statsQuery->selectRaw('type, COUNT(*) as total')
+        $this->scopeForUser($statsQuery, $user, $source);
+        $statsSnapshot = (clone $statsQuery)->selectRaw('type, COUNT(*) as total')
             ->groupBy('type')
             ->pluck('total', 'type')
             ->toArray();
 
         $totalCount = (clone $statsQuery)->count();
+
+        // Pre-compute counts for the source toggle so the UI can show
+        // "Mine (12) · Library (340) · All (352)" without extra requests.
+        $sourceCounts = $user->isSuperAdmin()
+            ? ['mine' => $totalCount, 'library' => 0, 'all' => $totalCount]
+            : [
+                'mine' => $this->scopeForUser(Question::query(), $user, 'mine')->count(),
+                'library' => $this->scopeForUser(Question::query(), $user, 'library')->count(),
+                'all' => $this->scopeForUser(Question::query(), $user, 'all')->count(),
+            ];
 
         $subjects = Subject::active()->orderBy('name')->get(['id', 'name', 'code']);
         $classes = SchoolClass::query()
@@ -76,7 +106,11 @@ class QuestionController extends Controller
             'questions' => $questions,
             'subjects' => $subjects,
             'classes' => $classes,
-            'filters' => $request->only(['search', 'subject_id', 'school_class_id', 'type', 'difficulty', 'topic']),
+            'filters' => array_merge(
+                $request->only(['search', 'subject_id', 'school_class_id', 'type', 'difficulty', 'topic']),
+                ['source' => $source]
+            ),
+            'sourceCounts' => $sourceCounts,
             'stats' => [
                 'total' => $totalCount,
                 'by_type' => $statsSnapshot,
@@ -93,8 +127,10 @@ class QuestionController extends Controller
             ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
             ->active()->ordered()->get(['id', 'name', 'school_id']);
 
+        // Topic suggestions span the union of own + library so the autocomplete
+        // is useful even when a teacher hasn't authored anything yet.
         $topics = Question::query()
-            ->when(true, fn ($q) => $this->scopeForUser($q, $user))
+            ->when(true, fn ($q) => $this->scopeForUser($q, $user, 'all'))
             ->whereNotNull('topic')
             ->distinct()
             ->pluck('topic')
@@ -112,34 +148,9 @@ class QuestionController extends Controller
     {
         $user = $request->user();
 
-        // Normalize empty strings -> null before validation
-        if ($request->input('school_class_id') === '') $request->merge(['school_class_id' => null]);
-        if ($request->input('topic') === '') $request->merge(['topic' => null]);
-        if ($request->input('explanation') === '') $request->merge(['explanation' => null]);
-
+        $this->normalizeForType($request);
         $validated = $this->validateQuestion($request);
-
-        // Normalise options for true_false
-        if ($validated['type'] === 'true_false') {
-            $correct = strtolower((string) ($validated['correct_answer'] ?? ''));
-            $trueCorrect = in_array($correct, ['true', '1', 'yes', 't'], true);
-            $validated['options'] = [
-                ['text' => 'True', 'is_correct' => $trueCorrect],
-                ['text' => 'False', 'is_correct' => !$trueCorrect],
-            ];
-            $validated['correct_answer'] = $trueCorrect ? 'True' : 'False';
-        }
-
-        // MCQ: validate exactly one correct option
-        if ($validated['type'] === 'mcq') {
-            $options = $validated['options'] ?? [];
-            $correctCount = collect($options)->filter(fn ($o) => !empty($o['is_correct']))->count();
-            if (count($options) < 2 || $correctCount !== 1) {
-                return redirect()->back()
-                    ->withInput()
-                    ->withErrors(['options' => 'MCQ must have at least 2 options with exactly one marked correct.']);
-            }
-        }
+        $validated = $this->finalizeForType($validated);
 
         $validated['created_by'] = $user->id;
         $validated['school_id'] = $user->isSuperAdmin() ? ($validated['school_id'] ?? null) : $user->school_id;
@@ -169,8 +180,10 @@ class QuestionController extends Controller
             ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
             ->active()->ordered()->get(['id', 'name', 'school_id']);
 
+        // Topic suggestions span the union of own + library so the autocomplete
+        // is useful even when a teacher hasn't authored anything yet.
         $topics = Question::query()
-            ->when(true, fn ($q) => $this->scopeForUser($q, $user))
+            ->when(true, fn ($q) => $this->scopeForUser($q, $user, 'all'))
             ->whereNotNull('topic')
             ->distinct()
             ->pluck('topic')
@@ -189,32 +202,9 @@ class QuestionController extends Controller
     {
         $this->authorizeAccess($question, 'edit');
 
-        // Normalize empty strings -> null before validation
-        if ($request->input('school_class_id') === '') $request->merge(['school_class_id' => null]);
-        if ($request->input('topic') === '') $request->merge(['topic' => null]);
-        if ($request->input('explanation') === '') $request->merge(['explanation' => null]);
-
+        $this->normalizeForType($request);
         $validated = $this->validateQuestion($request, $question);
-
-        if ($validated['type'] === 'true_false') {
-            $correct = strtolower((string) ($validated['correct_answer'] ?? ''));
-            $trueCorrect = in_array($correct, ['true', '1', 'yes', 't'], true);
-            $validated['options'] = [
-                ['text' => 'True', 'is_correct' => $trueCorrect],
-                ['text' => 'False', 'is_correct' => !$trueCorrect],
-            ];
-            $validated['correct_answer'] = $trueCorrect ? 'True' : 'False';
-        }
-
-        if ($validated['type'] === 'mcq') {
-            $options = $validated['options'] ?? [];
-            $correctCount = collect($options)->filter(fn ($o) => !empty($o['is_correct']))->count();
-            if (count($options) < 2 || $correctCount !== 1) {
-                return redirect()->back()
-                    ->withInput()
-                    ->withErrors(['options' => 'MCQ must have at least 2 options with exactly one marked correct.']);
-            }
-        }
+        $validated = $this->finalizeForType($validated);
 
         $question->update($validated);
 
@@ -384,24 +374,102 @@ class QuestionController extends Controller
 
     // ---------------- Helpers ----------------
 
+    /**
+     * Strip / normalize fields based on the chosen question type BEFORE
+     * validation runs — non-MCQ types should not carry the empty MCQ
+     * option scaffolding the form sends by default.
+     */
+    protected function normalizeForType(Request $request): void
+    {
+        if ($request->input('school_class_id') === '') $request->merge(['school_class_id' => null]);
+        if ($request->input('topic') === '') $request->merge(['topic' => null]);
+        if ($request->input('explanation') === '') $request->merge(['explanation' => null]);
+
+        $type = $request->input('type');
+
+        // Only MCQ keeps the options array. Everything else clears it so the
+        // `options.*.text required_with:options` rule never fires falsely.
+        if ($type !== 'mcq') {
+            $request->merge(['options' => null]);
+        } else {
+            // Drop completely-empty option rows the user may have left in.
+            $opts = collect($request->input('options', []))
+                ->filter(fn ($o) => trim((string) ($o['text'] ?? '')) !== '')
+                ->values()
+                ->all();
+            $request->merge(['options' => $opts]);
+        }
+    }
+
     protected function validateQuestion(Request $request, ?Question $question = null): array
     {
-        return $request->validate([
+        $type = $request->input('type');
+
+        $rules = [
             'type' => ['required', 'in:mcq,short_answer,long_answer,true_false,fill_blank'],
             'subject_id' => ['required', 'exists:subjects,id'],
             'school_class_id' => ['nullable', 'exists:school_classes,id'],
             'difficulty' => ['required', 'in:easy,medium,hard'],
             'question_text' => ['required', 'string', 'min:3'],
-            'options' => ['nullable', 'array'],
-            'options.*.text' => ['required_with:options', 'string'],
-            'options.*.is_correct' => ['nullable', 'boolean'],
-            'correct_answer' => ['nullable', 'string'],
             'explanation' => ['nullable', 'string'],
             'marks' => ['required', 'numeric', 'min:0.25', 'max:100'],
             'topic' => ['nullable', 'string', 'max:255'],
             'is_active' => ['nullable', 'boolean'],
             'school_id' => ['nullable', 'exists:schools,id'],
-        ]);
+        ];
+
+        if ($type === 'mcq') {
+            // Options stay required (an MCQ without options doesn't make sense),
+            // but marking a correct one is OPTIONAL — teachers can come back and
+            // set the answer key later, or use the question for practice only.
+            $rules['options'] = ['required', 'array', 'min:2', 'max:6'];
+            $rules['options.*.text'] = ['required', 'string', 'max:500'];
+            $rules['options.*.is_correct'] = ['nullable', 'boolean'];
+            $rules['correct_answer'] = ['nullable', 'string'];
+        } elseif ($type === 'true_false') {
+            // Correct answer is OPTIONAL — when blank, the question is saved
+            // without an answer key (useful for review-only or practice items).
+            $rules['correct_answer'] = ['nullable', 'string', 'in:True,False,true,false,1,0,yes,no'];
+            $rules['options'] = ['nullable'];
+        } else { // short_answer, long_answer, fill_blank
+            $rules['correct_answer'] = ['nullable', 'string', 'max:5000'];
+            $rules['options'] = ['nullable'];
+        }
+
+        $messages = [
+            'options.required' => 'Add at least 2 answer options for an MCQ.',
+            'options.min' => 'MCQ must have at least 2 options.',
+            'options.*.text.required' => 'Option text cannot be empty.',
+        ];
+
+        return $request->validate($rules, $messages);
+    }
+
+    /**
+     * After validation, normalize the persisted shape — true_false stores
+     * its options/correct_answer in a canonical way.
+     */
+    protected function finalizeForType(array $validated): array
+    {
+        if ($validated['type'] === 'true_false') {
+            $raw = trim((string) ($validated['correct_answer'] ?? ''));
+            if ($raw === '') {
+                // No answer set — store options shell with neither marked correct.
+                $validated['options'] = [
+                    ['text' => 'True', 'is_correct' => false],
+                    ['text' => 'False', 'is_correct' => false],
+                ];
+                $validated['correct_answer'] = null;
+            } else {
+                $isTrue = in_array(strtolower($raw), ['true', '1', 'yes', 't'], true);
+                $validated['options'] = [
+                    ['text' => 'True', 'is_correct' => $isTrue],
+                    ['text' => 'False', 'is_correct' => !$isTrue],
+                ];
+                $validated['correct_answer'] = $isTrue ? 'True' : 'False';
+            }
+        }
+        return $validated;
     }
 
     /**

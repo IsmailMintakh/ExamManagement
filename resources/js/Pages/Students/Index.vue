@@ -13,7 +13,9 @@ import {
     BuildingLibraryIcon, FunnelIcon, ChevronDownIcon,
 } from '@heroicons/vue/24/outline'
 import { usePermissions } from '@/Composables/usePermissions'
+import { useFilterPresets } from '@/Composables/useFilterPresets'
 import { formatStatus } from '@/Utils/format'
+import { BookmarkIcon } from '@heroicons/vue/24/outline'
 
 const { can } = usePermissions()
 
@@ -87,6 +89,35 @@ function clearFilters() {
     classId.value = ''
     sectionId.value = ''
     status.value = ''
+}
+
+// ─── Saved filter presets (localStorage) ───
+// Lets users bookmark a filter combo like "Class 10 Active" and recall it
+// in one click. Stored per-device under a scoped key.
+const presets = useFilterPresets('students-index', () => ({
+    schoolId: schoolId.value,
+    classId: classId.value,
+    sectionId: sectionId.value,
+    status: status.value,
+}))
+
+function savePreset() {
+    const name = window.prompt('Name this filter preset:', '')
+    if (!name) return
+    presets.save(name)
+}
+
+function applyPreset(id) {
+    const f = presets.apply(id)
+    if (!f) return
+    schoolId.value = f.schoolId || ''
+    classId.value = f.classId || ''
+    sectionId.value = f.sectionId || ''
+    status.value = f.status || ''
+}
+
+function deletePreset(id) {
+    if (window.confirm('Delete this preset?')) presets.remove(id)
 }
 const confirmDelete = ref(false)
 const studentToDelete = ref(null)
@@ -254,6 +285,23 @@ function deleteStudent() {
                 <!-- ════════ COLLAPSIBLE FILTER PANEL ════════ -->
                 <Transition name="filter-panel">
                     <div v-if="filtersOpen" class="border-b border-base-200 bg-base-200/30 px-5 sm:px-6 py-4 space-y-3">
+                        <!-- Saved preset chips — only show when at least one exists -->
+                        <div v-if="presets.list.value.length" class="flex items-center flex-wrap gap-1.5">
+                            <span class="text-[11px] font-bold uppercase tracking-wider text-base-content/55 mr-1">Presets:</span>
+                            <span v-for="p in presets.list.value" :key="p.id"
+                                class="inline-flex items-center rounded-full bg-base-100 border border-base-200 hover:border-primary/40 transition-colors text-[12px]">
+                                <button type="button" @click="applyPreset(p.id)"
+                                    class="pl-2.5 pr-1 py-1 font-medium hover:text-primary"
+                                    :title="`Apply ${p.name}`">
+                                    {{ p.name }}
+                                </button>
+                                <button type="button" @click="deletePreset(p.id)"
+                                    class="px-1.5 py-1 text-base-content/40 hover:text-error" :title="`Delete ${p.name}`">
+                                    <XMarkIcon class="w-3 h-3" />
+                                </button>
+                            </span>
+                        </div>
+
                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                             <div v-if="isSuperAdmin">
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 flex items-center gap-1">
@@ -298,9 +346,14 @@ function deleteStudent() {
                                 filter{{ activeFilterCount === 1 ? '' : 's' }} applied
                                 · {{ students?.total || 0 }} student{{ (students?.total || 0) === 1 ? '' : 's' }} found
                             </span>
-                            <button type="button" @click="clearFilters" class="btn btn-ghost btn-xs gap-1 text-base-content/65">
-                                <XMarkIcon class="w-3.5 h-3.5" /> Clear all
-                            </button>
+                            <div class="flex items-center gap-1">
+                                <button type="button" @click="savePreset" class="btn btn-ghost btn-xs gap-1 text-primary">
+                                    <BookmarkIcon class="w-3.5 h-3.5" /> Save preset
+                                </button>
+                                <button type="button" @click="clearFilters" class="btn btn-ghost btn-xs gap-1 text-base-content/65">
+                                    <XMarkIcon class="w-3.5 h-3.5" /> Clear all
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </Transition>

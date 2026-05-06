@@ -224,6 +224,14 @@ const menuGroups = computed(() => {
 })
 
 const sidebarOpen = ref(false)
+// Desktop-only collapse state. Persisted across reloads so the user's choice
+// sticks. When collapsed the sidebar shrinks to icons-only (72px) — full
+// labels reappear on hover via :hover styles, but click toggles the state.
+const sidebarCollapsed = ref(localStorage.getItem('sidebar-collapsed') === '1')
+function toggleSidebarCollapsed() {
+    sidebarCollapsed.value = !sidebarCollapsed.value
+    localStorage.setItem('sidebar-collapsed', sidebarCollapsed.value ? '1' : '0')
+}
 const userMenuOpen = ref(false)
 const sessionMenuOpen = ref(false)
 const commandPalette = ref(null)
@@ -264,10 +272,25 @@ watch(() => page.url, () => { sidebarOpen.value = false })
 
         <!-- ============ SIDEBAR ============ -->
         <aside
-            class="fixed inset-y-0 left-0 z-50 flex w-[286px] flex-col bg-base-100 transition-transform duration-300 ease-out lg:relative lg:z-auto lg:translate-x-0"
-            :class="sidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'"
+            class="fixed inset-y-0 left-0 z-50 flex flex-col bg-base-100 transition-all duration-300 ease-out lg:relative lg:z-auto lg:translate-x-0"
+            :class="[
+                sidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
+                sidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-[286px]',
+                'w-[286px]',
+            ]"
+            :data-collapsed="sidebarCollapsed ? 'true' : 'false'"
             style="border-right: 1px solid oklch(var(--bc) / 0.08);"
         >
+            <!-- Desktop collapse toggle — sits on the right edge as a small floating tab -->
+            <button
+                @click="toggleSidebarCollapsed"
+                class="hidden lg:flex absolute -right-3 top-20 z-20 w-6 h-6 items-center justify-center rounded-full bg-base-100 border border-base-200 text-base-content/55 hover:text-primary hover:border-primary/40 hover:shadow-md transition-all"
+                :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+                :aria-label="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+            >
+                <ChevronLeftIcon class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-180': sidebarCollapsed }" />
+            </button>
+
             <!-- Brand / Logo — premium teal-to-deep-teal gradient -->
             <div class="flex h-16 shrink-0 items-center gap-3 px-5" style="border-bottom: 1px solid oklch(var(--bc) / 0.08);">
                 <div class="flex h-10 w-10 items-center justify-center rounded-xl shadow-lg shadow-primary/20"
@@ -330,7 +353,7 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                     <template v-else>
                         <button
                             @click="toggleGroup(group.label)"
-                            class="group flex w-full items-center gap-1 rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-base-content/45 hover:text-base-content/75 hover:bg-base-content/[0.04] transition-colors"
+                            class="sidebar-group-toggle group flex w-full items-center gap-1 rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-base-content/45 hover:text-base-content/75 hover:bg-base-content/[0.04] transition-colors"
                         >
                             <ChevronRightIcon
                                 class="h-3 w-3 transition-transform duration-200"
@@ -408,6 +431,15 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                         </div>
                     </Transition>
                 </div>
+            </div>
+
+            <!-- Developer credit — sits at the bottom of the sidebar, always visible -->
+            <div class="shrink-0 px-3 py-2.5 text-center text-[10px] leading-snug text-base-content/45"
+                 style="border-top: 1px solid oklch(var(--bc) / 0.06);">
+                <p class="font-semibold text-base-content/55">Built by Ismail Hussain</p>
+                <a href="tel:+923479089715" class="hover:text-primary transition-colors tabular-nums">
+                    +92 347 9089715
+                </a>
             </div>
         </aside>
 

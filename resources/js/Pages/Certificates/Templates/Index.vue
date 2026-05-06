@@ -9,7 +9,19 @@ import {
     CheckCircleIcon,
 } from '@heroicons/vue/24/outline'
 
-defineProps({ templates: Array })
+const props = defineProps({
+    templates: Array,
+    filters: { type: Object, default: () => ({}) },
+    sourceCounts: { type: Object, default: () => null },
+})
+
+const source = ref(props.filters?.source || 'all')
+
+// Switch the source filter; reload preserving scroll so cards don't snap.
+function setSource(v) {
+    source.value = v
+    router.get(route('certificates.templates'), { source: v }, { preserveState: false, replace: true })
+}
 
 const confirmDelete = ref(false)
 const toDelete = ref(null)
@@ -46,6 +58,33 @@ const typeLabel = {
                 <Link :href="route('certificates.templates.create')" class="btn btn-primary gap-2">
                     <PlusIcon class="w-5 h-5" /> New Template
                 </Link>
+            </div>
+
+            <!-- Source toggle. School-admins see this; super-admins (DDO)
+                 don't because everything is theirs. -->
+            <div v-if="sourceCounts" class="flex flex-wrap items-center gap-2 text-sm">
+                <span class="text-base-content/55 text-xs font-semibold uppercase tracking-wider">Source:</span>
+                <div class="join">
+                    <button @click="setSource('mine')" type="button"
+                        class="btn btn-sm join-item"
+                        :class="source === 'mine' ? 'btn-primary' : 'btn-ghost'">
+                        Mine
+                        <span class="badge badge-xs ml-1">{{ sourceCounts.mine }}</span>
+                    </button>
+                    <button @click="setSource('library')" type="button"
+                        class="btn btn-sm join-item"
+                        :class="source === 'library' ? 'btn-primary' : 'btn-ghost'">
+                        Library
+                        <span class="badge badge-xs ml-1">{{ sourceCounts.library }}</span>
+                    </button>
+                    <button @click="setSource('all')" type="button"
+                        class="btn btn-sm join-item"
+                        :class="source === 'all' ? 'btn-primary' : 'btn-ghost'">
+                        All
+                        <span class="badge badge-xs ml-1">{{ sourceCounts.all }}</span>
+                    </button>
+                </div>
+                <span v-if="source === 'library'" class="text-xs text-base-content/55">DDO-shipped defaults · read-only.</span>
             </div>
 
             <div v-if="templates.length === 0" class="card bg-base-100 shadow-md">

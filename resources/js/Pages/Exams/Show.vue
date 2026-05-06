@@ -11,6 +11,7 @@ import {
     CalendarDaysIcon,
 } from '@heroicons/vue/24/outline'
 import { usePermissions } from '@/Composables/usePermissions'
+import { formatDate, formatNumber, formatStatus } from '@/Utils/format'
 
 const { can } = usePermissions()
 
@@ -68,8 +69,8 @@ function toggleLock() {
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                     <div class="flex flex-wrap items-center gap-2 sm:gap-3">
-                        <h1 class="text-xl sm:text-2xl font-bold">{{ exam.name }}</h1>
-                        <span class="badge" :class="currentStatus.class">{{ currentStatus.label }}</span>
+                        <h1 class="text-xl sm:text-2xl font-extrabold tracking-tight">{{ exam.name }}</h1>
+                        <span class="badge badge-sm" :class="currentStatus.class">{{ currentStatus.label }}</span>
                         <span v-if="exam.is_locked" class="badge badge-error gap-1">
                             <LockClosedIcon class="w-3 h-3" /> Locked
                         </span>
@@ -167,58 +168,65 @@ function toggleLock() {
                     <!-- Exam Rules & Configuration -->
                     <div class="card-section">
                         <div class="card-header">
-                            <h3>Exam Rules & Configuration</h3>
+                            <h3>Exam Rules &amp; Configuration</h3>
                         </div>
-                        <div class="card-content">
-                            <div class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-                                <div class="rounded-xl bg-base-200/50 p-3 text-center">
-                                    <p class="text-2xl font-extrabold text-primary">{{ exam.total_marks }}</p>
-                                    <p class="mt-1 text-2xs font-medium uppercase tracking-wider text-base-content/40">Total Marks</p>
+                        <div class="card-content space-y-4">
+                            <!-- Headline stat tiles — tabular numerals so the digits align cleanly -->
+                            <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+                                <div class="rounded-xl bg-primary/10 border border-primary/20 p-3 text-center">
+                                    <p class="text-2xl font-extrabold text-primary tabular-nums leading-tight">{{ formatNumber(exam.total_marks, { decimals: 0 }) }}</p>
+                                    <p class="mt-1 text-[10px] font-bold uppercase tracking-wider text-primary/80">Total Marks</p>
                                 </div>
-                                <div class="rounded-xl bg-base-200/50 p-3 text-center">
-                                    <p class="text-2xl font-extrabold text-secondary">{{ exam.passing_marks }}</p>
-                                    <p class="mt-1 text-2xs font-medium uppercase tracking-wider text-base-content/40">Passing Marks</p>
+                                <div class="rounded-xl bg-secondary/10 border border-secondary/20 p-3 text-center">
+                                    <p class="text-2xl font-extrabold text-secondary tabular-nums leading-tight">{{ formatNumber(exam.passing_marks, { decimals: 0 }) }}</p>
+                                    <p class="mt-1 text-[10px] font-bold uppercase tracking-wider text-secondary/80">Passing Marks</p>
                                 </div>
-                                <div class="rounded-xl bg-base-200/50 p-3 text-center">
-                                    <p class="text-2xl font-extrabold text-accent">{{ exam.passing_percentage }}%</p>
-                                    <p class="mt-1 text-2xs font-medium uppercase tracking-wider text-base-content/40">Pass Percentage</p>
+                                <div class="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-center">
+                                    <p class="text-2xl font-extrabold text-amber-600 dark:text-amber-400 tabular-nums leading-tight">{{ exam.passing_percentage }}%</p>
+                                    <p class="mt-1 text-[10px] font-bold uppercase tracking-wider text-amber-700/80 dark:text-amber-400/80">Pass %</p>
                                 </div>
-                                <div class="rounded-xl bg-base-200/50 p-3 text-center">
-                                    <p class="text-lg font-bold capitalize">{{ exam.position_calculation }}</p>
-                                    <p class="mt-1 text-2xs font-medium uppercase tracking-wider text-base-content/40">Position By</p>
+                                <div class="rounded-xl bg-base-200/60 border border-base-200 p-3 text-center flex flex-col justify-center">
+                                    <p class="text-lg font-bold capitalize leading-tight">{{ exam.position_calculation }}</p>
+                                    <p class="mt-1 text-[10px] font-bold uppercase tracking-wider text-base-content/55">Position By</p>
                                 </div>
                             </div>
 
-                            <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                <div class="flex items-center justify-between rounded-lg border border-base-200 px-4 py-3">
-                                    <span class="text-sm text-base-content/60">Grace Marks</span>
-                                    <span class="text-sm font-semibold">{{ exam.grace_marks }} <span class="text-xs font-normal text-base-content/40">(max {{ exam.grace_marks_max_subjects }} subjects)</span></span>
+                            <!-- Rule rows: compact, two columns, badges for boolean rules -->
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div class="flex items-center justify-between rounded-lg bg-base-200/30 px-3 py-2 text-sm">
+                                    <span class="text-base-content/65">Grace Marks</span>
+                                    <span class="font-semibold tabular-nums">
+                                        {{ formatNumber(exam.grace_marks, { decimals: 0 }) }}
+                                        <span class="text-[11px] font-normal text-base-content/45">/ max {{ exam.grace_marks_max_subjects }} subj</span>
+                                    </span>
                                 </div>
-                                <div class="flex items-center justify-between rounded-lg border border-base-200 px-4 py-3">
-                                    <span class="text-sm text-base-content/60">Min Subjects to Pass</span>
-                                    <span class="text-sm font-semibold">{{ exam.min_subjects_to_pass || 'No limit' }}</span>
+                                <div class="flex items-center justify-between rounded-lg bg-base-200/30 px-3 py-2 text-sm">
+                                    <span class="text-base-content/65">Min Subjects to Pass</span>
+                                    <span class="font-semibold">{{ exam.min_subjects_to_pass || 'No limit' }}</span>
                                 </div>
-                                <div class="flex items-center justify-between rounded-lg border border-base-200 px-4 py-3">
-                                    <span class="text-sm text-base-content/60">Main Subjects Must Pass</span>
+                                <div class="flex items-center justify-between rounded-lg bg-base-200/30 px-3 py-2 text-sm">
+                                    <span class="text-base-content/65">Main Subjects Must Pass</span>
                                     <span class="badge badge-sm" :class="exam.main_subjects_must_pass ? 'badge-success' : 'badge-ghost'">
                                         {{ exam.main_subjects_must_pass ? 'Yes' : 'No' }}
                                     </span>
                                 </div>
-                                <div class="flex items-center justify-between rounded-lg border border-base-200 px-4 py-3">
-                                    <span class="text-sm text-base-content/60">All Subjects Must Pass</span>
+                                <div class="flex items-center justify-between rounded-lg bg-base-200/30 px-3 py-2 text-sm">
+                                    <span class="text-base-content/65">All Subjects Must Pass</span>
                                     <span class="badge badge-sm" :class="exam.all_subjects_must_pass ? 'badge-success' : 'badge-ghost'">
                                         {{ exam.all_subjects_must_pass ? 'Yes' : 'No' }}
                                     </span>
                                 </div>
                             </div>
 
-                            <div v-if="exam.grading_scale" class="mt-4">
-                                <p class="text-xs font-semibold uppercase tracking-wider text-base-content/40 mb-2">Grading Scale: {{ exam.grading_scale.name }}</p>
+                            <div v-if="exam.grading_scale" class="pt-3 border-t border-base-200">
+                                <p class="text-[10px] font-bold uppercase tracking-wider text-base-content/55 mb-2">
+                                    Grading Scale: <span class="text-base-content normal-case font-semibold">{{ exam.grading_scale.name }}</span>
+                                </p>
                                 <div class="flex flex-wrap gap-1.5">
                                     <span v-for="entry in exam.grading_scale.entries" :key="entry.id"
-                                        class="inline-flex items-center gap-1 rounded-lg bg-base-200 px-2.5 py-1 text-xs">
+                                        class="inline-flex items-center gap-1 rounded-lg bg-base-200/60 border border-base-200 px-2.5 py-1 text-xs">
                                         <span class="font-bold">{{ entry.grade }}</span>
-                                        <span class="text-base-content/40">{{ entry.min_percentage }}-{{ entry.max_percentage }}%</span>
+                                        <span class="text-base-content/55 tabular-nums">{{ entry.min_percentage }}–{{ entry.max_percentage }}%</span>
                                     </span>
                                 </div>
                             </div>
@@ -228,31 +236,37 @@ function toggleLock() {
                     <!-- Exam Subjects -->
                     <div class="card-section">
                         <div class="card-header">
-                            <h3>Exam Subjects ({{ examSubjects?.length || 0 }})</h3>
+                            <h3>Exam Subjects <span class="badge badge-sm badge-ghost ml-1">{{ examSubjects?.length || 0 }}</span></h3>
                         </div>
-                        <div class="overflow-x-auto">
-                            <table class="table" v-if="examSubjects?.length">
+                        <div v-if="examSubjects?.length" class="table-sticky-wrap" style="--table-max-h: 50vh;">
+                            <table class="table">
                                 <thead>
-                                    <tr><th>Subject</th><th>Class</th><th>Total</th><th>Pass</th><th>Date</th></tr>
+                                    <tr>
+                                        <th>Subject</th>
+                                        <th>Class</th>
+                                        <th class="text-center">Total</th>
+                                        <th class="text-center">Pass</th>
+                                        <th>Date</th>
+                                    </tr>
                                 </thead>
                                 <tbody>
-                                    <tr v-for="es in examSubjects" :key="es.id" class="hover">
-                                        <td class="font-medium">{{ es.subject?.name }}</td>
-                                        <td>{{ es.school_class?.name }}</td>
-                                        <td>
-                                            <span class="badge badge-sm badge-primary badge-outline">{{ es.total_marks }}</span>
+                                    <tr v-for="es in examSubjects" :key="es.id">
+                                        <td class="font-bold text-sm">{{ es.subject?.name }}</td>
+                                        <td class="text-[13px] text-base-content/75">{{ es.school_class?.name }}</td>
+                                        <td class="text-center">
+                                            <span class="badge badge-sm badge-outline font-mono tabular-nums">{{ formatNumber(es.total_marks, { decimals: 0 }) }}</span>
                                         </td>
-                                        <td>
-                                            <span class="badge badge-sm badge-ghost">{{ es.passing_marks }}</span>
+                                        <td class="text-center">
+                                            <span class="badge badge-sm badge-ghost font-mono tabular-nums">{{ formatNumber(es.passing_marks, { decimals: 0 }) }}</span>
                                         </td>
-                                        <td class="text-base-content/50">{{ es.exam_date || '-' }}</td>
+                                        <td class="text-[12px] text-base-content/65 whitespace-nowrap tabular-nums">{{ formatDate(es.exam_date) || '—' }}</td>
                                     </tr>
                                 </tbody>
                             </table>
-                            <div v-else class="p-8 text-center text-sm text-base-content/40">
-                                No subjects added to this exam yet.
-                                <Link v-if="exam.status === 'draft'" :href="route('exams.edit', exam.id)" class="link link-primary ml-1">Add subjects</Link>
-                            </div>
+                        </div>
+                        <div v-else class="p-8 text-center text-sm text-base-content/45">
+                            No subjects added to this exam yet.
+                            <Link v-if="exam.status === 'draft'" :href="route('exams.edit', exam.id)" class="link link-primary ml-1">Add subjects</Link>
                         </div>
                     </div>
                 </div>
@@ -264,30 +278,30 @@ function toggleLock() {
                         <div class="card-header"><h3>Schedule</h3></div>
                         <div class="card-content space-y-3">
                             <div class="flex items-center gap-3">
-                                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                                    <CalendarIcon class="w-4 h-4 text-primary" />
+                                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                                    <CalendarIcon class="w-4 h-4" />
                                 </div>
                                 <div>
-                                    <p class="text-2xs uppercase tracking-wider text-base-content/40">Start Date</p>
-                                    <p class="text-sm font-semibold">{{ exam.start_date || 'Not set' }}</p>
+                                    <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Start Date</p>
+                                    <p class="text-sm font-bold tabular-nums">{{ formatDate(exam.start_date) || 'Not set' }}</p>
                                 </div>
                             </div>
                             <div class="flex items-center gap-3">
-                                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-error/10">
-                                    <CalendarIcon class="w-4 h-4 text-error" />
+                                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-error/15 text-error">
+                                    <CalendarIcon class="w-4 h-4" />
                                 </div>
                                 <div>
-                                    <p class="text-2xs uppercase tracking-wider text-base-content/40">End Date</p>
-                                    <p class="text-sm font-semibold">{{ exam.end_date || 'Not set' }}</p>
+                                    <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">End Date</p>
+                                    <p class="text-sm font-bold tabular-nums">{{ formatDate(exam.end_date) || 'Not set' }}</p>
                                 </div>
                             </div>
                             <div class="flex items-center gap-3">
-                                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warning/10">
-                                    <ClockIcon class="w-4 h-4 text-warning" />
+                                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning">
+                                    <ClockIcon class="w-4 h-4" />
                                 </div>
                                 <div>
-                                    <p class="text-2xs uppercase tracking-wider text-base-content/40">Marks Deadline</p>
-                                    <p class="text-sm font-semibold">{{ exam.marks_entry_deadline || 'Not set' }}</p>
+                                    <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Marks Deadline</p>
+                                    <p class="text-sm font-bold tabular-nums">{{ formatDate(exam.marks_entry_deadline) || 'Not set' }}</p>
                                 </div>
                             </div>
                         </div>

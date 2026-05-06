@@ -14,7 +14,9 @@ class School extends Model
 
     protected $fillable = [
         'name', 'code', 'logo', 'address', 'phone', 'email',
-        'website', 'principal_signature', 'school_stamp',
+        'website', 'principal_signature', 'principal_name',
+        'school_stamp',
+        'exam_officer_signature', 'exam_officer_name',
         'is_main', 'is_active', 'settings',
     ];
 

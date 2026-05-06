@@ -126,6 +126,14 @@ class StudentController extends Controller
             'classes' => $classes,
             'sections' => $sections,
             'currentSession' => $currentSession,
+            // Initial smart defaults so a fresh form is half-filled. The frontend
+            // re-fetches via the /students/smart-defaults endpoint when the user
+            // changes school/section so suggestions stay accurate.
+            'smartDefaults' => $this->computeSmartDefaults(
+                schoolId: $user->isSuperAdmin() ? $schools->first()?->id : $user->school_id,
+                sectionId: null,
+                currentSession: $currentSession,
+            ),
         ]);
     }
 
@@ -562,5 +570,63 @@ class StudentController extends Controller
             return redirect()->back()
                 ->with('error', 'Import failed: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Compute smart defaults for the student-create form.
+     * Returns next admission_no for the school + next roll_no for the section
+     * + the current academic session id. Both numeric values are derived from
+     * existing data so a teacher just hits Enter through the form.
+     */
+    public function smartDefaults(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $this->authorize('create', Student::class);
+
+        $defaults = $this->computeSmartDefaults(
+            schoolId: $request->integer('school_id') ?: $request->user()->school_id,
+            sectionId: $request->integer('section_id') ?: null,
+            currentSession: AcademicSession::currentSession(),
+        );
+
+        return response()->json($defaults);
+    }
+
+    /**
+     * Internal helper used by both create() and smartDefaults().
+     *
+     * Algorithm:
+     *  - admission_no: takes the highest numeric admission_no in the school,
+     *    increments by 1. If the school has no students yet, starts at 1.
+     *    If existing values are non-numeric (e.g. "GBHSS-2024-001") we just
+     *    return null and let the user type it themselves.
+     *  - roll_no: same idea but per section.
+     *  - academic_session_id: always the current session.
+     */
+    protected function computeSmartDefaults(?int $schoolId, ?int $sectionId, ?AcademicSession $currentSession): array
+    {
+        $nextAdmissionNo = null;
+        if ($schoolId) {
+            $maxAdm = Student::where('school_id', $schoolId)
+                ->whereRaw("admission_no REGEXP '^[0-9]+$'")
+                ->selectRaw('MAX(CAST(admission_no AS UNSIGNED)) as mx')
+                ->value('mx');
+            // Even if no plain-numeric values exist yet, suggest "1" as a sane start
+            $nextAdmissionNo = (int) ($maxAdm ?? 0) + 1;
+        }
+
+        $nextRollNo = null;
+        if ($sectionId) {
+            $maxRoll = Student::where('section_id', $sectionId)
+                ->whereRaw("roll_no REGEXP '^[0-9]+$'")
+                ->selectRaw('MAX(CAST(roll_no AS UNSIGNED)) as mx')
+                ->value('mx');
+            $nextRollNo = (int) ($maxRoll ?? 0) + 1;
+        }
+
+        return [
+            'admission_no' => $nextAdmissionNo ? (string) $nextAdmissionNo : null,
+            'roll_no' => $nextRollNo ? (string) $nextRollNo : null,
+            'academic_session_id' => $currentSession?->id,
+        ];
     }
 }

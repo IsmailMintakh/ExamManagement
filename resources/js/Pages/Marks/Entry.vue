@@ -204,12 +204,47 @@ function focusCell(rowIdx, col = 'marks') {
     })
 }
 function onMarksKeydown(e, idx) {
+    const row = rows.value[idx]
+
+    // Enter / ArrowDown → next student's marks input (existing behavior)
     if (e.key === 'Enter' || e.key === 'ArrowDown') {
         e.preventDefault()
         focusCell(Math.min(idx + 1, rows.value.length - 1))
-    } else if (e.key === 'ArrowUp') {
+        return
+    }
+
+    // ArrowUp → previous student's marks input
+    if (e.key === 'ArrowUp') {
         e.preventDefault()
         focusCell(Math.max(idx - 1, 0))
+        return
+    }
+
+    // Tab / Shift+Tab → jump straight to next/previous student's marks input
+    // (skipping the absent checkbox and remarks inputs in between). Power users
+    // can still Shift+Tab to checkbox by pressing Tab from there.
+    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault()
+        focusCell(e.shiftKey ? Math.max(idx - 1, 0) : Math.min(idx + 1, rows.value.length - 1))
+        return
+    }
+
+    // Space → toggle Absent for this row. If currently absent, untoggling clears
+    // it back to empty and the cursor stays here so the teacher can type a number.
+    // Only fires when the field is empty (so it doesn't kill normal typing).
+    if (e.key === ' ' && !row.marks_obtained && !isSubmitted.value) {
+        e.preventDefault()
+        row.is_absent = !row.is_absent
+        toggleAbsent(row)
+        return
+    }
+
+    // Esc → clear this row and move focus away. Quick "I made a mistake" reset.
+    if (e.key === 'Escape') {
+        e.preventDefault()
+        clearRow(row)
+        e.target.blur()
+        return
     }
 }
 
@@ -515,6 +550,17 @@ const absentStudents = computed(() =>
                     <UserGroupIcon class="w-10 h-10 text-base-content/30 mx-auto mb-2" />
                     No students in this section.
                 </div>
+            </div>
+
+            <!-- Keyboard shortcut hints — discoverable, only on desktop -->
+            <div v-if="!isSubmitted" class="hidden sm:flex items-center gap-3 px-4 py-2 rounded-xl bg-base-200/40 border border-base-200 text-[11px] text-base-content/65">
+                <span class="font-bold uppercase tracking-wider text-base-content/45">Shortcuts:</span>
+                <span><kbd class="kbd kbd-xs">Tab</kbd> next</span>
+                <span><kbd class="kbd kbd-xs">⇧</kbd>+<kbd class="kbd kbd-xs">Tab</kbd> previous</span>
+                <span><kbd class="kbd kbd-xs">↵</kbd> next</span>
+                <span><kbd class="kbd kbd-xs">Space</kbd> toggle absent</span>
+                <span><kbd class="kbd kbd-xs">Esc</kbd> clear &amp; cancel</span>
+                <span class="ml-auto text-base-content/45">Paste a column from Excel anywhere</span>
             </div>
 
             <!-- ═══════════ DESKTOP TABLE (sm+) ═══════════ -->

@@ -11,6 +11,7 @@ import {
     AcademicCapIcon, BookOpenIcon, ListBulletIcon,
     DocumentDuplicateIcon, SparklesIcon, Squares2X2Icon,
     ArrowTopRightOnSquareIcon, CheckCircleIcon, ClockIcon,
+    PencilSquareIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -50,6 +51,22 @@ const reports = computed(() => [
             { key: 'class', label: 'Class', type: 'class', required: true },
         ],
         route: 'reports.result-sheet',
+        routeFormat: (values) => ({ exam: values.exam, schoolClass: values.class }),
+    },
+    {
+        id: 'attendance-sheet',
+        title: 'Exam Attendance Sheet',
+        description: 'Per-subject sign-in sheet — students sign next to their roll/name as they enter the exam room. One page per subject per section.',
+        category: 'classes',
+        categoryLabel: 'Class Reports',
+        icon: PencilSquareIcon,
+        color: 'accent',
+        format: 'PDF',
+        inputs: [
+            { key: 'exam', label: 'Exam', type: 'exam', required: true },
+            { key: 'class', label: 'Class', type: 'class', required: true },
+        ],
+        route: 'reports.attendance-sheet',
         routeFormat: (values) => ({ exam: values.exam, schoolClass: values.class }),
     },
     {

@@ -67,11 +67,14 @@ class ReportController extends Controller
 
     public function resultSheet(int $exam, int $schoolClass)
     {
-        $examModel = Exam::with(['examType', 'gradingScale.entries', 'examSubjects' => function ($q) use ($schoolClass) {
-            $q->where('school_class_id', $schoolClass)->with('subject');
-        }])->findOrFail($exam);
+        $examModel = Exam::with([
+            'examType', 'gradingScale.entries', 'examController:id,name',
+            'examSubjects' => function ($q) use ($schoolClass) {
+                $q->where('school_class_id', $schoolClass)->with('subject');
+            },
+        ])->findOrFail($exam);
 
-        $schoolClassModel = SchoolClass::with(['sections', 'school'])->findOrFail($schoolClass);
+        $schoolClassModel = SchoolClass::with(['sections.classTeacher:id,name', 'school'])->findOrFail($schoolClass);
 
         $user = request()->user();
         if (!$user->isSuperAdmin() && $schoolClassModel->school_id !== $user->school_id) {
@@ -284,8 +287,8 @@ class ReportController extends Controller
      */
     public function sectionMarkSheets(int $exam, int $section)
     {
-        $examModel = Exam::with(['examType', 'gradingScale.entries', 'academicSession'])->findOrFail($exam);
-        $sectionModel = Section::with(['schoolClass.school'])->findOrFail($section);
+        $examModel = Exam::with(['examType', 'gradingScale.entries', 'academicSession', 'examController:id,name'])->findOrFail($exam);
+        $sectionModel = Section::with(['schoolClass.school', 'classTeacher:id,name'])->findOrFail($section);
 
         $user = request()->user();
         if (!$user->isSuperAdmin() && $sectionModel->schoolClass->school_id !== $user->school_id) {
@@ -347,6 +350,67 @@ class ReportController extends Controller
         ])->setPaper('a4', 'portrait');
 
         return $pdf->stream("mark-sheets-{$examModel->slug}-{$sectionModel->slug}.pdf");
+    }
+
+    /**
+     * Per-subject attendance signing sheet for an exam in a class.
+     * One page per (section × subject) — invigilator carries one page to
+     * each room and students sign next to their roll/name.
+     */
+    public function attendanceSheet(int $exam, int $schoolClass)
+    {
+        $examModel = Exam::with([
+            'examType', 'academicSession',
+            'examSubjects' => function ($q) use ($schoolClass) {
+                $q->where('school_class_id', $schoolClass)->with('subject');
+            },
+        ])->findOrFail($exam);
+
+        $schoolClassModel = SchoolClass::with(['school', 'sections' => function ($q) {
+            $q->orderBy('name');
+        }, 'sections.classTeacher:id,name'])->findOrFail($schoolClass);
+
+        $user = request()->user();
+        if (!$user->isSuperAdmin() && $schoolClassModel->school_id !== $user->school_id) {
+            abort(403, 'You can only download attendance sheets for your school.');
+        }
+
+        $subjects = $examModel->examSubjects
+            ->filter(fn ($es) => $es->subject !== null)
+            ->map(fn ($es) => [
+                'id' => $es->subject_id,
+                'code' => $es->subject->code ?? null,
+                'name' => $es->subject->name,
+            ])->values();
+
+        if ($subjects->isEmpty()) {
+            return redirect()->back()->with('error', 'No subjects assigned to this class for the exam.');
+        }
+
+        // Pre-load students per section so the view doesn't N+1
+        $sectionsWithStudents = $schoolClassModel->sections->map(function ($section) {
+            $section->setRelation('studentsList', Student::query()
+                ->where('section_id', $section->id)
+                ->where('status', 'active')
+                ->orderByRaw('CAST(roll_no AS UNSIGNED), roll_no')
+                ->get(['id', 'roll_no', 'name', 'father_name']));
+            return $section;
+        });
+
+        if ($sectionsWithStudents->sum(fn ($s) => $s->studentsList->count()) === 0) {
+            return redirect()->back()->with('error', 'No active students found in this class.');
+        }
+
+        $pdf = Pdf::loadView('reports.attendance-sheet', [
+            'exam' => $examModel,
+            'school' => $schoolClassModel->school,
+            'schoolClass' => $schoolClassModel,
+            'sections' => $sectionsWithStudents,
+            'subjects' => $subjects,
+            'academicSession' => $examModel->academicSession,
+        ])->setPaper('a4', 'portrait');
+
+        return $pdf->stream("attendance-sheet-{$examModel->slug}-{$schoolClassModel->slug}.pdf");
     }
 
     public function exportExcel(string $type, int $exam)

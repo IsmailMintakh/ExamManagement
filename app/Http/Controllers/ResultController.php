@@ -110,7 +110,8 @@ class ResultController extends Controller
             ->active()
             ->get(['id', 'name', 'school_class_id']);
 
-        // Marks submission status
+        // Marks submission status — include class/section ids so the
+        // frontend can group by class and check "all subjects submitted".
         $marksStatus = [];
         foreach ($exam->examSubjects as $es) {
             $secs = Section::where('school_class_id', $es->school_class_id)->active()->get();
@@ -121,6 +122,8 @@ class ResultController extends Controller
                     ->first();
                 $marksStatus[] = [
                     'id' => $es->id . '-' . $sec->id,
+                    'class_id' => $es->school_class_id,
+                    'section_id' => $sec->id,
                     'subject' => $es->subject?->name,
                     'class_name' => $es->schoolClass?->name,
                     'section_name' => $sec->name,
@@ -212,21 +215,36 @@ class ResultController extends Controller
 
         $section->load('schoolClass');
 
-        $results = Result::where('exam_id', $exam->id)
+        // Cross-tenant guard: previously a school-admin from school A could
+        // open a result page for school B's section by guessing IDs. The
+        // authorize() above only checks the exam, not that the section
+        // belongs to the same school the user is part of.
+        $user = auth()->user();
+        if (!$user->isSuperAdmin() && $section->schoolClass?->school_id !== $user->school_id) {
+            abort(403, 'This section does not belong to your school.');
+        }
+
+        // Filter results to ONLY this section + same-school scope. The
+        // whereHas hop ensures any future reuse of the query (or a leaked
+        // section_id with mismatched school) won't surface foreign rows.
+        $resultsBase = Result::where('exam_id', $exam->id)
             ->where('section_id', $section->id)
+            ->whereHas('section.schoolClass', fn ($q) => $q->where('school_id', $section->schoolClass?->school_id));
+
+        $results = (clone $resultsBase)
             ->with('student')
             ->orderBy('position')
             ->paginate(50);
 
-        $total = Result::where('exam_id', $exam->id)->where('section_id', $section->id)->count();
-        $passed = Result::where('exam_id', $exam->id)->where('section_id', $section->id)->where('is_passed', true)->count();
+        $total = (clone $resultsBase)->count();
+        $passed = (clone $resultsBase)->where('is_passed', true)->count();
 
         $summary = [
             'total' => $total,
             'passed' => $passed,
             'failed' => $total - $passed,
             'passPercentage' => $total > 0 ? round($passed / $total * 100, 2) : 0,
-            'avgPercentage' => round(Result::where('exam_id', $exam->id)->where('section_id', $section->id)->avg('percentage') ?? 0, 2),
+            'avgPercentage' => round((clone $resultsBase)->avg('percentage') ?? 0, 2),
         ];
 
         // Get subjects for this exam/class

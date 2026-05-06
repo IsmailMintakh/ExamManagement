@@ -100,6 +100,81 @@ function save() {
 function openPdf() {
     window.open(route('scheduling.datesheet-pdf', props.exam.id), '_blank')
 }
+
+// ─── Bulk-apply time from one row to others ───
+// Common case: every paper in this exam runs 09:00–12:00. User fills the
+// first row, hits "Apply to all" and we copy to all OTHER rows. Default
+// behavior is to skip rows that already have a time set, so the user doesn't
+// accidentally clobber rows they've already customised. The "overwrite all"
+// variant clobbers everything for the rare reschedule case.
+function applyTimeToAll(sourceRow, { overwrite = false } = {}) {
+    if (!sourceRow.start_time || !sourceRow.end_time) return
+    let changed = 0
+    for (const r of form.schedules) {
+        if (r === sourceRow) continue
+        if (!overwrite && r.start_time && r.end_time) continue
+        r.start_time = sourceRow.start_time
+        r.end_time = sourceRow.end_time
+        changed++
+    }
+    return changed
+}
+
+// Same idea for the date — user fills the date for one paper, applies to all
+// (useful for monthly tests that all happen on the same day).
+function applyDateToAll(sourceRow, { overwrite = false } = {}) {
+    if (!sourceRow.exam_date) return
+    let changed = 0
+    for (const r of form.schedules) {
+        if (r === sourceRow) continue
+        if (!overwrite && r.exam_date) continue
+        r.exam_date = sourceRow.exam_date
+        changed++
+    }
+    return changed
+}
+
+// Same again for instructions — common case is a single instruction line that
+// applies to every paper ("Bring own stationery, calculators not allowed").
+function applyInstructionsToAll(sourceRow, { overwrite = false } = {}) {
+    if (!sourceRow.instructions) return
+    let changed = 0
+    for (const r of form.schedules) {
+        if (r === sourceRow) continue
+        if (!overwrite && r.instructions) continue
+        r.instructions = sourceRow.instructions
+        changed++
+    }
+    return changed
+}
+
+// "Did at least one OTHER row already get the same time?" — used to hide the
+// button once the user has already applied (no point showing "Apply to all"
+// when there's nothing left to change).
+function isFirstWithTime(row) {
+    if (!row.start_time || !row.end_time) return false
+    const idx = form.schedules.indexOf(row)
+    for (let i = 0; i < idx; i++) {
+        if (form.schedules[i].start_time && form.schedules[i].end_time) return false
+    }
+    return true
+}
+function isFirstWithDate(row) {
+    if (!row.exam_date) return false
+    const idx = form.schedules.indexOf(row)
+    for (let i = 0; i < idx; i++) {
+        if (form.schedules[i].exam_date) return false
+    }
+    return true
+}
+function isFirstWithInstructions(row) {
+    if (!row.instructions) return false
+    const idx = form.schedules.indexOf(row)
+    for (let i = 0; i < idx; i++) {
+        if (form.schedules[i].instructions) return false
+    }
+    return true
+}
 </script>
 
 <template>
@@ -194,6 +269,12 @@ function openPdf() {
                                         :max="exam.end_date || undefined"
                                         class="input input-bordered input-xs w-full"
                                         :class="rowConflict(row) ? 'input-error' : ''" />
+                                    <button v-if="isFirstWithDate(row)" type="button"
+                                        @click="applyDateToAll(row)"
+                                        class="text-[10px] text-primary font-semibold hover:underline mt-0.5"
+                                        title="Copy this date to all rows that don't have a date yet">
+                                        ↓ Apply to all
+                                    </button>
                                 </td>
                                 <td>
                                     <input v-model="row.start_time" type="time"
@@ -205,6 +286,12 @@ function openPdf() {
                                         :min="row.start_time || undefined"
                                         class="input input-bordered input-xs w-full"
                                         :class="rowConflict(row) ? 'input-error' : ''" />
+                                    <button v-if="isFirstWithTime(row)" type="button"
+                                        @click="applyTimeToAll(row)"
+                                        class="text-[10px] text-primary font-semibold hover:underline mt-0.5"
+                                        title="Copy this time to all rows that don't have one yet">
+                                        ↓ Apply to all
+                                    </button>
                                 </td>
                                 <td class="text-xs">
                                     <span v-if="computeDuration(row)" class="inline-flex items-center gap-1 text-base-content/60">
@@ -216,6 +303,12 @@ function openPdf() {
                                 <td>
                                     <input v-model="row.instructions" type="text" placeholder="Optional"
                                         class="input input-bordered input-xs w-full" />
+                                    <button v-if="isFirstWithInstructions(row)" type="button"
+                                        @click="applyInstructionsToAll(row)"
+                                        class="text-[10px] text-primary font-semibold hover:underline mt-0.5"
+                                        title="Copy this instruction to all rows that don't have one yet">
+                                        ↓ Apply to all
+                                    </button>
                                 </td>
                             </tr>
                         </tbody>

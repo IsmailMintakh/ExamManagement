@@ -5,6 +5,7 @@ import { Head, Link, router } from '@inertiajs/vue3'
 import { computed, ref } from 'vue'
 import {
     ArrowLeftIcon, ArrowDownTrayIcon, KeyIcon, ArrowPathIcon, TrashIcon,
+    Squares2X2Icon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -34,6 +35,46 @@ function doDelete() {
 let globalQNum = 0
 function resetNum() { globalQNum = 0 }
 function nextNum() { return ++globalQNum }
+
+// ─── Multi-up capacity check ───
+// Estimate "effective lines" each question takes on the printed slip:
+//   1 line for the question text itself
+// + N lines for any writing space (answer_lines) the section requests
+// + ~2 lines for MCQ option rows (4 options in 2-col grid = ~2 rows)
+//
+// Then check: would the entire paper × N slips fit on one A4?
+// If not, disable the N-up button so the user gets ONE paper per page.
+const defaultLinesByType = {
+    mcq: 0, true_false: 0, fill_blank: 0,
+    short_answer: 2, long_answer: 6,
+}
+const effectiveLineCount = computed(() => {
+    let lines = 0
+    for (const sec of props.paper.sections || []) {
+        const sectionLines = sec.answer_lines !== null && sec.answer_lines !== undefined
+            ? Number(sec.answer_lines)
+            : (defaultLinesByType[sec.type] ?? 0)
+        for (const qEntry of sec.questions || []) {
+            const q = props.questions?.[qEntry.question_id]
+            if (!q) continue
+            let qLines = 1 // question text itself
+            if (q.type === 'mcq' && Array.isArray(q.options)) {
+                qLines += Math.ceil(q.options.length / 2) // 2-col MCQ rows
+            } else if (q.type === 'true_false') {
+                qLines += 1
+            }
+            qLines += sectionLines
+            lines += qLines
+        }
+        lines += 2 // section heading + meta
+    }
+    return lines
+})
+
+// Rough capacity per slip after the header / candidate / meta overhead:
+//   1-up: ~70 lines (full page A4 portrait)  — always available
+//   2-up: ~38 lines per slip (A4 landscape ÷ 2)
+const fits2up = computed(() => effectiveLineCount.value <= 38)
 </script>
 
 <template>
@@ -58,9 +99,25 @@ function nextNum() { return ++globalQNum }
                 <Link :href="route('papers.index')" class="btn btn-ghost btn-sm gap-2">
                     <ArrowLeftIcon class="w-4 h-4" /> Back
                 </Link>
-                <a :href="route('papers.download', paper.id)" target="_blank" class="btn btn-primary btn-sm gap-2">
-                    <ArrowDownTrayIcon class="w-4 h-4" /> Download Paper
-                </a>
+                <!-- Download at 1 paper per A4 (full) or 2 papers per A4 (cut once).
+                     2-up auto-disables when the paper is too dense to fit. -->
+                <div class="join">
+                    <a :href="route('papers.download', paper.id)" target="_blank"
+                        class="btn btn-primary btn-sm gap-2 join-item"
+                        title="Full A4 — one paper per sheet">
+                        <ArrowDownTrayIcon class="w-4 h-4" /> Download
+                    </a>
+                    <a v-if="fits2up" :href="route('papers.download', paper.id) + '?slips=2'" target="_blank"
+                        class="btn btn-primary btn-sm gap-1 join-item"
+                        title="Two papers per A4 landscape — cut once. Saves 50% paper.">
+                        <Squares2X2Icon class="w-4 h-4" /> 2-up
+                    </a>
+                    <button v-else type="button" disabled
+                        class="btn btn-primary btn-sm gap-1 join-item opacity-40 cursor-not-allowed"
+                        title="Paper has too much content for 2-up — would overflow A4 landscape. Use full Download instead.">
+                        <Squares2X2Icon class="w-4 h-4" /> 2-up
+                    </button>
+                </div>
                 <a :href="route('papers.answer-key', paper.id)" target="_blank" class="btn btn-success btn-sm gap-2">
                     <KeyIcon class="w-4 h-4" /> Answer Key
                 </a>
@@ -84,10 +141,15 @@ function nextNum() { return ++globalQNum }
                 <div v-for="(section, sIdx) in paper.sections" :key="sIdx" class="mb-6">
                     <div class="border-t-2 border-b-2 border-base-content/20 py-2 my-4 text-center">
                         <h3 class="text-sm font-bold uppercase tracking-widest">
-                            Section {{ romanMap[sIdx] || (sIdx + 1) }} — {{ section.label }}
+                            {{ section.label || `Section ${romanMap[sIdx] || (sIdx + 1)}` }}
                         </h3>
                         <p class="text-xs text-base-content/55 mt-0.5">
-                            {{ section.count }} &times; {{ section.marks_each }} = {{ (section.count * section.marks_each).toFixed(2) }} marks
+                            {{ (section.questions?.length ?? section.count) }}
+                            {{ (section.questions?.length ?? section.count) === 1 ? 'question' : 'questions' }}
+                            ·
+                            {{ Number(section.section_total_marks
+                                ?? (section.questions?.reduce((s, q) => s + (Number(q.marks) || 0), 0) ?? 0)
+                            ).toFixed(2) }} marks
                             <span v-if="section.difficulty && section.difficulty !== 'mixed'"> · {{ section.difficulty }}</span>
                         </p>
                     </div>

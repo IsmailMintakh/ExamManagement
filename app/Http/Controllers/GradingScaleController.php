@@ -18,13 +18,13 @@ class GradingScaleController extends Controller
 
         $user = $request->user();
 
+        // Source filter (mine | library | all). Default 'all' so a school
+        // with no custom scales still sees the DDO-shipped defaults — those
+        // are what makes the feature work out of the box.
+        $source = $this->resolveSource($request);
+
         $gradingScales = GradingScale::query()
-            ->when(!$user->isSuperAdmin(), function ($query) use ($user) {
-                $query->where(function ($q) use ($user) {
-                    $q->where('school_id', $user->school_id)
-                      ->orWhereNull('school_id');
-                });
-            })
+            ->when(true, fn ($q) => $this->scopeForUser($q, $user, $source))
             ->when($request->has('search'), function ($query) use ($request) {
                 $query->where('name', 'like', '%' . $request->input('search') . '%');
             })
@@ -32,10 +32,43 @@ class GradingScaleController extends Controller
             ->orderBy('name')
             ->get();
 
+        $sourceCounts = $user->isSuperAdmin()
+            ? null
+            : [
+                'mine' => $this->scopeForUser(GradingScale::query(), $user, 'mine')->count(),
+                'library' => $this->scopeForUser(GradingScale::query(), $user, 'library')->count(),
+                'all' => $this->scopeForUser(GradingScale::query(), $user, 'all')->count(),
+            ];
+
         return Inertia::render('GradingScales/Index', [
             'gradingScales' => $gradingScales,
-            'filters' => $request->only(['search']),
+            'filters' => array_merge($request->only(['search']), ['source' => $source]),
+            'sourceCounts' => $sourceCounts,
         ]);
+    }
+
+    /**
+     * Apply the role-based + source filter to a GradingScale query.
+     */
+    protected function scopeForUser($query, $user, string $source = 'all')
+    {
+        if ($user->isSuperAdmin()) {
+            return $query;
+        }
+
+        return match ($source) {
+            'library' => $query->whereNull('school_id'),
+            'mine' => $query->where('school_id', $user->school_id),
+            default /* 'all' */ => $query->where(function ($q) use ($user) {
+                $q->where('school_id', $user->school_id)->orWhereNull('school_id');
+            }),
+        };
+    }
+
+    protected function resolveSource(Request $request, string $default = 'all'): string
+    {
+        $s = $request->input('source', $default);
+        return in_array($s, ['mine', 'library', 'all'], true) ? $s : $default;
     }
 
     public function create(Request $request): Response

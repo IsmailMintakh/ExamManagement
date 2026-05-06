@@ -3,6 +3,7 @@ import AppLayout from '@/Layouts/AppLayout.vue'
 import { Head, Link } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import { usePermissions } from '@/Composables/usePermissions'
+import { formatDate, formatNumber } from '@/Utils/format'
 import {
     PencilSquareIcon, AcademicCapIcon, ChartBarIcon, ClipboardDocumentListIcon,
     UserIcon, DocumentTextIcon, ArrowsRightLeftIcon, TrophyIcon, IdentificationIcon,
@@ -60,11 +61,9 @@ function gradeBadge(g) {
     if (g === 'D' || g === 'E') return 'bg-orange-100 text-orange-700 ring-orange-200'
     return 'bg-rose-100 text-rose-700 ring-rose-200'
 }
+// Use the project's formatDate util — shows "04 May 2026" with em-dash fallback.
 function fmtDate(d) {
-    if (!d) return '—'
-    try {
-        return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-    } catch { return d }
+    return formatDate(d) || '—'
 }
 
 // Sparkline path generator
@@ -111,7 +110,7 @@ function eventColorClasses(c) {
     <AppLayout :breadcrumbs="[{ label: 'Students', href: route('students.index') }, { label: student?.name }]">
         <div class="space-y-6 max-w-[1500px] mx-auto">
             <!-- ═══════════ HEADER ═══════════ -->
-            <div class="relative rounded-3xl overflow-hidden border border-base-200 bg-base-100">
+            <div class="relative surface !rounded-3xl overflow-hidden">
                 <!-- Cover gradient -->
                 <div class="h-32 bg-gradient-to-r" :class="avatarGradient(student?.name)"></div>
 
@@ -186,14 +185,14 @@ function eventColorClasses(c) {
 
             <!-- ═══════════ KPI STRIP ═══════════ -->
             <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-                <div class="rounded-2xl border border-base-200 bg-base-100 p-5">
+                <div class="surface p-5">
                     <ClipboardDocumentListIcon class="w-5 h-5 text-primary mb-2" />
                     <div class="text-2xl font-extrabold tabular-nums">{{ stats.examsTaken }}</div>
                     <p class="text-xs text-base-content/55 mt-0.5">Exams Taken</p>
                     <p class="text-[10px] text-emerald-600 font-semibold mt-1">{{ stats.examsPassed }} passed</p>
                 </div>
 
-                <div class="rounded-2xl border border-base-200 bg-base-100 p-5 lg:col-span-2">
+                <div class="surface p-5 lg:col-span-2">
                     <div class="flex items-start justify-between">
                         <div>
                             <ChartBarIcon class="w-5 h-5 text-sky-600 mb-2" />
@@ -219,7 +218,7 @@ function eventColorClasses(c) {
                     </div>
                 </div>
 
-                <div class="rounded-2xl border border-base-200 bg-base-100 p-5">
+                <div class="surface p-5">
                     <TrophyIcon class="w-5 h-5 text-amber-600 mb-2" />
                     <div class="text-2xl font-extrabold tabular-nums">
                         <template v-if="stats.bestRank">#{{ stats.bestRank }}</template>
@@ -229,7 +228,7 @@ function eventColorClasses(c) {
                     <p class="text-[10px] text-base-content/45 mt-1">In any exam</p>
                 </div>
 
-                <div class="rounded-2xl border border-base-200 bg-base-100 p-5">
+                <div class="surface p-5">
                     <SparklesIcon class="w-5 h-5 text-violet-600 mb-2" />
                     <div class="text-2xl font-extrabold tabular-nums">{{ stats.certificatesEarned }}</div>
                     <p class="text-xs text-base-content/55 mt-0.5">Certificates</p>
@@ -253,7 +252,7 @@ function eventColorClasses(c) {
             <div v-if="tab === 'overview'" class="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 <!-- Recent results (left, 2 cols) -->
                 <div class="lg:col-span-2 space-y-5">
-                    <div class="rounded-2xl border border-base-200 bg-base-100 overflow-hidden">
+                    <div class="surface overflow-hidden">
                         <div class="px-5 py-4 border-b border-base-200 flex items-center justify-between">
                             <h3 class="text-sm font-bold flex items-center gap-2">
                                 <ChartBarIcon class="w-4 h-4 text-sky-600" />
@@ -293,7 +292,7 @@ function eventColorClasses(c) {
                     </div>
 
                     <!-- Recent certificates -->
-                    <div v-if="certificates.length" class="rounded-2xl border border-base-200 bg-base-100 overflow-hidden">
+                    <div v-if="certificates.length" class="surface overflow-hidden">
                         <div class="px-5 py-4 border-b border-base-200 flex items-center justify-between">
                             <h3 class="text-sm font-bold flex items-center gap-2">
                                 <TrophyIcon class="w-4 h-4 text-amber-600" />
@@ -321,7 +320,7 @@ function eventColorClasses(c) {
 
                 <!-- Quick info (right) -->
                 <div class="space-y-5">
-                    <div class="rounded-2xl border border-base-200 bg-base-100 p-5">
+                    <div class="surface p-5">
                         <h3 class="text-sm font-bold flex items-center gap-2 mb-4">
                             <UserIcon class="w-4 h-4 text-primary" />
                             Quick Info
@@ -330,10 +329,6 @@ function eventColorClasses(c) {
                             <div class="flex items-start justify-between gap-3">
                                 <dt class="text-base-content/55 text-xs uppercase tracking-wider font-semibold">Father</dt>
                                 <dd class="font-semibold text-right">{{ student?.father_name || '—' }}</dd>
-                            </div>
-                            <div class="flex items-start justify-between gap-3">
-                                <dt class="text-base-content/55 text-xs uppercase tracking-wider font-semibold">Mother</dt>
-                                <dd class="font-semibold text-right">{{ student?.mother_name || '—' }}</dd>
                             </div>
                             <div class="flex items-start justify-between gap-3">
                                 <dt class="text-base-content/55 text-xs uppercase tracking-wider font-semibold">Phone</dt>
@@ -396,7 +391,7 @@ function eventColorClasses(c) {
             </div>
 
             <!-- ═══════════ TIMELINE TAB ═══════════ -->
-            <div v-if="tab === 'timeline'" class="rounded-2xl border border-base-200 bg-base-100 p-6 lg:p-8">
+            <div v-if="tab === 'timeline'" class="surface p-6 lg:p-8">
                 <div v-if="!timeline.length" class="text-center py-10 text-sm text-base-content/55">
                     <ClockIcon class="w-10 h-10 mx-auto text-base-content/30 mb-2" />
                     No academic history yet.
@@ -449,7 +444,7 @@ function eventColorClasses(c) {
             </div>
 
             <!-- ═══════════ RESULTS TAB ═══════════ -->
-            <div v-if="tab === 'results'" class="rounded-2xl border border-base-200 bg-base-100 overflow-hidden">
+            <div v-if="tab === 'results'" class="surface overflow-hidden">
                 <div v-if="!results.length" class="p-10 text-center text-sm text-base-content/55">No results yet.</div>
                 <div v-else class="overflow-x-auto">
                     <table class="w-full text-sm">
@@ -501,7 +496,7 @@ function eventColorClasses(c) {
             </div>
 
             <!-- ═══════════ MARKS DETAIL TAB ═══════════ -->
-            <div v-if="tab === 'marks'" class="rounded-2xl border border-base-200 bg-base-100 overflow-hidden">
+            <div v-if="tab === 'marks'" class="surface overflow-hidden">
                 <div v-if="!marks.length" class="p-10 text-center text-sm text-base-content/55">No marks recorded yet.</div>
                 <div v-else class="overflow-x-auto">
                     <table class="w-full text-sm">
@@ -545,12 +540,12 @@ function eventColorClasses(c) {
 
             <!-- ═══════════ CERTIFICATES TAB ═══════════ -->
             <div v-if="tab === 'certificates'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div v-if="!certificates.length" class="lg:col-span-3 rounded-2xl border border-base-200 bg-base-100 p-10 text-center text-sm text-base-content/55">
+                <div v-if="!certificates.length" class="lg:col-span-3 surface p-10 text-center text-sm text-base-content/55">
                     <TrophyIcon class="w-10 h-10 mx-auto text-base-content/30 mb-2" />
                     No certificates earned yet.
                 </div>
                 <div v-for="c in certificates" :key="c.id"
-                    class="group rounded-2xl border border-base-200 bg-base-100 overflow-hidden hover:shadow-xl hover:-translate-y-0.5 transition-all">
+                    class="group surface overflow-hidden hover:shadow-xl hover:-translate-y-0.5 transition-all">
                     <div class="h-24 bg-gradient-to-br from-amber-400 via-amber-500 to-orange-600 relative flex items-center justify-center">
                         <TrophyIcon class="w-12 h-12 text-white/80 group-hover:scale-110 transition-transform" />
                     </div>
@@ -571,14 +566,13 @@ function eventColorClasses(c) {
 
             <!-- ═══════════ PERSONAL INFO TAB ═══════════ -->
             <div v-if="tab === 'personal'" class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                <div class="rounded-2xl border border-base-200 bg-base-100 p-6">
+                <div class="surface p-6">
                     <h3 class="text-sm font-bold flex items-center gap-2 mb-5">
                         <UserIcon class="w-4 h-4 text-primary" />
                         Personal Details
                     </h3>
                     <dl class="grid grid-cols-2 gap-x-4 gap-y-4 text-sm">
                         <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">Father's Name</dt><dd class="font-semibold">{{ student?.father_name || '—' }}</dd></div>
-                        <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">Mother's Name</dt><dd class="font-semibold">{{ student?.mother_name || '—' }}</dd></div>
                         <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">Date of Birth</dt><dd class="font-semibold inline-flex items-center gap-1"><CakeIcon class="w-3.5 h-3.5 text-base-content/40" />{{ fmtDate(student?.date_of_birth) }}</dd></div>
                         <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">Gender</dt><dd class="font-semibold capitalize">{{ student?.gender || '—' }}</dd></div>
                         <div><dt class="text-[11px] uppercase tracking-wider text-base-content/55 font-semibold mb-1">Blood Group</dt><dd class="font-semibold inline-flex items-center gap-1"><HeartIcon v-if="student?.blood_group" class="w-3.5 h-3.5 text-rose-500" />{{ student?.blood_group || '—' }}</dd></div>
@@ -589,7 +583,7 @@ function eventColorClasses(c) {
                     </dl>
                 </div>
 
-                <div class="rounded-2xl border border-base-200 bg-base-100 p-6">
+                <div class="surface p-6">
                     <h3 class="text-sm font-bold flex items-center gap-2 mb-5">
                         <AcademicCapIcon class="w-4 h-4 text-primary" />
                         Academic &amp; Enrollment

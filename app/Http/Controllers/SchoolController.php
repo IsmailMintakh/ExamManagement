@@ -71,6 +71,10 @@ class SchoolController extends Controller
             $data['school_stamp'] = $request->file('school_stamp')->store('schools/stamps', 'public');
         }
 
+        if ($request->hasFile('exam_officer_signature')) {
+            $data['exam_officer_signature'] = $request->file('exam_officer_signature')->store('schools/signatures', 'public');
+        }
+
         School::create($data);
 
         return redirect()->route('schools.index')->with('success', 'School created successfully.');
@@ -133,6 +137,13 @@ class SchoolController extends Controller
                 Storage::disk('public')->delete($school->school_stamp);
             }
             $data['school_stamp'] = $request->file('school_stamp')->store('schools/stamps', 'public');
+        }
+
+        if ($request->hasFile('exam_officer_signature')) {
+            if ($school->exam_officer_signature) {
+                Storage::disk('public')->delete($school->exam_officer_signature);
+            }
+            $data['exam_officer_signature'] = $request->file('exam_officer_signature')->store('schools/signatures', 'public');
         }
 
         $school->update($data);

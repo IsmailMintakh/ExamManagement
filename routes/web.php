@@ -119,6 +119,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('students/bulk-export', [StudentController::class, 'bulkExport'])->name('students.bulk-export');
     Route::post('students/bulk-id-cards', [StudentController::class, 'bulkIdCards'])->name('students.bulk-id-cards');
     Route::get('students/{student}/id-card', [StudentController::class, 'idCard'])->name('students.id-card');
+    // Smart-default suggestions for the create form (next admission/roll no).
+    // GET so the frontend can call it without CSRF — read-only suggestion endpoint.
+    Route::get('students/smart-defaults', [StudentController::class, 'smartDefaults'])->name('students.smart-defaults');
     Route::resource('students', StudentController::class);
     Route::get('students-import', [StudentController::class, 'import'])->name('students.import');
     Route::post('students-import', [StudentController::class, 'processImport'])->name('students.process-import');
@@ -168,6 +171,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('result-sheet/{exam}/{schoolClass}', [ReportController::class, 'resultSheet'])->name('result-sheet');
         Route::get('report-card/{exam}/{student}', [ReportController::class, 'reportCard'])->name('report-card');
         Route::get('section-mark-sheets/{exam}/{section}', [ReportController::class, 'sectionMarkSheets'])->name('section-mark-sheets');
+        Route::get('attendance-sheet/{exam}/{schoolClass}', [ReportController::class, 'attendanceSheet'])->name('attendance-sheet');
         Route::get('progress-report/{student}', [ReportController::class, 'progressReport'])->name('progress-report');
         Route::get('export/{type}/{exam}', [ReportController::class, 'exportExcel'])->name('export');
     });

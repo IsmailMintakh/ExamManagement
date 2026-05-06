@@ -19,8 +19,9 @@ import {
     CalendarDaysIcon, DocumentTextIcon, BookOpenIcon, ClockIcon,
     ArrowRightIcon, BoltIcon, TrophyIcon, ExclamationCircleIcon,
     PlusIcon, PencilSquareIcon, EnvelopeIcon, CheckBadgeIcon,
-    ChevronRightIcon, RectangleStackIcon,
+    ChevronRightIcon, RectangleStackIcon, ChevronDownIcon,
 } from '@heroicons/vue/24/outline'
+import { ref } from 'vue'
 
 const props = defineProps({
     stats: { type: Object, default: () => ({}) },
@@ -32,9 +33,23 @@ const props = defineProps({
     sections: { type: Array, default: () => [] },
     assignments: { type: Array, default: () => [] },
     pendingExams: { type: Array, default: () => [] },
+    // Backend-provided list of actionable items per role: each item has
+    // { key, severity (info|warning|error), title, description, action_label, action_url, count }
+    needsAttention: { type: Array, default: () => [] },
+    // First-run setup checklist for super-admin/school-admin: each step has
+    // { key, label, count, done, action_url, action_label }. Hidden once complete.
+    setupStatus: { type: Object, default: null },
 })
 
 const page = usePage()
+// Setup checklist starts collapsed — user can expand to see steps. Persisted
+// per-browser so they don't have to keep collapsing it on every page load.
+const setupOpen = ref(localStorage.getItem('dashboard-setup-open') === '1')
+function toggleSetup() {
+    setupOpen.value = !setupOpen.value
+    localStorage.setItem('dashboard-setup-open', setupOpen.value ? '1' : '0')
+}
+
 const userName = computed(() => page.props.auth?.user?.name?.split(' ')[0] || 'there')
 const userPhoto = computed(() => page.props.auth?.user?.avatar_url || null)
 const roles = computed(() => page.props.auth?.user?.roles || [])
@@ -62,49 +77,42 @@ const roleLabels = {
     'subject-teacher': 'Subject Teacher',
 }
 
-// ─── "Needs attention" — items the user should act on right now ───
+// ─── "Needs attention" — server-provided actionable items ───
+// Backend (DashboardController::needsAttentionFor) computes these per role:
+// pending result reviews, marks not yet submitted, results returned for
+// correction, drafts with no subjects, etc. We map severity → icon + color
+// here so the Vue side stays presentation-only.
+const severityIcon = {
+    error:   ExclamationCircleIcon,
+    warning: PencilSquareIcon,
+    info:    ClipboardDocumentListIcon,
+}
+const severityColor = {
+    error:   'rose',
+    warning: 'amber',
+    info:    'sky',
+}
 const attentionItems = computed(() => {
-    const items = []
+    const items = (props.needsAttention || []).map(item => ({
+        icon: severityIcon[item.severity] || ClipboardDocumentListIcon,
+        color: severityColor[item.severity] || 'sky',
+        title: item.title,
+        desc: item.description,
+        actionLabel: item.action_label,
+        href: item.action_url,
+        count: item.count,
+    }))
 
-    if (props.role === 'super-admin') {
-        if (props.stats?.pendingResults > 0) {
-            items.push({
-                icon: CheckBadgeIcon, color: 'amber',
-                title: `${props.stats.pendingResults} exam${props.stats.pendingResults === 1 ? '' : 's'} awaiting results`,
-                desc: 'Schools have submitted marks; review and approve them.',
-                href: '/result-review',
-            })
-        }
-        if (contactMessageCount.value > 0) {
-            items.push({
-                icon: EnvelopeIcon, color: 'sky',
-                title: `${contactMessageCount.value} new contact message${contactMessageCount.value === 1 ? '' : 's'}`,
-                desc: 'From visitors who used the public website contact form.',
-                href: '/website/contact-messages',
-            })
-        }
-    }
-
-    if (props.role === 'school-admin') {
-        if (props.stats?.activeExams > 0) {
-            items.push({
-                icon: ClipboardDocumentListIcon, color: 'amber',
-                title: `${props.stats.activeExams} exam${props.stats.activeExams === 1 ? '' : 's'} in marks-entry`,
-                desc: 'Teachers are entering marks. Track progress.',
-                href: '/exams',
-            })
-        }
-    }
-
-    if (props.role === 'class-teacher' || props.role === 'subject-teacher') {
-        if (props.stats?.pendingMarksEntry > 0) {
-            items.push({
-                icon: PencilSquareIcon, color: 'amber',
-                title: `${props.stats.pendingMarksEntry} marks entry pending`,
-                desc: 'Open exams waiting for your marks submission.',
-                href: '/marks',
-            })
-        }
+    // DDO-only extras that don't live in the backend payload (contact form
+    // messages live on a different model, no need to refactor right now).
+    if (props.role === 'super-admin' && contactMessageCount.value > 0) {
+        items.push({
+            icon: EnvelopeIcon, color: 'sky',
+            title: `${contactMessageCount.value} new contact message${contactMessageCount.value === 1 ? '' : 's'}`,
+            desc: 'From visitors who used the public website contact form.',
+            actionLabel: 'View Inbox',
+            href: '/website/contact-messages',
+        })
     }
 
     return items
@@ -214,7 +222,67 @@ const statTiles = computed(() => {
                 </div>
             </div>
 
-            <!-- ════════ 2. NEEDS ATTENTION ════════ -->
+            <!-- ════════ SETUP CHECKLIST — compact, collapsible, hides when complete ════════ -->
+            <section v-if="setupStatus && !setupStatus.is_complete"
+                class="surface surface-accent-left accent-amber overflow-hidden">
+                <!-- Compact header — always visible. Click to toggle the steps. -->
+                <button type="button" @click="toggleSetup"
+                    class="w-full flex items-center gap-3 px-4 sm:px-5 py-3 text-left hover:bg-base-200/40 transition-colors">
+                    <div class="w-8 h-8 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
+                        <SparklesIcon class="w-4 h-4" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-sm">Setup Checklist</span>
+                            <span class="text-[11px] font-bold tabular-nums text-amber-700 dark:text-amber-400">
+                                {{ setupStatus.done_count }}/{{ setupStatus.total_count }}
+                            </span>
+                        </div>
+                        <!-- Inline progress bar so users see status without expanding -->
+                        <div class="mt-1.5 h-1 rounded-full bg-base-200 overflow-hidden">
+                            <div class="h-full bg-amber-500 transition-all duration-500"
+                                :style="`width: ${(setupStatus.done_count / setupStatus.total_count * 100).toFixed(0)}%`"></div>
+                        </div>
+                    </div>
+                    <ChevronDownIcon class="w-4 h-4 text-base-content/45 transition-transform flex-shrink-0"
+                        :class="setupOpen ? 'rotate-180' : ''" />
+                </button>
+
+                <!-- Steps — only render when expanded -->
+                <Transition
+                    enter-active-class="transition-all duration-200 ease-out"
+                    enter-from-class="max-h-0 opacity-0"
+                    enter-to-class="max-h-[800px] opacity-100"
+                    leave-active-class="transition-all duration-150 ease-in"
+                    leave-from-class="max-h-[800px] opacity-100"
+                    leave-to-class="max-h-0 opacity-0"
+                >
+                    <ol v-if="setupOpen" class="divide-y divide-base-200 border-t border-base-200 overflow-hidden">
+                        <li v-for="(step, i) in setupStatus.steps" :key="step.key"
+                            class="flex items-center gap-3 px-4 sm:px-5 py-2.5"
+                            :class="step.done ? 'bg-emerald-500/5' : ''">
+                            <div class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+                                :class="step.done ? 'bg-emerald-500 text-white' : 'bg-base-300 text-base-content/55'">
+                                <CheckBadgeIcon v-if="step.done" class="w-3.5 h-3.5" />
+                                <span v-else>{{ i + 1 }}</span>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="font-semibold text-[13px]" :class="step.done ? 'text-base-content/65' : ''">
+                                    {{ step.label }}
+                                    <span class="text-[10px] font-normal text-base-content/45 ml-1 tabular-nums">· {{ step.count }}</span>
+                                </p>
+                            </div>
+                            <Link v-if="!step.done" :href="step.action_url" class="btn btn-primary btn-xs gap-1">
+                                <PlusIcon class="w-3 h-3" /> {{ step.action_label }}
+                            </Link>
+                            <Link v-else :href="step.action_url" class="text-[11px] text-base-content/45 hover:text-primary">
+                                Add more
+                            </Link>
+                        </li>
+                    </ol>
+                </Transition>
+            </section>
+
             <section v-if="attentionItems.length" class="space-y-2">
                 <div class="flex items-center gap-2 px-1">
                     <ExclamationCircleIcon class="w-4 h-4 text-amber-600" />

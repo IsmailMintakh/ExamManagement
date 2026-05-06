@@ -17,6 +17,7 @@ const props = defineProps({
     classes: Array,
     filters: Object,
     stats: Object,
+    sourceCounts: { type: Object, default: () => ({}) },
 })
 
 const filters = ref({
@@ -26,6 +27,9 @@ const filters = ref({
     type: props.filters?.type || '',
     difficulty: props.filters?.difficulty || '',
     topic: props.filters?.topic || '',
+    // Source: 'mine' (default) | 'library' (DDO globals) | 'all'.
+    // The default is 'mine' so a teacher's first view is strictly their own work.
+    source: props.filters?.source || 'mine',
 })
 
 const confirmDelete = ref(false)
@@ -36,7 +40,13 @@ function applyFilters() {
 }
 
 function resetFilters() {
-    filters.value = { search: '', subject_id: '', school_class_id: '', type: '', difficulty: '', topic: '' }
+    filters.value = { search: '', subject_id: '', school_class_id: '', type: '', difficulty: '', topic: '', source: 'mine' }
+    applyFilters()
+}
+
+// Switch between Mine / Library / All. Triggers a page reload with the new source.
+function setSource(value) {
+    filters.value.source = value
     applyFilters()
 }
 
@@ -116,6 +126,46 @@ const subjectName = computed(() => (id) => props.subjects?.find(s => s.id == id)
                 <StatCard title="Fill Blank" :value="stats?.by_type?.fill_blank || 0" color="success">
                     <template #icon><span class="font-bold text-success">F</span></template>
                 </StatCard>
+            </div>
+
+            <!-- Source toggle: Mine | Library | All. The teacher's default is
+                 "Mine" so they don't have to wade through DDO library content
+                 to find their own. Counts come from the controller. -->
+            <div class="flex flex-wrap items-center gap-2 text-sm">
+                <span class="text-base-content/55 text-xs font-semibold uppercase tracking-wider">Source:</span>
+                <div class="join">
+                    <button @click="setSource('mine')" type="button"
+                        class="btn btn-sm join-item"
+                        :class="filters.source === 'mine' ? 'btn-primary' : 'btn-ghost'">
+                        Mine
+                        <span class="badge badge-xs ml-1" :class="filters.source === 'mine' ? 'badge-primary-content' : 'badge-ghost'">
+                            {{ sourceCounts.mine ?? 0 }}
+                        </span>
+                    </button>
+                    <button @click="setSource('library')" type="button"
+                        class="btn btn-sm join-item"
+                        :class="filters.source === 'library' ? 'btn-primary' : 'btn-ghost'">
+                        Library
+                        <span class="badge badge-xs ml-1" :class="filters.source === 'library' ? 'badge-primary-content' : 'badge-ghost'">
+                            {{ sourceCounts.library ?? 0 }}
+                        </span>
+                    </button>
+                    <button @click="setSource('all')" type="button"
+                        class="btn btn-sm join-item"
+                        :class="filters.source === 'all' ? 'btn-primary' : 'btn-ghost'">
+                        All
+                        <span class="badge badge-xs ml-1" :class="filters.source === 'all' ? 'badge-primary-content' : 'badge-ghost'">
+                            {{ sourceCounts.all ?? 0 }}
+                        </span>
+                    </button>
+                </div>
+                <span v-if="filters.source === 'library'" class="text-xs text-base-content/55 ml-2">
+                    Read-only DDO library — to use one, you can copy it into your bank.
+                </span>
+                <span v-else-if="filters.source === 'mine' && (sourceCounts.mine ?? 0) === 0 && (sourceCounts.library ?? 0) > 0"
+                    class="text-xs text-base-content/55 ml-2">
+                    No questions of your own yet — try "Library" to see DDO-shared questions.
+                </span>
             </div>
 
             <!-- Filters -->

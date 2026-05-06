@@ -24,6 +24,7 @@ class Paper extends Model
         'sections',
         'question_ids',
         'shuffle_enabled',
+        'show_sections',
         'set_code',
     ];
 
@@ -33,6 +34,7 @@ class Paper extends Model
             'sections' => 'array',
             'question_ids' => 'array',
             'shuffle_enabled' => 'boolean',
+            'show_sections' => 'boolean',
             'total_marks' => 'decimal:2',
             'duration_minutes' => 'integer',
         ];

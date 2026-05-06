@@ -11,6 +11,7 @@ use App\Models\GradingScale;
 use App\Models\School;
 use App\Models\SchoolClass;
 use App\Models\Subject;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -65,30 +66,47 @@ class ExamController extends Controller
 
         $user = request()->user();
 
-        $examTypes = ExamType::active()->orderBy('sort_order')->get();
-        if ($examTypes->isEmpty()) {
-            return redirect()->route('exam-types.create')
-                ->with('warning', 'Please create at least one exam type before creating an exam.');
-        }
-
+        // ─── Prerequisite chain ───
+        // An exam is meaningless without: an academic session to live in, an
+        // exam type to classify it, at least one school to apply it to, and
+        // at least one subject teachers can enter marks for. We bounce the
+        // user to the right setup page with a clear explanation instead of
+        // showing them a half-broken form with empty dropdowns.
         $sessions = AcademicSession::active()->orderByDesc('start_date')->get();
         if ($sessions->isEmpty()) {
             return redirect()->route('academic-sessions.create')
-                ->with('warning', 'Please create an academic session before creating an exam.');
+                ->with('warning', 'Add an academic session first — every exam belongs to one.');
         }
 
-        $gradingScales = GradingScale::where('is_active', true)->with('entries')->get();
+        $examTypes = ExamType::active()->orderBy('sort_order')->get();
+        if ($examTypes->isEmpty()) {
+            return redirect()->route('exam-types.create')
+                ->with('warning', 'Add at least one exam type first (e.g. Monthly, Term, Annual).');
+        }
 
-        // Scope schools/classes to the principal's own school. Super-admin sees all.
         $schools = School::active()
             ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('id', $user->school_id))
             ->orderBy('name')->get(['id', 'name']);
+        if ($schools->isEmpty()) {
+            return redirect()->route('schools.create')
+                ->with('warning', 'Add a school first — exams need at least one school to apply to.');
+        }
+
+        $subjects = Subject::active()->ordered()->get();
+        if ($subjects->isEmpty()) {
+            return redirect()->route('subjects.create')
+                ->with('warning', 'Add subjects first — teachers will enter marks against these.');
+        }
 
         $classes = SchoolClass::active()->ordered()
             ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
             ->with(['sections', 'subjects'])->get();
+        if ($classes->isEmpty()) {
+            return redirect()->route('classes.create')
+                ->with('warning', 'Add at least one class — you map exam papers to classes.');
+        }
 
-        $subjects = Subject::active()->ordered()->get();
+        $gradingScales = GradingScale::where('is_active', true)->with('entries')->get();
 
         return Inertia::render('Exams/Create', [
             'examTypes' => $examTypes,
@@ -97,9 +115,23 @@ class ExamController extends Controller
             'schools' => $schools,
             'classes' => $classes,
             'subjects' => $subjects,
+            'teachers' => $this->teachersForUser($user),
             'isSuperAdmin' => $user->isSuperAdmin(),
             'currentSchoolId' => $user->school_id,
         ]);
+    }
+
+    /**
+     * Teachers eligible to be designated as Exam Controller for a new exam.
+     * Principals see only their school's teachers; super-admin sees all.
+     */
+    private function teachersForUser($user)
+    {
+        return User::query()
+            ->whereHas('roles', fn ($q) => $q->whereIn('name', ['class-teacher', 'subject-teacher', 'school-admin']))
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->orderBy('name')
+            ->get(['id', 'name', 'school_id']);
     }
 
     public function store(StoreExamRequest $request): RedirectResponse
@@ -211,6 +243,7 @@ class ExamController extends Controller
             'schools' => $schools,
             'classes' => $classes,
             'subjects' => $subjects,
+            'teachers' => $this->teachersForUser($user),
             'isSuperAdmin' => $user->isSuperAdmin(),
             'currentSchoolId' => $user->school_id,
         ]);
@@ -242,6 +275,7 @@ class ExamController extends Controller
             'apply_to_all_schools' => ['boolean'],
             'applicable_class_ids' => ['nullable', 'array'],
             'marks_entry_deadline' => ['nullable', 'date', 'after_or_equal:end_date'],
+            'exam_controller_id' => ['nullable', 'exists:users,id'],
             'selected_school_ids' => ['nullable', 'array'],
             'selected_school_ids.*' => ['exists:schools,id'],
             'subjects' => ['nullable', 'array'],

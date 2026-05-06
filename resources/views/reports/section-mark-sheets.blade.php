@@ -4,15 +4,19 @@
 <meta charset="UTF-8">
 <title>Mark Sheets — {{ $schoolClass->name }} {{ $section->name }}</title>
 <style>
-    @page { size: A4 portrait; margin: 10mm; }
+    @page { size: A4 portrait; margin: 8mm; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { font-family: 'DejaVu Sans', sans-serif; font-size: 9pt; color: #1e293b; line-height: 1.3; }
+    html, body { font-family: 'DejaVu Sans', sans-serif; font-size: 8.5pt; color: #1e293b; line-height: 1.25; }
 
-    /* Each sheet fills exactly one A4 page, next sheet starts fresh */
+    /* Each sheet fills exactly one A4 page, next sheet starts fresh.
+       page-break-inside: avoid keeps everything together so we never get
+       half a sheet on one page and half on the next (that's where the
+       "blank pages" bug came from — content overflowing 1 page). */
     .sheet {
         width: 100%;
         position: relative;
         page-break-after: always;
+        page-break-inside: avoid;
     }
     .sheet:last-child { page-break-after: auto; }
 
@@ -115,29 +119,22 @@
 </head>
 <body>
 
-<!-- COVER PAGE -->
-<div class="cover">
-    <div class="cover-center">
-        <div class="cover-logo-box">
-            @if(!empty($school->logo) && file_exists(public_path('storage/' . $school->logo)))
-                <img src="{{ public_path('storage/' . $school->logo) }}" alt="">
-            @else
-                <span class="cover-logo-ph">{{ strtoupper(substr($school->name ?? 'S', 0, 1)) }}</span>
-            @endif
-        </div>
-        <div class="cover-school">{{ $school->name ?? 'School' }}</div>
-        <div class="cover-heading">MARK SHEETS</div>
-        <div class="cover-sub">— {{ $exam->name }} —</div>
-        <div class="cover-box">
-            <div class="lbl">Section</div>
-            <div class="val">{{ $schoolClass->name }} — {{ $section->name }}</div>
-            <div class="meta">{{ $sheets->count() }} Students · {{ $academicSession->name ?? '' }}</div>
-        </div>
-        <div class="cover-footer">Generated on {{ now()->format('d M Y, h:i A') }}</div>
-    </div>
-</div>
+{{-- Cover page removed by user request — first page is now the first student's mark sheet,
+     not a separate "title" page that printed blank. --}}
 
-<!-- INDIVIDUAL SHEETS -->
+@php
+    // Resolve signature paths once for the whole document
+    $principalSigPath = !empty($school->principal_signature) && file_exists(public_path('storage/' . $school->principal_signature))
+        ? public_path('storage/' . $school->principal_signature) : null;
+    $stampPath = !empty($school->school_stamp) && file_exists(public_path('storage/' . $school->school_stamp))
+        ? public_path('storage/' . $school->school_stamp) : null;
+    $controllerSigPath = !empty($school->exam_officer_signature) && file_exists(public_path('storage/' . $school->exam_officer_signature))
+        ? public_path('storage/' . $school->exam_officer_signature) : null;
+    // Per-exam controller name overrides school's default exam officer name
+    $controllerName = $exam->examController?->name ?? ($school->exam_officer_name ?? null);
+    $classTeacherName = $section->classTeacher?->name ?? null;
+@endphp
+
 @foreach($sheets as $idx => $sheet)
     @php $student = $sheet->student; $result = $sheet->result; $subjectResults = $sheet->subjectResults; @endphp
     <div class="sheet"{{ $loop->last ? ' style="page-break-after: auto"' : '' }}>
@@ -191,13 +188,12 @@
             </div>
         </div>
 
-        <!-- Info Grid -->
+        <!-- Info Grid (mother row removed; reorganised to 3 wider cells) -->
         <table class="info-tbl">
             <tr>
-                <td><div class="lbl">Father's Name</div><div class="val">{{ $student->father_name ?? '-' }}</div></td>
-                <td><div class="lbl">Mother's Name</div><div class="val">{{ $student->mother_name ?? '-' }}</div></td>
-                <td><div class="lbl">Date of Birth</div><div class="val">{{ $student->date_of_birth ? \Carbon\Carbon::parse($student->date_of_birth)->format('d M Y') : '-' }}</div></td>
-                <td><div class="lbl">Session</div><div class="val">{{ $academicSession->name ?? '-' }}</div></td>
+                <td style="width:34%"><div class="lbl">Father's Name</div><div class="val">{{ $student->father_name ?? '-' }}</div></td>
+                <td style="width:33%"><div class="lbl">Date of Birth</div><div class="val">{{ $student->date_of_birth ? \Carbon\Carbon::parse($student->date_of_birth)->format('d M Y') : '-' }}</div></td>
+                <td style="width:33%"><div class="lbl">Session</div><div class="val">{{ $academicSession->name ?? '-' }}</div></td>
             </tr>
         </table>
 
@@ -275,27 +271,45 @@
             </div>
         </div>
 
-        <!-- Signatures -->
+        <!-- Signatures: Class Teacher · Principal (with stamp overlay) · Exam Controller -->
         <div class="sig">
+            {{-- Class Teacher: shows the section's classTeacher name, signature space empty --}}
             <div class="sig-cell">
                 <div class="sig-img"></div>
                 <div class="sig-line">Class Teacher</div>
-                <div class="sig-role">Signature &amp; Date</div>
+                <div class="sig-role">{{ $classTeacherName ?? 'Signature &amp; Date' }}</div>
             </div>
-            <div class="sig-cell">
-                <div class="sig-img">
-                    @if(!empty($school->principal_signature) && file_exists(public_path('storage/' . $school->principal_signature)))
-                        <img src="{{ public_path('storage/' . $school->principal_signature) }}" alt="">
+
+            {{-- Principal — image + stamp overlay --}}
+            <div class="sig-cell" style="position:relative;">
+                @if($stampPath)
+                    <div style="position:absolute;left:50%;bottom:8px;transform:translateX(-50%);width:42px;height:42px;opacity:0.5;z-index:0;">
+                        <img src="{{ $stampPath }}" alt="" style="width:100%;height:100%;object-fit:contain;">
+                    </div>
+                @endif
+                <div class="sig-img" style="position:relative;z-index:1;">
+                    @if($principalSigPath)
+                        <img src="{{ $principalSigPath }}" alt="">
                     @endif
                 </div>
                 <div class="sig-line">Principal</div>
                 <div class="sig-role">School Head</div>
             </div>
+
+            {{-- Controller of Examinations — only show when assigned (per-exam) OR
+                 when school has a default exam_officer_name. Otherwise hidden so
+                 we don't show empty signature blocks. --}}
+            @if($controllerName || $controllerSigPath)
             <div class="sig-cell">
-                <div class="sig-img"></div>
+                <div class="sig-img">
+                    @if($controllerSigPath)
+                        <img src="{{ $controllerSigPath }}" alt="">
+                    @endif
+                </div>
                 <div class="sig-line">Controller of Examinations</div>
-                <div class="sig-role">DDO Office</div>
+                <div class="sig-role">{{ $controllerName ?? 'DDO Office' }}</div>
             </div>
+            @endif
         </div>
 
         <!-- Footer -->

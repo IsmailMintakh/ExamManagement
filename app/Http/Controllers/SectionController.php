@@ -22,6 +22,12 @@ class SectionController extends Controller
             ->when(!$user->isSuperAdmin(), function ($query) use ($user) {
                 $query->whereHas('schoolClass', fn ($q) => $q->where('school_id', $user->school_id));
             })
+            // Class-teachers see only the section(s) they're assigned to —
+            // matches StudentController::index narrowing. School-admins still
+            // see every section in their school via the school filter above.
+            ->when($user->hasRole('class-teacher') && !$user->hasRole('school-admin'), function ($query) use ($user) {
+                $query->where('class_teacher_id', $user->id);
+            })
             ->when($request->has('search'), function ($query) use ($request) {
                 $query->where('name', 'like', '%' . $request->input('search') . '%');
             })

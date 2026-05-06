@@ -12,6 +12,8 @@ const props = defineProps({
     subjects: Array,
     classes: Array,
     topics: Array,
+    sourceCounts: { type: Object, default: () => null },
+    defaultSource: { type: String, default: 'all' },
 })
 
 const form = useForm({
@@ -23,11 +25,17 @@ const form = useForm({
     instructions: 'Attempt all questions. Write clearly and neatly.',
     set_code: 'A',
     shuffle: true,
+    show_sections: true, // false = print questions in one continuous numbered list, no section headings
     topics: [],
+    // Question pool source: 'mine' (own creations) | 'library' (DDO globals) | 'all'.
+    // Default 'all' so the user has the widest pool when generating a paper.
+    source: props.defaultSource || 'all',
     sections: [
-        { label: 'Section A — MCQs', type: 'mcq', difficulty: 'mixed', count: 10, marks_each: 1 },
-        { label: 'Section B — Short Answers', type: 'short_answer', difficulty: 'mixed', count: 5, marks_each: 2 },
-        { label: 'Section C — Long Answers', type: 'long_answer', difficulty: 'mixed', count: 2, marks_each: 7.5 },
+        // Counts are auto-capped to what the bank actually has once a subject
+        // is selected — these are just the upper-end defaults.
+        { label: 'Section A — MCQs', type: 'mcq', difficulty: 'mixed', count: 10, numbering_style: 'arabic', restart_numbering: false },
+        { label: 'Section B — Short Answers', type: 'short_answer', difficulty: 'mixed', count: 5, numbering_style: 'arabic', restart_numbering: true },
+        { label: 'Section C — Long Answers', type: 'long_answer', difficulty: 'mixed', count: 2, numbering_style: 'arabic', restart_numbering: true },
     ],
 })
 
@@ -41,10 +49,9 @@ const presets = [
         label: 'Quick Quiz',
         icon: SparklesIcon,
         desc: '15 MCQs',
-        marks: 15,
         duration: 30,
         sections: [
-            { label: 'Multiple Choice Questions', type: 'mcq', difficulty: 'mixed', count: 15, marks_each: 1 },
+            { label: 'Multiple Choice Questions', type: 'mcq', difficulty: 'mixed', count: 15 },
         ],
     },
     {
@@ -52,12 +59,11 @@ const presets = [
         label: 'Class Test',
         icon: BookOpenIcon,
         desc: '10 MCQ · 5 Short · 2 Long',
-        marks: 35,
         duration: 90,
         sections: [
-            { label: 'Section A — MCQs', type: 'mcq', difficulty: 'mixed', count: 10, marks_each: 1 },
-            { label: 'Section B — Short Answers', type: 'short_answer', difficulty: 'mixed', count: 5, marks_each: 2 },
-            { label: 'Section C — Long Answers', type: 'long_answer', difficulty: 'mixed', count: 2, marks_each: 7.5 },
+            { label: 'Section A — MCQs', type: 'mcq', difficulty: 'mixed', count: 10 },
+            { label: 'Section B — Short Answers', type: 'short_answer', difficulty: 'mixed', count: 5 },
+            { label: 'Section C — Long Answers', type: 'long_answer', difficulty: 'mixed', count: 2 },
         ],
     },
     {
@@ -65,12 +71,11 @@ const presets = [
         label: 'Term Exam',
         icon: AcademicCapIcon,
         desc: '20 MCQ · 10 Short · 5 Long',
-        marks: 100,
         duration: 180,
         sections: [
-            { label: 'Section A — Multiple Choice', type: 'mcq', difficulty: 'mixed', count: 20, marks_each: 1 },
-            { label: 'Section B — Short Answers', type: 'short_answer', difficulty: 'mixed', count: 10, marks_each: 3 },
-            { label: 'Section C — Long Answers', type: 'long_answer', difficulty: 'mixed', count: 5, marks_each: 10 },
+            { label: 'Section A — Multiple Choice', type: 'mcq', difficulty: 'mixed', count: 20 },
+            { label: 'Section B — Short Answers', type: 'short_answer', difficulty: 'mixed', count: 10 },
+            { label: 'Section C — Long Answers', type: 'long_answer', difficulty: 'mixed', count: 5 },
         ],
     },
 ]
@@ -82,6 +87,34 @@ const typeOptions = [
     { value: 'true_false', label: 'True / False' },
     { value: 'fill_blank', label: 'Fill in the Blank' },
 ]
+
+// Friendly section name auto-derived from the question type. Used to keep
+// the printed section heading honest — e.g. if a section's type is changed
+// to true_false but its label still says "Short Answers", the heading
+// (and therefore the printed paper) lies. We auto-rewrite the label when
+// the user changes the type, only if the label still matches the OLD
+// type's auto-name (i.e. the user hasn't customized it).
+const sectionTitleByType = {
+    mcq: 'Multiple Choice Questions',
+    true_false: 'True / False',
+    short_answer: 'Short Answer Questions',
+    long_answer: 'Long Answer Questions',
+    fill_blank: 'Fill in the Blanks',
+}
+function defaultLabelFor(idx, type) {
+    const letter = String.fromCharCode(65 + idx)
+    return `Section ${letter} — ${sectionTitleByType[type] ?? 'Questions'}`
+}
+function onSectionTypeChange(section, idx) {
+    // Rebuild label if it matches ANY type's default for this index, so we
+    // know the user didn't pick a custom label. Otherwise leave their text alone.
+    const looksLikeDefault = Object.values(sectionTitleByType)
+        .some(name => section.label === `Section ${String.fromCharCode(65 + idx)} — ${name}`)
+        || /^Section [A-Z]\b/i.test(section.label || '')
+    if (looksLikeDefault) {
+        section.label = defaultLabelFor(idx, section.type)
+    }
+}
 const difficultyOptions = [
     { value: 'mixed', label: 'Mixed' },
     { value: 'easy', label: 'Easy' },
@@ -102,6 +135,7 @@ async function fetchCounts() {
             subject_id: form.subject_id,
             school_class_id: form.school_class_id || null,
             topics: form.topics,
+            source: form.source,
         })
         availableCounts.value = res.data?.counts || null
     } catch (e) {
@@ -109,14 +143,30 @@ async function fetchCounts() {
     }
 }
 
-watch(() => [form.subject_id, form.school_class_id, form.topics], fetchCounts, { deep: true })
+watch(() => [form.subject_id, form.school_class_id, form.topics, form.source], fetchCounts, { deep: true })
+
+// Whenever the available counts arrive (or the user picks a different subject),
+// cap each section's `count` to what the bank actually has — so the button
+// isn't silently disabled with "need 10, have 2" issues. User can still
+// raise the count manually; we only ever shrink, never grow.
+watch(availableCounts, (counts) => {
+    if (!counts) return
+    for (const s of form.sections) {
+        const have = counts[s.type]?.total ?? 0
+        if (Number(s.count) > have) {
+            s.count = Math.max(1, have)
+        }
+    }
+}, { deep: false })
 
 // Auto-fill title
+// Auto-fill title with the preset label only — subject already shows in the
+// meta row on the printed paper, so duplicating it ("Computer Science — Class
+// Test" + Subject: Computer Science) was redundant.
 watch(() => form.subject_id, (id) => {
     if (id && !form.title) {
-        const sub = props.subjects?.find(s => s.id === Number(id) || s.id === id)
         const preset = presets.find(p => p.key === activePresetKey.value)
-        if (sub) form.title = `${sub.name} — ${preset?.label || 'Paper'}`
+        form.title = preset?.label || 'Question Paper'
     }
 })
 
@@ -128,9 +178,27 @@ function availableForSection(section) {
     return typeData[section.difficulty] || 0
 }
 
-const totalMarks = computed(() =>
-    form.sections.reduce((sum, s) => sum + ((Number(s.count) || 0) * (Number(s.marks_each) || 0)), 0)
+// Average marks per question of this type, taken straight from the bank.
+// Used to show "auto from questions ≈ X marks each" + an estimated total
+// before generation. NOT sent to backend — backend always uses the actual
+// marks of the questions it picks.
+function avgMarksForSection(section) {
+    if (!availableCounts.value || !section.type) return null
+    const typeData = availableCounts.value[section.type]
+    return typeData?.avg_marks ?? null
+}
+function estimatedSectionMarks(section) {
+    const avg = avgMarksForSection(section)
+    if (avg === null) return null
+    return (Number(section.count) || 0) * avg
+}
+const estimatedTotalMarks = computed(() =>
+    form.sections.reduce((sum, s) => {
+        const est = estimatedSectionMarks(s)
+        return sum + (est ?? 0)
+    }, 0)
 )
+
 const totalQuestions = computed(() =>
     form.sections.reduce((sum, s) => sum + (Number(s.count) || 0), 0)
 )
@@ -161,8 +229,11 @@ const blockingIssues = computed(() => {
     return issues
 })
 
+// Only the truly minimum requirements — never disable for "not enough
+// questions in bank" because the user might still want to try and read the
+// real backend error. Blocking issues are still shown above the button.
 const canGenerate = computed(() =>
-    form.subject_id && form.title?.trim() && form.sections.length > 0 && blockingIssues.value.length === 0
+    form.subject_id && form.title?.trim() && form.sections.length > 0
 )
 
 function addSection() {
@@ -171,9 +242,31 @@ function addSection() {
         type: 'short_answer',
         difficulty: 'mixed',
         count: 5,
-        marks_each: 2,
+        answer_lines: null, // null = use defaults; 0 = no writing space; N = N lines
+        numbering_style: 'arabic', // arabic (1,2,3) | roman (I,II,III) | alpha_upper (A,B,C) | alpha_lower (a,b,c)
+        restart_numbering: false,  // true = this section's questions start at 1 again
     })
 }
+
+const numberingStyleOptions = [
+    { value: 'arabic',      label: '1, 2, 3' },
+    { value: 'roman',       label: 'I, II, III' },
+    { value: 'alpha_upper', label: 'A, B, C' },
+    { value: 'alpha_lower', label: 'a, b, c' },
+]
+
+// Friendly label for the answer-lines selector — null is "Auto" (the type's
+// sensible default), 0 means "no writing space at all".
+const answerLinesPresets = [
+    { value: null, label: 'Auto' },
+    { value: 0, label: 'None' },
+    { value: 2, label: '2 lines' },
+    { value: 3, label: '3 lines' },
+    { value: 5, label: '5 lines' },
+    { value: 8, label: '8 lines' },
+    { value: 10, label: '10 lines' },
+    { value: 15, label: '15 lines' },
+]
 function removeSection(i) {
     if (form.sections.length <= 1) return
     form.sections.splice(i, 1)
@@ -184,8 +277,18 @@ function toggleTopic(topic) {
     else form.topics.push(topic)
 }
 
+const submitError = ref('')
 function submit() {
-    form.post(route('papers.store'))
+    submitError.value = ''
+    if (!form.subject_id) { submitError.value = 'Please pick a subject first.'; return }
+    if (!form.title?.trim()) { submitError.value = 'Please enter a paper title.'; return }
+    form.post(route('papers.store'), {
+        onError: (errors) => {
+            const first = Object.values(errors)[0]
+            submitError.value = (Array.isArray(first) ? first[0] : first) || 'Validation failed.'
+            console.error('Paper generation errors:', errors)
+        },
+    })
 }
 </script>
 
@@ -225,6 +328,35 @@ function submit() {
                                     </select>
                                 </div>
                                 <p v-if="form.errors.subject_id" class="mt-1 text-xs text-error">{{ form.errors.subject_id }}</p>
+
+                                <!-- Question pool source. Defaults to "All" so
+                                     the user has the widest possible bank to
+                                     pick from. Switch to "Mine" to use only
+                                     own-authored questions; "Library" to draw
+                                     exclusively from the DDO-shared pool. -->
+                                <div v-if="sourceCounts" class="mt-3">
+                                    <label class="text-[12px] font-semibold text-base-content/75">Question Source</label>
+                                    <div class="join mt-1.5">
+                                        <button type="button" @click="form.source = 'mine'"
+                                            class="btn btn-sm join-item"
+                                            :class="form.source === 'mine' ? 'btn-primary' : 'btn-ghost'">
+                                            Mine
+                                            <span class="badge badge-xs ml-1">{{ sourceCounts.mine }}</span>
+                                        </button>
+                                        <button type="button" @click="form.source = 'library'"
+                                            class="btn btn-sm join-item"
+                                            :class="form.source === 'library' ? 'btn-primary' : 'btn-ghost'">
+                                            Library
+                                            <span class="badge badge-xs ml-1">{{ sourceCounts.library }}</span>
+                                        </button>
+                                        <button type="button" @click="form.source = 'all'"
+                                            class="btn btn-sm join-item"
+                                            :class="form.source === 'all' ? 'btn-primary' : 'btn-ghost'">
+                                            All
+                                            <span class="badge badge-xs ml-1">{{ sourceCounts.all }}</span>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -293,17 +425,68 @@ function submit() {
                                         <TrashIcon class="w-4 h-4" />
                                     </button>
                                 </div>
-                                <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                    <select v-model="section.type" class="select select-bordered select-xs">
-                                        <option v-for="t in typeOptions" :key="t.value" :value="t.value">{{ t.label }}</option>
-                                    </select>
-                                    <select v-model="section.difficulty" class="select select-bordered select-xs">
-                                        <option v-for="d in difficultyOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
-                                    </select>
-                                    <input v-model.number="section.count" type="number" min="1"
-                                        class="input input-bordered input-xs" placeholder="Count" />
-                                    <input v-model.number="section.marks_each" type="number" step="0.25" min="0.25"
-                                        class="input input-bordered input-xs" placeholder="Marks each" />
+                                <div class="grid grid-cols-3 gap-2">
+                                    <div>
+                                        <label class="text-[10px] text-base-content/55 font-semibold">Type</label>
+                                        <select v-model="section.type"
+                                            @change="onSectionTypeChange(section, i)"
+                                            class="select select-bordered select-xs w-full">
+                                            <option v-for="t in typeOptions" :key="t.value" :value="t.value">{{ t.label }}</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="text-[10px] text-base-content/55 font-semibold">Difficulty</label>
+                                        <select v-model="section.difficulty" class="select select-bordered select-xs w-full">
+                                            <option v-for="d in difficultyOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="text-[10px] text-base-content/55 font-semibold">Count</label>
+                                        <input v-model.number="section.count" type="number" min="1"
+                                            class="input input-bordered input-xs w-full" placeholder="Count" />
+                                    </div>
+                                </div>
+                                <!-- Numbering controls per section — restart counter at 1 +
+                                     pick the style (1/I/A/a). Default: arabic continuous. -->
+                                <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="text-[10px] text-base-content/55 font-semibold">
+                                            Numbering style
+                                        </label>
+                                        <select v-model="section.numbering_style"
+                                            class="select select-bordered select-xs w-full">
+                                            <option v-for="ns in numberingStyleOptions" :key="ns.value" :value="ns.value">
+                                                {{ ns.label }}
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <div class="flex items-end">
+                                        <label class="flex items-center gap-2 cursor-pointer text-xs">
+                                            <input type="checkbox" v-model="section.restart_numbering"
+                                                class="checkbox checkbox-xs checkbox-primary" />
+                                            <span>Restart at 1 for this section</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <!-- Writing-space selector — controls how many blank lines are
+                                     printed under each question for this section. Useful for
+                                     primary classes (Nursery / Prep) that need lots of room. -->
+                                <div class="mt-2">
+                                    <label class="text-[10px] text-base-content/55 font-semibold flex items-center gap-1">
+                                        Writing space per question
+                                        <span class="text-base-content/40 normal-case font-normal">— blank lines under each question</span>
+                                    </label>
+                                    <div class="flex flex-wrap gap-1 mt-1">
+                                        <label v-for="p in answerLinesPresets" :key="p.label"
+                                            class="cursor-pointer border rounded-md px-2 py-0.5 text-[11px] font-medium transition"
+                                            :class="(section.answer_lines ?? null) === p.value
+                                                ? 'bg-primary/10 border-primary text-primary'
+                                                : 'border-base-300 text-base-content/60 hover:bg-base-200'">
+                                            <input type="radio" :name="`alines-${i}`" :value="p.value"
+                                                v-model="section.answer_lines" class="hidden" />
+                                            {{ p.label }}
+                                        </label>
+                                    </div>
                                 </div>
                                 <div class="mt-2 flex items-center justify-between text-[11px]">
                                     <span v-if="availableForSection(section) !== null"
@@ -312,8 +495,14 @@ function submit() {
                                         {{ availableForSection(section) }} available
                                     </span>
                                     <span v-else class="text-base-content/40">—</span>
-                                    <span class="font-mono text-base-content/60">
-                                        {{ ((section.count || 0) * (section.marks_each || 0)).toFixed(2) }} marks
+                                    <span v-if="avgMarksForSection(section) !== null"
+                                        class="text-base-content/65"
+                                        :title="`Auto-computed from question bank: ${avgMarksForSection(section)} marks per ${section.type.replace('_', ' ')} question on average`">
+                                        ~{{ avgMarksForSection(section) }} marks each ·
+                                        <strong class="text-primary">{{ estimatedSectionMarks(section)?.toFixed(2) }} total</strong>
+                                    </span>
+                                    <span v-else class="text-base-content/40 italic">
+                                        marks auto from questions
                                     </span>
                                 </div>
                             </div>
@@ -359,8 +548,27 @@ function submit() {
                             </div>
                         </div>
 
+                        <!-- Visible layout options (was buried inside Advanced) -->
+                        <div class="rounded-lg bg-base-200/40 p-3 space-y-2 border border-base-200">
+                            <label class="text-[11px] font-semibold text-base-content/65 uppercase tracking-wider block">Paper Layout</label>
+                            <label class="flex items-start gap-2 cursor-pointer">
+                                <input type="checkbox" v-model="form.show_sections"
+                                    class="checkbox checkbox-sm checkbox-primary mt-0.5" />
+                                <div>
+                                    <span class="text-sm font-medium">Show section headings (Section A, Section B…) on the printed paper</span>
+                                    <p class="text-[11px] text-base-content/50 mt-0.5">
+                                        Turn this OFF for primary classes (Nursery, Prep, KG…) — questions print as one continuous Q1, Q2, Q3 list with no section breaks.
+                                    </p>
+                                </div>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" v-model="form.shuffle" class="checkbox checkbox-sm checkbox-primary" />
+                                <span class="text-sm">Shuffle MCQ option order across sets</span>
+                            </label>
+                        </div>
+
                         <details>
-                            <summary class="cursor-pointer text-sm text-base-content/60 select-none">Advanced (instructions, topics, shuffle)</summary>
+                            <summary class="cursor-pointer text-sm text-base-content/60 select-none">Advanced — instructions &amp; topics</summary>
                             <div class="mt-3 space-y-3">
                                 <div>
                                     <label class="text-[11px] font-semibold text-base-content/65 uppercase tracking-wider">Instructions</label>
@@ -378,10 +586,6 @@ function submit() {
                                         </button>
                                     </div>
                                 </div>
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="checkbox" v-model="form.shuffle" class="checkbox checkbox-sm checkbox-primary" />
-                                    <span class="text-sm">Shuffle MCQ option order</span>
-                                </label>
                             </div>
                         </details>
                     </div>
@@ -390,6 +594,24 @@ function submit() {
                 <!-- Summary + blocking issues + Generate -->
                 <div class="card bg-gradient-to-br from-primary/10 to-secondary/5 shadow-md sticky bottom-4">
                     <div class="card-body p-4">
+                        <!-- Server-side error from a failed submit attempt -->
+                        <div v-if="submitError" class="mb-3 p-3 rounded-lg bg-error/15 border-2 border-error">
+                            <p class="font-bold text-error text-sm">⚠ {{ submitError }}</p>
+                        </div>
+
+                        <!-- BLOCKING ISSUES first — so the user sees WHY before they look for the button -->
+                        <div v-if="blockingIssues.length" class="mb-3 p-3 rounded-lg bg-error/10 border border-error/30">
+                            <p class="font-bold text-error text-xs uppercase tracking-wider mb-1">
+                                ⚠ Cannot generate yet — fix these first:
+                            </p>
+                            <ul class="text-error/90 text-xs list-disc list-inside space-y-0.5">
+                                <li v-for="(issue, i) in blockingIssues" :key="i">{{ issue }}</li>
+                            </ul>
+                            <Link :href="route('questions.index')" class="link link-primary text-xs mt-1.5 inline-block">
+                                → Add more questions to the bank
+                            </Link>
+                        </div>
+
                         <div class="flex items-center justify-between gap-4 flex-wrap">
                             <div class="flex gap-5 text-sm">
                                 <div>
@@ -401,24 +623,23 @@ function submit() {
                                     <div class="text-lg font-bold">{{ form.sections.length }}</div>
                                 </div>
                                 <div>
-                                    <div class="text-[11px] text-base-content/55 uppercase tracking-wider">Total Marks</div>
-                                    <div class="text-lg font-extrabold text-primary">{{ totalMarks.toFixed(2) }}</div>
+                                    <div class="text-[11px] text-base-content/55 uppercase tracking-wider">
+                                        Est. Marks
+                                        <span class="text-base-content/40 normal-case font-normal">(from bank avg)</span>
+                                    </div>
+                                    <div class="text-lg font-extrabold text-primary">
+                                        ~{{ estimatedTotalMarks.toFixed(2) }}
+                                    </div>
                                 </div>
                             </div>
                             <button type="submit" :disabled="form.processing || !canGenerate"
+                                :title="!canGenerate
+                                    ? (blockingIssues.length ? blockingIssues[0] : 'Pick a subject and enter a title')
+                                    : ''"
                                 class="btn btn-primary gap-2">
                                 <BoltIcon class="w-5 h-5" />
                                 {{ form.processing ? 'Generating...' : 'Generate Paper' }}
                             </button>
-                        </div>
-                        <div v-if="blockingIssues.length" class="mt-3 p-3 rounded-lg bg-error/10 border border-error/20 text-xs">
-                            <p class="font-bold text-error uppercase tracking-wider mb-1">Fix before generating</p>
-                            <ul class="text-error/90 list-disc list-inside space-y-0.5">
-                                <li v-for="(issue, i) in blockingIssues" :key="i">{{ issue }}</li>
-                            </ul>
-                            <Link :href="route('questions.index')" class="link link-primary text-[11px] mt-1 inline-block">
-                                → Add more questions to the bank
-                            </Link>
                         </div>
                     </div>
                 </div>

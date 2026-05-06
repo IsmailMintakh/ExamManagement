@@ -18,16 +18,22 @@ const props = defineProps({
 
 const isEdit = !!props.question
 
+function defaultMcqOptions() {
+    return [
+        { text: '', is_correct: true },
+        { text: '', is_correct: false },
+    ]
+}
+
 const form = useForm({
     type: props.question?.type || 'mcq',
     subject_id: props.question?.subject_id || '',
     school_class_id: props.question?.school_class_id || '',
     difficulty: props.question?.difficulty || 'medium',
     question_text: props.question?.question_text || '',
-    options: props.question?.options || [
-        { text: '', is_correct: true },
-        { text: '', is_correct: false },
-    ],
+    options: props.question?.type === 'mcq'
+        ? (props.question?.options || defaultMcqOptions())
+        : defaultMcqOptions(),
     correct_answer: props.question?.correct_answer || '',
     explanation: props.question?.explanation || '',
     marks: props.question?.marks ?? 1,
@@ -49,16 +55,20 @@ const difficultyChips = [
     { value: 'hard', label: 'Hard', color: 'error' },
 ]
 
+// When the type changes, fix up state so the backend save doesn't break.
+// Non-MCQ types must NOT carry empty MCQ option scaffolding (the controller
+// also strips it, but clearing it here keeps the form coherent). The answer
+// field stays empty by default — it's optional now, the teacher can leave it
+// blank and add it later.
 watch(() => form.type, (t, prev) => {
     if (t === prev) return
-    if (t === 'mcq' && !form.options?.length) {
-        form.options = [
-            { text: '', is_correct: true },
-            { text: '', is_correct: false },
-        ]
-    }
-    if (t === 'true_false' && !['True', 'False'].includes(form.correct_answer)) {
-        form.correct_answer = 'True'
+    if (t === 'mcq') {
+        if (!Array.isArray(form.options) || form.options.length < 2) {
+            form.options = defaultMcqOptions()
+        }
+    } else if (t !== 'true_false' && (form.correct_answer === 'True' || form.correct_answer === 'False')) {
+        // Switching from T/F into Short/Long/Fill — clear the leftover True/False value.
+        form.correct_answer = ''
     }
 })
 
@@ -79,8 +89,6 @@ function setCorrect(i) {
 }
 
 function submit() {
-    // Drop SW page cache after a successful save so the index page
-    // immediately reflects the new/updated question on PWA mobile.
     const opts = { onSuccess: () => invalidatePageCache() }
     if (isEdit) form.put(route('questions.update', props.question.id), opts)
     else form.post(route('questions.store'), opts)
@@ -176,7 +184,7 @@ function submit() {
                         <!-- True / False -->
                         <div v-if="form.type === 'true_false'">
                             <label class="text-[11px] font-semibold text-base-content/65 uppercase tracking-wider">
-                                Correct Answer <span class="text-error">*</span>
+                                Correct Answer <span class="text-base-content/40 normal-case font-normal">(optional)</span>
                             </label>
                             <div class="grid grid-cols-2 gap-2 mt-1.5">
                                 <label class="cursor-pointer border-2 rounded-lg py-3 text-center font-semibold transition-all"
@@ -190,18 +198,21 @@ function submit() {
                                     ✗ False
                                 </label>
                             </div>
+                            <p v-if="form.errors.correct_answer" class="mt-1 text-xs text-error">{{ form.errors.correct_answer }}</p>
                         </div>
 
                         <!-- Short / Long / Fill -->
                         <div v-if="['short_answer', 'long_answer', 'fill_blank'].includes(form.type)">
                             <label class="text-[11px] font-semibold text-base-content/65 uppercase tracking-wider">
-                                {{ form.type === 'fill_blank' ? 'Fill with' : 'Model Answer' }} <span class="text-error">*</span>
+                                {{ form.type === 'fill_blank' ? 'Fill with' : 'Model Answer' }}
+                                <span class="text-base-content/40 normal-case font-normal">(optional)</span>
                             </label>
-                            <textarea v-model="form.correct_answer" required
+                            <textarea v-model="form.correct_answer"
                                 :rows="form.type === 'long_answer' ? 4 : 2"
                                 :placeholder="form.type === 'fill_blank' ? 'The word or phrase that fills the blank' : 'Example of a correct answer...'"
                                 class="textarea textarea-bordered w-full mt-1.5"></textarea>
                             <p class="mt-1 text-[11px] text-base-content/50">This appears on the answer key PDF.</p>
+                            <p v-if="form.errors.correct_answer" class="mt-1 text-xs text-error">{{ form.errors.correct_answer }}</p>
                         </div>
                     </div>
                 </div>

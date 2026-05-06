@@ -166,7 +166,7 @@ const stats = [
                             <EnvelopeIcon class="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                             <input
                                 type="email" v-model="form.email"
-                                class="w-full pl-11 pr-4 py-3 rounded-xl border bg-white text-sm transition-all focus:outline-none focus:ring-4 focus:ring-emerald-500/15 focus:border-emerald-500"
+                                class="w-full pl-11 pr-4 py-3 rounded-xl border bg-white text-slate-900 placeholder-slate-400 text-sm transition-all focus:outline-none focus:ring-4 focus:ring-emerald-500/15 focus:border-emerald-500"
                                 :class="form.errors.email ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-500/15' : 'border-stone-200'"
                                 placeholder="you@school.edu.pk"
                                 required autofocus autocomplete="username"
@@ -186,7 +186,7 @@ const stats = [
                             <LockClosedIcon class="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                             <input
                                 :type="showPassword ? 'text' : 'password'" v-model="form.password"
-                                class="w-full pl-11 pr-11 py-3 rounded-xl border bg-white text-sm transition-all focus:outline-none focus:ring-4 focus:ring-emerald-500/15 focus:border-emerald-500"
+                                class="w-full pl-11 pr-11 py-3 rounded-xl border bg-white text-slate-900 placeholder-slate-400 text-sm transition-all focus:outline-none focus:ring-4 focus:ring-emerald-500/15 focus:border-emerald-500"
                                 :class="form.errors.password ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-500/15' : 'border-stone-200'"
                                 placeholder="Enter your password"
                                 required autocomplete="current-password"

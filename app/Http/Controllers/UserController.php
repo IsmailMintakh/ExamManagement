@@ -55,7 +55,7 @@ class UserController extends Controller
         ]);
     }
 
-    public function create(Request $request): Response
+    public function create(Request $request): Response|RedirectResponse
     {
         $this->authorize('create', User::class);
 
@@ -64,6 +64,14 @@ class UserController extends Controller
         $schools = $user->isSuperAdmin()
             ? School::active()->orderBy('name')->get(['id', 'name'])
             : School::where('id', $user->school_id)->get(['id', 'name']);
+
+        // Prerequisite check: every role except super-admin needs to belong to
+        // a school. Without one, the form would have no school to pick.
+        // Super-admin (DDO) is the exception — they live above schools.
+        if ($schools->isEmpty()) {
+            return redirect()->route('schools.create')
+                ->with('warning', 'Add a school first — every Principal, class teacher and subject teacher belongs to one.');
+        }
 
         $availableRoles = $user->isSuperAdmin()
             ? ['super-admin', 'school-admin', 'class-teacher', 'subject-teacher']

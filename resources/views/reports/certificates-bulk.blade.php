@@ -16,6 +16,7 @@
             'template' => $sheet['template'],
             'data' => $sheet['data'],
             'school' => $sheet['school'],
+            'exam' => $sheet['exam'] ?? null,
         ])
         @if($i < count($sheets) - 1)
             <div class="page-break"></div>

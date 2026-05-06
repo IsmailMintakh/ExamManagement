@@ -4,6 +4,12 @@ import daisyui from 'daisyui';
 
 /** @type {import('tailwindcss').Config} */
 export default {
+    // Sync Tailwind's `dark:` variant with DaisyUI's theme switcher.
+    // Without this Tailwind defaults to OS prefers-color-scheme — meaning
+    // `dark:bg-slate-900` only applied when the OS was in dark mode, NOT when
+    // the user clicked our in-app theme toggle. This made every dark: utility
+    // silently broken for users on a light OS who toggled to dark in the app.
+    darkMode: ['selector', '[data-theme="dark"]'],
     content: [
         './vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php',
         './storage/framework/views/*.php',

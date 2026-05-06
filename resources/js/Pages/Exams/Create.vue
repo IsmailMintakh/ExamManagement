@@ -17,6 +17,7 @@ const props = defineProps({
     subjects: Array,
     classes: Array,
     gradingScales: Array,
+    teachers: { type: Array, default: () => [] },
     isSuperAdmin: Boolean,
     currentSchoolId: Number,
 })
@@ -28,6 +29,7 @@ const form = useForm({
     exam_type_id: props.exam?.exam_type_id || '',
     academic_session_id: props.exam?.academic_session_id || '',
     grading_scale_id: props.exam?.grading_scale_id || '',
+    exam_controller_id: props.exam?.exam_controller_id || '',
     start_date: props.exam?.start_date || '',
     end_date: props.exam?.end_date || '',
     description: props.exam?.description || '',
@@ -123,6 +125,31 @@ function applyPreset(p) {
 watch(() => [form.passing_percentage, form.total_marks], ([pct, total]) => {
     if (pct && total) form.passing_marks = Math.round((pct / 100) * total * 100) / 100
 })
+
+// ─── Auto-sum total marks from per-subject totals ───
+// User feedback: the exam-level "Total Marks" should reflect what was set on
+// the subject rows in Step 3, not be a separate guess. Default behaviour is to
+// auto-sum and keep in sync; user can toggle override (e.g. exam awards bonus
+// marks not represented in any single subject).
+const totalMarksAutoSync = ref(true)
+const subjectsTotalMarksSum = computed(() =>
+    form.subjects.reduce((sum, s) => sum + (Number(s.total_marks) || 0), 0)
+)
+watch(subjectsTotalMarksSum, (newSum) => {
+    if (totalMarksAutoSync.value && newSum > 0) {
+        form.total_marks = newSum
+    }
+})
+// User typed in the Total Marks input → switch off auto-sync so we don't fight
+// them on the next subject change.
+function disableTotalMarksAutoSync() {
+    totalMarksAutoSync.value = false
+}
+// User clicks the "Sync from subjects" hint to re-enable auto-sync.
+function reEnableTotalMarksAutoSync() {
+    totalMarksAutoSync.value = true
+    if (subjectsTotalMarksSum.value > 0) form.total_marks = subjectsTotalMarksSum.value
+}
 
 // ════════════════════════════════════════════════════════════════
 // STEP 3: BULK SUBJECT MAPPING
@@ -504,15 +531,47 @@ function submit() {
                                     <option v-for="g in gradingScales" :key="g.id" :value="g.id">{{ g.name }}</option>
                                 </select>
                             </div>
+                            <!-- Optional: pick a teacher to designate as Exam Controller for this exam.
+                                 Their name will appear on the date sheet, admit cards, etc. as the
+                                 Examination Officer. Leave blank to fall back to the school's default. -->
+                            <div>
+                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">
+                                    Exam Controller
+                                    <span class="text-base-content/40 normal-case font-medium">· optional</span>
+                                </label>
+                                <select v-model="form.exam_controller_id" class="select select-bordered w-full mt-1.5">
+                                    <option value="">— None —</option>
+                                    <option v-for="t in teachers" :key="t.id" :value="t.id">{{ t.name }}</option>
+                                </select>
+                                <p class="text-[10px] text-base-content/45 mt-1">
+                                    Pick a teacher to sign exam paperwork (date sheet, admit cards, etc.).
+                                </p>
+                            </div>
                         </div>
 
                         <div class="pt-5 border-t border-base-200">
                             <p class="section-eyebrow mb-3">Marks &amp; Position</p>
                             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
                                 <div>
-                                    <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Total Marks *</label>
+                                    <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">
+                                        Total Marks *
+                                        <span v-if="totalMarksAutoSync && subjectsTotalMarksSum > 0"
+                                            class="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 normal-case tracking-normal">
+                                            · auto from subjects
+                                        </span>
+                                    </label>
                                     <input v-model.number="form.total_marks" type="number" min="1"
+                                        @input="disableTotalMarksAutoSync"
+                                        :readonly="totalMarksAutoSync && subjectsTotalMarksSum > 0"
+                                        :class="totalMarksAutoSync && subjectsTotalMarksSum > 0 ? 'bg-base-200/50' : ''"
                                         class="input input-bordered w-full mt-1.5 font-mono" />
+                                    <p v-if="!totalMarksAutoSync && subjectsTotalMarksSum > 0 && form.total_marks !== subjectsTotalMarksSum"
+                                        class="text-[10px] mt-1">
+                                        <button type="button" @click="reEnableTotalMarksAutoSync"
+                                            class="text-primary font-semibold hover:underline">
+                                            ↺ Sync from subjects ({{ subjectsTotalMarksSum }})
+                                        </button>
+                                    </p>
                                 </div>
                                 <div>
                                     <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Passing %</label>
@@ -691,6 +750,10 @@ function submit() {
                             Per-class subjects
                             <span class="badge badge-sm badge-ghost ml-1">{{ form.subjects.length }}</span>
                         </h3>
+                        <p class="text-[10px] text-base-content/55 ml-auto sm:ml-0">
+                            Paper dates &amp; times are set on the
+                            <span class="font-semibold">Scheduling → Date Sheet</span> page after saving.
+                        </p>
                         <div class="flex gap-2">
                             <button type="button" @click="addSubjectRow" class="btn btn-ghost btn-xs gap-1">
                                 <PlusIcon class="w-3.5 h-3.5" /> Add row
@@ -716,7 +779,6 @@ function submit() {
                                     <th class="text-left px-3 py-3 font-bold">Subject</th>
                                     <th class="text-right px-3 py-3 font-bold w-24">Total</th>
                                     <th class="text-right px-3 py-3 font-bold w-24">Pass</th>
-                                    <th class="text-left px-3 py-3 font-bold w-36">Date</th>
                                     <th class="px-2 py-3 w-10"></th>
                                 </tr>
                             </thead>
@@ -741,12 +803,6 @@ function submit() {
                                     <td class="px-3 py-2">
                                         <input v-model.number="row.passing_marks" type="number" min="0"
                                             class="input input-bordered input-xs rounded-lg w-full text-right font-mono" />
-                                    </td>
-                                    <td class="px-3 py-2">
-                                        <input v-model="row.exam_date" type="date"
-                                            :min="form.start_date || undefined"
-                                            :max="form.end_date || undefined"
-                                            class="input input-bordered input-xs rounded-lg w-full" />
                                     </td>
                                     <td class="px-2 py-2 text-right">
                                         <button type="button" @click="removeSubjectRow(i)"

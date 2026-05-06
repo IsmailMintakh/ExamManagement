@@ -140,6 +140,61 @@
     .sidebar-link:hover .sidebar-icon { opacity: 1; transform: scale(1.05); }
     .sidebar-link.active .sidebar-icon { opacity: 1; }
 
+    /* ========== COLLAPSED SIDEBAR (desktop) ==========
+       When the user collapses the sidebar to an icons-only rail (~72px wide),
+       hide everything that isn't an icon — labels, badges, group section
+       headers, group-toggle buttons, the session selector, the developer
+       credit. Then center the remaining icons in the narrower rail.
+       We target via [data-collapsed="true"] on the <aside>. Mobile (drawer
+       mode) always shows the full sidebar — these rules only apply at lg:+. */
+    @media (min-width: 1024px) {
+        /* Hide all label/section/group-toggle text */
+        aside[data-collapsed="true"] .sidebar-section,
+        aside[data-collapsed="true"] .sidebar-group-toggle,
+        aside[data-collapsed="true"] .sidebar-link > span:not(.sidebar-icon),
+        aside[data-collapsed="true"] .sidebar-link [class*="rounded-full"]:not(.sidebar-icon),
+        aside[data-collapsed="true"] .session-menu-container {
+            display: none !important;
+        }
+
+        /* When the group-toggle is hidden, the items below it should still
+           be visible (icons-only). The wrapping <Transition> div may have
+           been collapsed by isGroupCollapsed — force it open in icon mode. */
+        aside[data-collapsed="true"] nav > div > div[class*="overflow-hidden"] {
+            display: block !important;
+        }
+        aside[data-collapsed="true"] nav > div > div[class*="overflow-hidden"] > div {
+            display: block !important;
+        }
+
+        /* Center every icon in the narrower rail */
+        aside[data-collapsed="true"] .sidebar-link {
+            justify-content: center;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+
+        /* Hide brand text + close button beside the logo, keep just the logo */
+        aside[data-collapsed="true"] .flex.h-16 > div:not(:first-child),
+        aside[data-collapsed="true"] .flex.h-16 > button {
+            display: none !important;
+        }
+        aside[data-collapsed="true"] .flex.h-16 {
+            justify-content: center;
+            padding: 0;
+        }
+
+        /* User card: hide the name/role text, show only the avatar centered */
+        aside[data-collapsed="true"] nav ~ div .flex-1.min-w-0 { display: none !important; }
+        aside[data-collapsed="true"] nav ~ div { justify-content: center; }
+
+        /* Hide the developer-credit footer block (small text at the bottom) */
+        aside[data-collapsed="true"] aside > div:last-child p,
+        aside[data-collapsed="true"] aside > div:last-child a { display: none !important; }
+        /* Fallback selector: any small text-center block at the bottom */
+        aside[data-collapsed="true"] > div.text-center { display: none !important; }
+    }
+
     /* ========== PAGE HEADER ========== */
     .page-header {
         @apply flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between;
@@ -398,10 +453,23 @@
     .input, .select, .textarea {
         font-size: 0.875rem;
         background: oklch(var(--b1));
+        /* Force theme-correct text color so inputs never inherit a clashing
+           color from the page (e.g. white text on white bg in dark mode when
+           a page wraps inputs in a hardcoded light card). */
+        color: oklch(var(--bc));
         border-color: oklch(var(--bc) / 0.12);
         transition: border-color var(--duration-fast) var(--ease-out),
                     box-shadow var(--duration-fast) var(--ease-out),
                     background-color var(--duration-fast) var(--ease-out);
+    }
+    /* Native inputs that don't use the .input class still need a sane color.
+       :where() lowers specificity to (0,0,0) so any Tailwind utility class
+       (text-slate-900, text-white, etc.) on the same input still wins. */
+    :where(input[type="text"], input[type="email"], input[type="password"],
+           input[type="number"], input[type="tel"], input[type="search"],
+           input[type="url"], input[type="date"], input[type="datetime-local"],
+           input[type="time"], textarea) {
+        color: oklch(var(--bc));
     }
     .input:hover:not(:disabled):not(:focus),
     .select:hover:not(:disabled):not(:focus),
@@ -1001,6 +1069,29 @@ html[data-theme="dark"] .text-indigo-800 { color: oklch(80% .12 270); }
 html[data-theme="dark"] .text-slate-700,
 html[data-theme="dark"] .text-slate-800,
 html[data-theme="dark"] .text-slate-900 { color: oklch(var(--bc) / 0.92); }
+/* Generic neutral-shade text (gray/stone/zinc/neutral 500–900). These are
+   intended for light backgrounds; on dark surfaces they read as near-black
+   and become invisible. Map them to a comfortable mid-light value. */
+html[data-theme="dark"] .text-gray-500,
+html[data-theme="dark"] .text-gray-600,
+html[data-theme="dark"] .text-gray-700,
+html[data-theme="dark"] .text-gray-800,
+html[data-theme="dark"] .text-gray-900,
+html[data-theme="dark"] .text-stone-500,
+html[data-theme="dark"] .text-stone-600,
+html[data-theme="dark"] .text-stone-700,
+html[data-theme="dark"] .text-stone-800,
+html[data-theme="dark"] .text-stone-900,
+html[data-theme="dark"] .text-zinc-500,
+html[data-theme="dark"] .text-zinc-600,
+html[data-theme="dark"] .text-zinc-700,
+html[data-theme="dark"] .text-zinc-800,
+html[data-theme="dark"] .text-zinc-900,
+html[data-theme="dark"] .text-neutral-500,
+html[data-theme="dark"] .text-neutral-600,
+html[data-theme="dark"] .text-neutral-700,
+html[data-theme="dark"] .text-neutral-800,
+html[data-theme="dark"] .text-neutral-900 { color: oklch(var(--bc) / 0.78); }
 
 /* Dim very-light tint backgrounds (50/100) so they do not blast in dark mode */
 html[data-theme="dark"] .bg-amber-50,
@@ -1021,6 +1112,16 @@ html[data-theme="dark"] .bg-slate-50,
 html[data-theme="dark"] .bg-slate-100,
 html[data-theme="dark"] .bg-gray-50,
 html[data-theme="dark"] .bg-gray-100    { background-color: oklch(var(--bc) / 0.05) !important; }
+
+/* Pure bg-white safety net: legacy components that hardcoded bg-white without
+   a dark: variant would render a blast of white in dark mode. Remap to the
+   dark surface AND set a sane text color so any text inside stays readable.
+   Pages that genuinely want pure white in dark mode (printable views, etc.)
+   should use `dark:bg-white` which is more specific and wins. */
+html[data-theme="dark"] .bg-white {
+    background-color: oklch(var(--b1));
+    color: oklch(var(--bc));
+}
 
 /* Hover-on-light-tint variants get the same dimming */
 html[data-theme="dark"] [class*="hover:bg-stone-50"]:hover,

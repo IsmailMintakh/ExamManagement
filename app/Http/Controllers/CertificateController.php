@@ -52,13 +52,60 @@ class CertificateController extends Controller
     {
         $user = $request->user();
         abort_unless($user->can('certificates.templates.view'), 403);
-        $templates = CertificateTemplate::query()
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where(fn ($q2) => $q2->where('school_id', $user->school_id)->orWhereNull('school_id')))
+
+        // Source filter (mine | library | all). Default 'all' here because a
+        // school with no custom templates would see an empty list under
+        // 'mine' — the DDO-shipped defaults are what makes the page useful
+        // out of the box.
+        $source = $this->resolveTemplateSource($request);
+
+        $base = CertificateTemplate::query();
+        $this->scopeTemplatesForUser($base, $user, $source);
+
+        $templates = (clone $base)
             ->orderBy('type')
             ->orderBy('name')
             ->get();
 
-        return Inertia::render('Certificates/Templates/Index', ['templates' => $templates]);
+        $sourceCounts = $user->isSuperAdmin()
+            ? null
+            : [
+                'mine' => $this->scopeTemplatesForUser(CertificateTemplate::query(), $user, 'mine')->count(),
+                'library' => $this->scopeTemplatesForUser(CertificateTemplate::query(), $user, 'library')->count(),
+                'all' => $this->scopeTemplatesForUser(CertificateTemplate::query(), $user, 'all')->count(),
+            ];
+
+        return Inertia::render('Certificates/Templates/Index', [
+            'templates' => $templates,
+            'filters' => ['source' => $source],
+            'sourceCounts' => $sourceCounts,
+        ]);
+    }
+
+    /**
+     * Apply the role-based + source filter to a CertificateTemplate query.
+     * Super-admin sees everything; school-admins narrow to "mine" (own school),
+     * "library" (school_id IS NULL), or "all" (union).
+     */
+    protected function scopeTemplatesForUser($query, $user, string $source = 'all')
+    {
+        if ($user->isSuperAdmin()) {
+            return $query;
+        }
+
+        return match ($source) {
+            'library' => $query->whereNull('school_id'),
+            'mine' => $query->where('school_id', $user->school_id),
+            default /* 'all' */ => $query->where(function ($q) use ($user) {
+                $q->where('school_id', $user->school_id)->orWhereNull('school_id');
+            }),
+        };
+    }
+
+    protected function resolveTemplateSource(Request $request, string $default = 'all'): string
+    {
+        $s = $request->input('source', $default);
+        return in_array($s, ['mine', 'library', 'all'], true) ? $s : $default;
     }
 
     public function createTemplate(Request $request): Response
@@ -289,10 +336,15 @@ class CertificateController extends Controller
             $school->principal_name = $school->principal?->name;
         }
 
+        // Load the exam + examController so the certificate can show the
+        // designated controller's name in the third signature column.
+        $certificate->loadMissing('exam.examController:id,name');
+
         $pdf = Pdf::loadView('reports.certificate', [
             'template' => $certificate->template,
             'data' => $data,
             'school' => $school,
+            'exam' => $certificate->exam,
         ])->setPaper('a4', $certificate->template->orientation);
 
         return $pdf->stream("certificate-{$certificate->certificate_number}.pdf");
@@ -313,6 +365,9 @@ class CertificateController extends Controller
             return redirect()->back()->with('error', 'No certificates to download.');
         }
 
+        // Eager-load examController across the bulk to avoid N+1
+        $certificates->loadMissing('exam.examController:id,name');
+
         $sheets = $certificates->map(function ($c) {
             $school = $c->student->school;
             if ($school) {
@@ -323,6 +378,7 @@ class CertificateController extends Controller
                 'template' => $c->template,
                 'data' => $this->buildCertificateData($c),
                 'school' => $school,
+                'exam' => $c->exam,
             ];
         });
 

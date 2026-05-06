@@ -8,7 +8,16 @@ import { PlusIcon, PencilSquareIcon, TrashIcon, StarIcon } from '@heroicons/vue/
 
 const props = defineProps({
     gradingScales: Array,
+    filters: { type: Object, default: () => ({}) },
+    sourceCounts: { type: Object, default: () => null },
 })
+
+const source = ref(props.filters?.source || 'all')
+
+function setSource(v) {
+    source.value = v
+    router.get(route('grading-scales.index'), { source: v }, { preserveState: false, replace: true })
+}
 
 const confirmDelete = ref(false)
 const scaleToDelete = ref(null)
@@ -39,6 +48,32 @@ function deleteScale() {
                 <Link :href="route('grading-scales.create')" class="btn btn-primary btn-sm gap-1.5">
                     <PlusIcon class="w-4 h-4" /> Add Grading Scale
                 </Link>
+            </div>
+
+            <!-- Source toggle. Hidden for super-admins (DDO sees everything). -->
+            <div v-if="sourceCounts" class="flex flex-wrap items-center gap-2 text-sm">
+                <span class="text-base-content/55 text-xs font-semibold uppercase tracking-wider">Source:</span>
+                <div class="join">
+                    <button @click="setSource('mine')" type="button"
+                        class="btn btn-sm join-item"
+                        :class="source === 'mine' ? 'btn-primary' : 'btn-ghost'">
+                        Mine
+                        <span class="badge badge-xs ml-1">{{ sourceCounts.mine }}</span>
+                    </button>
+                    <button @click="setSource('library')" type="button"
+                        class="btn btn-sm join-item"
+                        :class="source === 'library' ? 'btn-primary' : 'btn-ghost'">
+                        Library
+                        <span class="badge badge-xs ml-1">{{ sourceCounts.library }}</span>
+                    </button>
+                    <button @click="setSource('all')" type="button"
+                        class="btn btn-sm join-item"
+                        :class="source === 'all' ? 'btn-primary' : 'btn-ghost'">
+                        All
+                        <span class="badge badge-xs ml-1">{{ sourceCounts.all }}</span>
+                    </button>
+                </div>
+                <span v-if="source === 'library'" class="text-xs text-base-content/55">DDO-shipped defaults · read-only.</span>
             </div>
 
             <div v-if="gradingScales?.length" class="grid grid-cols-1 lg:grid-cols-2 gap-5">

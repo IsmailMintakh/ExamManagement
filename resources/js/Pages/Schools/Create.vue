@@ -20,9 +20,21 @@ const form = useForm({
     phone: props.school?.phone || '',
     email: props.school?.email || '',
     website: props.school?.website || '',
+    principal_name: props.school?.principal_name || '',
+    exam_officer_name: props.school?.exam_officer_name || '',
     logo: null,
+    school_stamp: null,
+    principal_signature: null,
+    exam_officer_signature: null,
     is_active: props.school?.is_active ?? true,
 })
+
+// Build absolute URLs for already-saved images so the FileUpload preview can
+// render them on the edit screen. The /storage prefix maps to the public
+// disk's symlink (storage:link).
+function existingUrl(path) {
+    return path ? `/storage/${path}` : ''
+}
 
 function submit() {
     const url = isEdit ? route('schools.update', props.school.id) : route('schools.store')
@@ -50,7 +62,45 @@ function submit() {
 
                     <FormInput v-model="form.website" label="Website" :error="form.errors.website" placeholder="https://..." />
                     <FormTextarea v-model="form.address" label="Address" :error="form.errors.address" :rows="3" placeholder="Full address" />
-                    <FileUpload v-model="form.logo" label="School Logo" accept="image/*" :preview="true" :error="form.errors.logo" />
+
+                    <!-- ─── Authenticity assets — used on date sheets, admit cards, certificates ─── -->
+                    <div class="pt-4 border-t border-base-200">
+                        <p class="text-[11px] font-bold uppercase tracking-wider text-base-content/55 mb-3">
+                            Logos &amp; Authenticity
+                            <span class="text-base-content/40 normal-case font-medium">· optional, used on PDFs</span>
+                        </p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <FileUpload v-model="form.logo" label="School Logo"
+                                accept="image/*" :preview="true" :error="form.errors.logo"
+                                :existing-url="existingUrl(props.school?.logo)"
+                                help-text="Square is best. Shown on PDFs &amp; ID cards." />
+                            <FileUpload v-model="form.school_stamp" label="School Stamp"
+                                accept="image/png,image/webp,image/svg+xml" :preview="true"
+                                :error="form.errors.school_stamp"
+                                :existing-url="existingUrl(props.school?.school_stamp)"
+                                help-text="Round/oval stamp. Transparent PNG looks best." />
+                            <FileUpload v-model="form.principal_signature" label="Principal Signature"
+                                accept="image/png,image/webp,image/svg+xml" :preview="true"
+                                :error="form.errors.principal_signature"
+                                :existing-url="existingUrl(props.school?.principal_signature)"
+                                help-text="Black ink on white. Transparent PNG ideal." />
+                            <FileUpload v-model="form.exam_officer_signature" label="Exam Officer Signature"
+                                accept="image/png,image/webp,image/svg+xml" :preview="true"
+                                :error="form.errors.exam_officer_signature"
+                                :existing-url="existingUrl(props.school?.exam_officer_signature)"
+                                help-text="Used on date sheets &amp; admit cards." />
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                            <FormInput v-model="form.principal_name" label="Principal Name"
+                                :error="form.errors.principal_name"
+                                placeholder="e.g. Mr. Ali Raza"
+                                help-text="Shown beneath the Principal signature on PDFs." />
+                            <FormInput v-model="form.exam_officer_name" label="Exam Officer Name"
+                                :error="form.errors.exam_officer_name"
+                                placeholder="e.g. Mr. Ahmad Khan"
+                                help-text="Shown beneath the Exam Officer signature on PDFs." />
+                        </div>
+                    </div>
 
                     <div class="form-control">
                         <label class="label cursor-pointer justify-start gap-3">

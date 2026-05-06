@@ -23,7 +23,7 @@ class StoreExamRequest extends FormRequest
             'grading_scale_id', 'start_date', 'end_date', 'description',
             'total_marks', 'passing_marks', 'passing_percentage',
             'min_subjects_to_pass', 'grace_marks', 'grace_marks_max_subjects',
-            'marks_entry_deadline',
+            'marks_entry_deadline', 'exam_controller_id',
         ];
         $payload = [];
         foreach ($nullableFields as $field) {
@@ -63,6 +63,7 @@ class StoreExamRequest extends FormRequest
             // Marks can only be entered after the exam concludes — guard against
             // setting a deadline before the exam window even ends.
             'marks_entry_deadline' => ['nullable', 'date', 'after_or_equal:end_date'],
+            'exam_controller_id' => ['nullable', 'exists:users,id'],
             'selected_school_ids' => ['nullable', 'array'],
             'selected_school_ids.*' => ['exists:schools,id'],
             'subjects' => ['nullable', 'array'],

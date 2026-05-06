@@ -36,23 +36,40 @@ class PaperGeneratorController extends Controller
         return $query->where('generated_by', $user->id);
     }
 
-    protected function scopeQuestionsForUser($query, $user)
+    /**
+     * Apply role-based scoping + UI "source" filter to the question pool used
+     * during paper generation. See QuestionController::scopeForUser for the
+     * canonical doc — same semantics here. Default for paper generation is
+     * 'all' so teachers have the widest possible pool to draw from.
+     */
+    protected function scopeQuestionsForUser($query, $user, string $source = 'all')
     {
         if ($user->isSuperAdmin()) {
             return $query;
         }
 
-        if ($user->isSchoolAdmin()) {
-            return $query->where(function ($q) use ($user) {
-                $q->where('school_id', $user->school_id)
-                  ->orWhereNull('school_id');
-            });
-        }
+        $ownClause = $user->isSchoolAdmin()
+            ? fn ($q) => $q->where('school_id', $user->school_id)
+            : fn ($q) => $q->where('created_by', $user->id);
 
-        return $query->where(function ($q) use ($user) {
-            $q->where('created_by', $user->id)
-              ->orWhereNull('school_id');
-        });
+        return match ($source) {
+            'library' => $query->whereNull('school_id'),
+            'mine' => $query->where($ownClause),
+            default /* 'all' */ => $query->where(function ($q) use ($ownClause) {
+                $ownClause($q);
+                $q->orWhereNull('school_id');
+            }),
+        };
+    }
+
+    /**
+     * Whitelist the source param. Anything off-list collapses to 'all'
+     * (paper-gen default — wider pool is the right safe fallback here).
+     */
+    protected function resolveSource(Request $request, string $default = 'all'): string
+    {
+        $s = $request->input('source', $default);
+        return in_array($s, ['mine', 'library', 'all'], true) ? $s : $default;
     }
 
     public function index(Request $request): Response
@@ -98,17 +115,29 @@ class PaperGeneratorController extends Controller
             ->active()->ordered()->get(['id', 'name', 'school_id']);
 
         $topics = Question::query()
-            ->when(true, fn ($q) => $this->scopeQuestionsForUser($q, $user))
+            ->when(true, fn ($q) => $this->scopeQuestionsForUser($q, $user, 'all'))
             ->whereNotNull('topic')
             ->distinct()
             ->pluck('topic')
             ->filter()
             ->values();
 
+        // Pre-compute pool sizes for the source toggle so the UI can show
+        // "Mine (12) · Library (340) · All (352)" without extra requests.
+        $sourceCounts = $user->isSuperAdmin()
+            ? null /* DDO sees everything; no toggle needed */
+            : [
+                'mine' => $this->scopeQuestionsForUser(Question::query()->where('is_active', true), $user, 'mine')->count(),
+                'library' => $this->scopeQuestionsForUser(Question::query()->where('is_active', true), $user, 'library')->count(),
+                'all' => $this->scopeQuestionsForUser(Question::query()->where('is_active', true), $user, 'all')->count(),
+            ];
+
         return Inertia::render('Papers/Generate', [
             'subjects' => $subjects,
             'classes' => $classes,
             'topics' => $topics,
+            'sourceCounts' => $sourceCounts,
+            'defaultSource' => 'all',
         ]);
     }
 
@@ -124,13 +153,16 @@ class PaperGeneratorController extends Controller
             'school_class_id' => ['nullable', 'exists:school_classes,id'],
             'topics' => ['nullable', 'array'],
             'topics.*' => ['string'],
+            'source' => ['nullable', 'in:mine,library,all'],
         ]);
+
+        $source = $this->resolveSource($request, 'all');
 
         $query = Question::query()
             ->where('is_active', true)
             ->where('subject_id', $validated['subject_id']);
 
-        $this->scopeQuestionsForUser($query, $user);
+        $this->scopeQuestionsForUser($query, $user, $source);
 
         if (!empty($validated['school_class_id'])) {
             $query->where(function ($q) use ($validated) {
@@ -143,19 +175,31 @@ class PaperGeneratorController extends Controller
             $query->whereIn('topic', $validated['topics']);
         }
 
-        $counts = $query->selectRaw('type, difficulty, COUNT(*) as total')
+        $counts = $query->selectRaw('type, difficulty, COUNT(*) as total, AVG(marks) as avg_marks')
             ->groupBy('type', 'difficulty')
             ->get();
 
         $byType = [];
         foreach (['mcq', 'short_answer', 'long_answer', 'true_false', 'fill_blank'] as $t) {
-            $byType[$t] = ['total' => 0, 'easy' => 0, 'medium' => 0, 'hard' => 0];
+            $byType[$t] = ['total' => 0, 'easy' => 0, 'medium' => 0, 'hard' => 0,
+                            'avg_marks' => 0, '_marks_sum' => 0, '_marks_count' => 0];
         }
 
         foreach ($counts as $row) {
             $byType[$row->type]['total'] += (int) $row->total;
             $byType[$row->type][$row->difficulty] = (int) $row->total;
+            // Weighted average across difficulties (sum-of-products / total)
+            $byType[$row->type]['_marks_sum'] += (float) $row->avg_marks * (int) $row->total;
+            $byType[$row->type]['_marks_count'] += (int) $row->total;
         }
+        // Finalise the per-type average marks; drop the working columns.
+        foreach ($byType as $t => &$data) {
+            $data['avg_marks'] = $data['_marks_count'] > 0
+                ? round($data['_marks_sum'] / $data['_marks_count'], 2)
+                : 0;
+            unset($data['_marks_sum'], $data['_marks_count']);
+        }
+        unset($data);
 
         return response()->json([
             'counts' => $byType,
@@ -181,18 +225,33 @@ class PaperGeneratorController extends Controller
             'instructions' => ['nullable', 'string'],
             'set_code' => ['nullable', 'string', 'max:8'],
             'shuffle' => ['nullable', 'boolean'],
+            'show_sections' => ['nullable', 'boolean'],
             'topics' => ['nullable', 'array'],
             'topics.*' => ['string'],
+            'source' => ['nullable', 'in:mine,library,all'],
             'sections' => ['required', 'array', 'min:1'],
             'sections.*.label' => ['required', 'string'],
             'sections.*.type' => ['required', 'in:mcq,short_answer,long_answer,true_false,fill_blank'],
             'sections.*.difficulty' => ['nullable', 'in:easy,medium,hard,mixed'],
             'sections.*.count' => ['required', 'integer', 'min:1', 'max:200'],
-            'sections.*.marks_each' => ['required', 'numeric', 'min:0.25', 'max:100'],
+            // marks_each is no longer required — each question carries its own
+            // marks from the question bank. Kept nullable so existing UIs that
+            // still send the field don't error.
+            'sections.*.marks_each' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            // 0 = no writing space (just the question, like an MCQ); 1–20 = blank
+            // ruled lines under each question — useful for primary classes
+            // (Nursery / Prep) where students need lots of room to write.
+            'sections.*.answer_lines' => ['nullable', 'integer', 'min:0', 'max:20'],
+            // Per-section numbering: arabic (1, 2, 3) | roman (I, II, III) |
+            // alpha_upper (A, B, C) | alpha_lower (a, b, c).
+            'sections.*.numbering_style' => ['nullable', 'in:arabic,roman,alpha_upper,alpha_lower'],
+            // When true, the question counter resets to 1 at the start of this section.
+            'sections.*.restart_numbering' => ['nullable', 'boolean'],
         ]);
 
         $shuffle = (bool) ($validated['shuffle'] ?? true);
         $topics = $validated['topics'] ?? [];
+        $source = $this->resolveSource($request, 'all');
 
         $allQuestionIds = [];
         $outSections = [];
@@ -204,7 +263,7 @@ class PaperGeneratorController extends Controller
                 ->where('subject_id', $validated['subject_id'])
                 ->where('type', $section['type']);
 
-            $this->scopeQuestionsForUser($query, $user);
+            $this->scopeQuestionsForUser($query, $user, $source);
 
             if (!empty($validated['school_class_id'])) {
                 $query->where(function ($q) use ($validated) {
@@ -243,10 +302,17 @@ class PaperGeneratorController extends Controller
             $allQuestionIds = array_merge($allQuestionIds, $pickedIds);
 
             $sectionQuestions = [];
+            $sectionTotalMarks = 0.0;
             foreach ($picked as $q) {
+                // Use the QUESTION's own marks (set when the question was created),
+                // not the section's marks_each default. This is the source of
+                // truth — overriding it would silently change every printed and
+                // result-affecting paper into a different total than the bank says.
+                $qMarks = (float) ($q->marks ?? $section['marks_each'] ?? 1);
+
                 $entry = [
                     'question_id' => $q->id,
-                    'marks' => (float) $section['marks_each'],
+                    'marks' => $qMarks,
                 ];
 
                 // Store an option ordering for MCQ (enables shuffling w/o losing correctness tracking)
@@ -259,6 +325,7 @@ class PaperGeneratorController extends Controller
                 }
 
                 $sectionQuestions[] = $entry;
+                $sectionTotalMarks += $qMarks;
             }
 
             $outSections[] = [
@@ -266,11 +333,14 @@ class PaperGeneratorController extends Controller
                 'type' => $section['type'],
                 'difficulty' => $section['difficulty'] ?? 'mixed',
                 'count' => (int) $section['count'],
-                'marks_each' => (float) $section['marks_each'],
+                'section_total_marks' => round($sectionTotalMarks, 2),
+                'answer_lines' => isset($section['answer_lines']) ? (int) $section['answer_lines'] : null,
+                'numbering_style' => $section['numbering_style'] ?? 'arabic',
+                'restart_numbering' => (bool) ($section['restart_numbering'] ?? false),
                 'questions' => $sectionQuestions,
             ];
 
-            $totalMarks += $section['count'] * $section['marks_each'];
+            $totalMarks += $sectionTotalMarks;
         }
 
         $paper = Paper::create([
@@ -281,11 +351,12 @@ class PaperGeneratorController extends Controller
             'title' => $validated['title'],
             'exam_name' => $validated['exam_name'] ?? null,
             'duration_minutes' => $validated['duration_minutes'],
-            'total_marks' => $totalMarks,
+            'total_marks' => round($totalMarks, 2),
             'instructions' => $validated['instructions'] ?? null,
             'sections' => $outSections,
             'question_ids' => $allQuestionIds,
             'shuffle_enabled' => $shuffle,
+            'show_sections' => (bool) ($validated['show_sections'] ?? true),
             'set_code' => $validated['set_code'] ?? 'A',
         ]);
 
@@ -319,18 +390,21 @@ class PaperGeneratorController extends Controller
 
         $questions = Question::whereIn('id', $paper->question_ids ?? [])->get()->keyBy('id');
 
-        $school = $paper->school ?: (object) [
-            'name' => 'All Schools',
-            'address' => '',
-            'phone' => '',
-            'logo' => null,
-        ];
+        // Slips per page: 1 (default A4 portrait) or 2 (A5 side-by-side on landscape).
+        // 2-up cuts paper use in half — print N/2 sheets and snip down the middle
+        // dashed line. 3-up was tried but produces unreadable 6.5pt text and
+        // routinely overflows; it's been removed.
+        $slips = (int) request()->query('slips', 1);
+        if (!in_array($slips, [1, 2], true)) $slips = 1;
+
+        $orientation = $slips === 2 ? 'landscape' : 'portrait';
 
         $pdf = Pdf::loadView('reports.question-paper', [
             'paper' => $paper,
             'questions' => $questions,
-            'school' => $school,
-        ])->setPaper('a4', 'portrait');
+            'school' => $this->resolveSchool($paper),
+            'slipsPerPage' => $slips,
+        ])->setPaper('a4', $orientation);
 
         return $pdf->stream("paper-{$paper->id}-set-{$paper->set_code}.pdf");
     }
@@ -342,20 +416,40 @@ class PaperGeneratorController extends Controller
 
         $questions = Question::whereIn('id', $paper->question_ids ?? [])->get()->keyBy('id');
 
-        $school = $paper->school ?: (object) [
-            'name' => 'All Schools',
+        $pdf = Pdf::loadView('reports.answer-key', [
+            'paper' => $paper,
+            'questions' => $questions,
+            'school' => $this->resolveSchool($paper),
+        ])->setPaper('a4', 'portrait');
+
+        return $pdf->stream("answer-key-{$paper->id}-set-{$paper->set_code}.pdf");
+    }
+
+    /**
+     * Resolve which school's name + logo to print on the paper header.
+     *
+     * Priority: paper's own school → current user's school → schoolClass's
+     * school → generic placeholder. We never want "All Schools" on a printed
+     * paper that's actually being given to one specific school's students.
+     */
+    protected function resolveSchool(Paper $paper)
+    {
+        if ($paper->school) {
+            return $paper->school;
+        }
+        $user = request()->user();
+        if ($user && $user->school) {
+            return $user->school;
+        }
+        if ($paper->schoolClass && $paper->schoolClass->school) {
+            return $paper->schoolClass->school;
+        }
+        return (object) [
+            'name' => config('app.name', 'School'),
             'address' => '',
             'phone' => '',
             'logo' => null,
         ];
-
-        $pdf = Pdf::loadView('reports.answer-key', [
-            'paper' => $paper,
-            'questions' => $questions,
-            'school' => $school,
-        ])->setPaper('a4', 'portrait');
-
-        return $pdf->stream("answer-key-{$paper->id}-set-{$paper->set_code}.pdf");
     }
 
     public function regenerate(Request $request, Paper $paper): RedirectResponse
@@ -407,10 +501,14 @@ class PaperGeneratorController extends Controller
             $allQuestionIds = array_merge($allQuestionIds, $pickedIds);
 
             $sectionQuestions = [];
+            $sectionTotalMarks = 0.0;
             foreach ($picked as $q) {
+                // Use the question's own marks (set when created) — never the
+                // section default. Same fix as the original generate() path.
+                $qMarks = (float) ($q->marks ?? $section['marks_each'] ?? 1);
                 $entry = [
                     'question_id' => $q->id,
-                    'marks' => (float) ($section['marks_each'] ?? 1),
+                    'marks' => $qMarks,
                 ];
                 if ($q->type === 'mcq' && is_array($q->options)) {
                     $indices = array_keys($q->options);
@@ -420,6 +518,7 @@ class PaperGeneratorController extends Controller
                     $entry['option_order'] = $indices;
                 }
                 $sectionQuestions[] = $entry;
+                $sectionTotalMarks += $qMarks;
             }
 
             $outSections[] = [
@@ -427,10 +526,13 @@ class PaperGeneratorController extends Controller
                 'type' => $section['type'],
                 'difficulty' => $section['difficulty'] ?? 'mixed',
                 'count' => (int) ($section['count'] ?? 0),
-                'marks_each' => (float) ($section['marks_each'] ?? 1),
+                'section_total_marks' => round($sectionTotalMarks, 2),
+                'answer_lines' => $section['answer_lines'] ?? null,
+                'numbering_style' => $section['numbering_style'] ?? 'arabic',
+                'restart_numbering' => (bool) ($section['restart_numbering'] ?? false),
                 'questions' => $sectionQuestions,
             ];
-            $totalMarks += ($section['count'] ?? 0) * ($section['marks_each'] ?? 1);
+            $totalMarks += $sectionTotalMarks;
         }
 
         $newPaper = Paper::create([
@@ -441,11 +543,12 @@ class PaperGeneratorController extends Controller
             'title' => $paper->title,
             'exam_name' => $paper->exam_name,
             'duration_minutes' => $paper->duration_minutes,
-            'total_marks' => $totalMarks,
+            'total_marks' => round($totalMarks, 2),
             'instructions' => $paper->instructions,
             'sections' => $outSections,
             'question_ids' => $allQuestionIds,
             'shuffle_enabled' => $paper->shuffle_enabled,
+            'show_sections' => $paper->show_sections,
             'set_code' => $nextSet,
         ]);
 

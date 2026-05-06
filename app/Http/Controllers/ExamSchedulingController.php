@@ -250,6 +250,45 @@ class ExamSchedulingController extends Controller
             throw \Illuminate\Validation\ValidationException::withMessages($conflicts);
         }
 
+        // ─── Cross-exam conflict detection (soft warning) ───
+        // Hard-block within-exam conflicts above. For OTHER exams that already
+        // have schedules on the same (class, date, overlapping time), we collect
+        // a list and flash it as a warning — the user might genuinely want to
+        // run two exams in parallel (e.g. mid-term for Class V while Class VI
+        // sits a monthly test in another room) and we don't want to block them.
+        $crossExamWarnings = [];
+        foreach ($rows as $row) {
+            if (empty($row['exam_date']) || empty($row['start_time']) || empty($row['end_time'])) continue;
+
+            $rowStart = Carbon::parse($row['exam_date'] . ' ' . $row['start_time']);
+            $rowEnd = Carbon::parse($row['exam_date'] . ' ' . $row['end_time']);
+
+            $clashes = ExamSchedule::where('exam_id', '!=', $exam->id)
+                ->where('school_class_id', $row['school_class_id'])
+                ->whereDate('exam_date', $row['exam_date'])
+                ->with(['exam:id,name', 'subject:id,name'])
+                ->get()
+                ->filter(function ($other) use ($rowStart, $rowEnd, $row) {
+                    if (!$other->start_time || !$other->end_time) return false;
+                    $oStart = Carbon::parse($row['exam_date'] . ' ' . substr($other->start_time, 0, 5));
+                    $oEnd = Carbon::parse($row['exam_date'] . ' ' . substr($other->end_time, 0, 5));
+                    return $rowStart->lt($oEnd) && $oStart->lt($rowEnd);
+                });
+
+            foreach ($clashes as $other) {
+                $cls = SchoolClass::find($row['school_class_id'])?->name ?? "class #{$row['school_class_id']}";
+                $crossExamWarnings[] = sprintf(
+                    '%s clashes with "%s" (%s) on %s — both scheduled for %s.',
+                    Subject::find($row['subject_id'])?->name ?? "subject #{$row['subject_id']}",
+                    $other->exam?->name ?? 'another exam',
+                    $other->subject?->name ?? '—',
+                    Carbon::parse($row['exam_date'])->format('d M Y'),
+                    $cls
+                );
+            }
+        }
+        $crossExamWarnings = array_values(array_unique($crossExamWarnings));
+
         $saved = 0;
 
         DB::transaction(function () use ($validated, $exam, &$saved) {
@@ -265,7 +304,9 @@ class ExamSchedulingController extends Controller
                     $start = Carbon::parse($row['exam_date'] . ' ' . $row['start_time']);
                     $end = Carbon::parse($row['exam_date'] . ' ' . $row['end_time']);
                     if ($end->gt($start)) {
-                        $duration = $end->diffInMinutes($start);
+                        // Carbon 3 made diffInMinutes signed: $later->diffInMinutes($earlier)
+                        // returns NEGATIVE. Use the earlier->later direction (or abs).
+                        $duration = (int) abs($start->diffInMinutes($end));
                     }
                 } catch (\Throwable $e) {
                     $duration = null;
@@ -290,38 +331,91 @@ class ExamSchedulingController extends Controller
             }
         });
 
-        return redirect()
+        $redirect = redirect()
             ->route('scheduling.datesheet', $exam->id)
             ->with('success', sprintf('%d schedule row(s) saved.', $saved));
+
+        if (!empty($crossExamWarnings)) {
+            // Soft warning toast — saving still succeeded, but the user should
+            // know another exam already had a paper slotted at the same time.
+            // Trim the list at 3 entries to keep the toast readable; rest is
+            // implied by the count.
+            $shown = array_slice($crossExamWarnings, 0, 3);
+            $extra = count($crossExamWarnings) - count($shown);
+            $msg = 'Schedule saved with ' . count($crossExamWarnings)
+                . ' cross-exam clash' . (count($crossExamWarnings) === 1 ? '' : 'es')
+                . ': ' . implode(' | ', $shown)
+                . ($extra > 0 ? sprintf(' (+%d more)', $extra) : '');
+            $redirect->with('warning', $msg);
+        }
+
+        return $redirect;
     }
 
     /**
      * Generate a PDF date sheet grouped by class.
      */
-    public function datesheetPdf(Exam $exam)
+    public function datesheetPdf(Request $request, Exam $exam)
     {
-        $exam->load(['examType', 'academicSession']);
-        $user = request()->user();
+        $exam->load(['examType', 'academicSession', 'schools', 'examController:id,name']);
+        $user = $request->user();
 
+        // ─── Resolve which school's date sheet to print ───
+        // Principal: their own school. DDO/super-admin: the school they pick
+        // via ?school_id=, falling back to the exam's first applicable school
+        // (so a single-school exam works without a query string).
+        $school = null;
+        if ($user->school) {
+            $school = $user->school;
+        } elseif ($request->filled('school_id')) {
+            $school = School::find($request->input('school_id'));
+        }
+        if (!$school) {
+            $school = $exam->schools->first();
+        }
+        if (!$school) {
+            // Last-ditch fallback. Should not happen on a published exam.
+            $school = (object) [
+                'id' => null, 'name' => 'School', 'code' => '',
+                'address' => '', 'phone' => '', 'logo' => null,
+                'school_stamp' => null, 'principal_signature' => null,
+            ];
+        } elseif ($school instanceof School) {
+            // Load the principal so the date-sheet can print their name under
+            // the signature line.
+            $school->loadMissing('principal:id,name,school_id');
+        }
+
+        // Pull schedules. We don't filter by school directly — schedules live
+        // on (exam, subject, class) and one class belongs to one school. So
+        // filter via class.school_id.
         $schedules = ExamSchedule::where('exam_id', $exam->id)
-            ->with(['subject', 'schoolClass'])
+            ->whereHas('schoolClass', fn ($q) => $school->id ? $q->where('school_id', $school->id) : $q)
+            ->with(['subject', 'schoolClass.sections'])
             ->orderBy('exam_date')
             ->orderBy('start_time')
             ->get();
 
+        // Group by class — section is implicit (a paper covers the whole class
+        // since exam_subjects are mapped to a class, not a section). The PDF
+        // shows section names underneath the class header.
         $byClass = $schedules->groupBy(fn ($s) => $s->schoolClass?->name ?? 'Unknown');
 
-        $school = $user->school ?? (object) [
-            'name' => 'All Schools',
-            'address' => '',
-            'phone' => '',
-            'logo' => null,
-        ];
+        // Sections for each class, so the PDF can show "Class X · Sections A, B"
+        $sectionsByClass = $schedules
+            ->pluck('schoolClass')
+            ->filter()
+            ->unique('id')
+            ->mapWithKeys(fn ($c) => [
+                $c->name => $c->sections->pluck('name')->implode(', ') ?: '—',
+            ])
+            ->all();
 
         $pdf = Pdf::loadView('reports.date-sheet', [
             'exam' => $exam,
             'school' => $school,
             'byClass' => $byClass,
+            'sectionsByClass' => $sectionsByClass,
             'academicSession' => $exam->academicSession,
         ])->setPaper('a4', 'portrait');
 
@@ -786,7 +880,9 @@ class ExamSchedulingController extends Controller
 
         $school = $section->schoolClass?->school;
 
-        // Build a per-student data set
+        // Build a per-student data set. Each card gets a real scannable QR
+        // (BaconQrCode SVG output — no GD/Imagick required) embedded as inline
+        // SVG, plus the verification code text for the human-readable copy.
         $cards = $students->map(function ($student) use ($exam, $schedules, $seats) {
             $seat = $seats->get($student->id);
             $code = $this->buildAdmitCode($exam->id, $student->id);
@@ -794,10 +890,14 @@ class ExamSchedulingController extends Controller
                 'student' => $student,
                 'seat' => $seat,
                 'code' => $code,
+                'qrSvg' => $this->buildQrHtml($code),
             ];
         });
 
-        $exam->load(['examType', 'academicSession']);
+        $exam->load(['examType', 'academicSession', 'examController:id,name']);
+        // Load relation fallback for the principal name (in case the school
+        // hasn't filled in the free-text principal_name column yet).
+        $school?->loadMissing('principal:id,name,school_id');
 
         $pdf = Pdf::loadView('reports.admit-cards', [
             'exam' => $exam,
@@ -914,5 +1014,53 @@ class ExamSchedulingController extends Controller
             return null;
         }
         return ['exam_id' => $examId, 'student_id' => $studentId];
+    }
+
+    /**
+     * Render a real scannable QR code as inline HTML for dompdf.
+     *
+     * dompdf v3 has incomplete SVG support — BaconQrCode's path-based SVG
+     * silently rendered as a blank box. Workaround: use BaconQrCode purely as
+     * a matrix encoder, then render each black module as an absolutely-
+     * positioned <div>. dompdf handles position:absolute with explicit pixel
+     * dimensions reliably.
+     *
+     * Encodes the verify URL (so scanning the QR opens the verification page).
+     */
+    protected function buildQrHtml(string $code): string
+    {
+        $payload = url('/verify/admit/' . $code);
+
+        $qrCode = \BaconQrCode\Encoder\Encoder::encode(
+            $payload,
+            \BaconQrCode\Common\ErrorCorrectionLevel::M(),
+            'utf-8'
+        );
+
+        $matrix = $qrCode->getMatrix();
+        $size = $matrix->getWidth();
+
+        // Fill the entire .qr-box inner area (≈ 102px after 4px padding on
+        // each side of the 110px wrap). Use float pixel widths so that 21-cell
+        // and 25-cell matrices both expand to the same final size — no gap
+        // between QR and box border.
+        $targetPx = 102.0;
+        $cellPx = $targetPx / $size; // float ok — dompdf accepts decimal px
+
+        $dots = '';
+        for ($y = 0; $y < $size; $y++) {
+            for ($x = 0; $x < $size; $x++) {
+                if ($matrix->get($x, $y) !== 1) continue;
+                $dots .= sprintf(
+                    '<div style="position:absolute;left:%.3fpx;top:%.3fpx;width:%.3fpx;height:%.3fpx;background:#0f172a;"></div>',
+                    $x * $cellPx, $y * $cellPx, $cellPx, $cellPx
+                );
+            }
+        }
+
+        return sprintf(
+            '<div style="position:relative;width:%.2fpx;height:%.2fpx;background:#fff;display:inline-block;">%s</div>',
+            $targetPx, $targetPx, $dots
+        );
     }
 }

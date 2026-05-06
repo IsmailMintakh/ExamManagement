@@ -6,6 +6,7 @@ import FormTextarea from '@/Components/FormTextarea.vue'
 import FileUpload from '@/Components/FileUpload.vue'
 import { Head, useForm, Link } from '@inertiajs/vue3'
 import { invalidatePageCache } from '@/Composables/useCacheInvalidation'
+import { ref, watch } from 'vue'
 
 // today in YYYY-MM-DD for the DOB max — students obviously can't be born in the future.
 const today = new Date().toISOString().slice(0, 10)
@@ -15,20 +16,24 @@ const props = defineProps({
     schools: Array,
     classes: Array,
     sections: Array,
+    currentSession: Object,
+    // Initial smart defaults from the controller — { admission_no, roll_no,
+    // academic_session_id }. Updated client-side via the smart-defaults
+    // endpoint when the user picks a different school or section.
+    smartDefaults: { type: Object, default: () => ({}) },
 })
 
 const isEdit = !!props.student
 
+// On a NEW student, pre-fill admission_no, roll_no and academic_session_id
+// from the server's smart defaults so the teacher only needs to type the name.
+// When editing an existing student we keep their stored values untouched.
 const form = useForm({
-    // _method is a form field (Laravel reads it from the body), NOT an
-    // Inertia option. For multipart uploads we must POST + spoof PUT,
-    // because PUT requests can't carry multipart form data in browsers.
     _method: isEdit ? 'put' : 'post',
-    admission_no: props.student?.admission_no || '',
-    roll_no: props.student?.roll_no || '',
+    admission_no: props.student?.admission_no || (isEdit ? '' : (props.smartDefaults?.admission_no || '')),
+    roll_no: props.student?.roll_no || (isEdit ? '' : (props.smartDefaults?.roll_no || '')),
     name: props.student?.name || '',
     father_name: props.student?.father_name || '',
-    mother_name: props.student?.mother_name || '',
     guardian_phone: props.student?.guardian_phone || '',
     date_of_birth: props.student?.date_of_birth || '',
     gender: props.student?.gender || 'male',
@@ -39,11 +44,49 @@ const form = useForm({
     school_id: props.student?.school_id || '',
     school_class_id: props.student?.school_class_id || '',
     section_id: props.student?.section_id || '',
-    // Required by the update validator; auto-populated from the student
-    // being edited so the form doesn't bounce with "session is required".
-    academic_session_id: props.student?.academic_session_id || '',
+    academic_session_id: props.student?.academic_session_id
+        || (isEdit ? '' : (props.smartDefaults?.academic_session_id || props.currentSession?.id || '')),
     photo: null,
 })
+
+// ─── Re-fetch smart defaults when school/section change ───
+// We can't reliably detect "user typed vs we assigned" via watchers alone.
+// Instead we remember the LAST suggestion we wrote and only overwrite a field
+// if its current value is empty OR still equals the last suggestion (i.e.
+// the user hasn't replaced it). The moment they type their own value, future
+// suggestions stop touching the field.
+const lastSuggestedAdmission = ref(props.smartDefaults?.admission_no || '')
+const lastSuggestedRoll = ref(props.smartDefaults?.roll_no || '')
+
+async function fetchSmartDefaults() {
+    if (isEdit) return
+    try {
+        const params = new URLSearchParams()
+        if (form.school_id) params.append('school_id', form.school_id)
+        if (form.section_id) params.append('section_id', form.section_id)
+        const r = await fetch(`${route('students.smart-defaults')}?${params}`, {
+            headers: { Accept: 'application/json' },
+            credentials: 'same-origin',
+        })
+        if (!r.ok) return
+        const data = await r.json()
+        if (data.admission_no
+            && (form.admission_no === '' || form.admission_no === lastSuggestedAdmission.value)) {
+            form.admission_no = data.admission_no
+            lastSuggestedAdmission.value = data.admission_no
+        }
+        if (data.roll_no
+            && (form.roll_no === '' || form.roll_no === lastSuggestedRoll.value)) {
+            form.roll_no = data.roll_no
+            lastSuggestedRoll.value = data.roll_no
+        }
+    } catch {
+        // Silent — suggestions are best-effort, user can type values manually.
+    }
+}
+
+watch(() => form.school_id, fetchSmartDefaults)
+watch(() => form.section_id, fetchSmartDefaults)
 
 function submit() {
     const url = isEdit
@@ -86,13 +129,14 @@ function submit() {
                     </header>
                     <div class="surface-body space-y-5">
                         <div class="form-grid-3">
-                            <FormInput v-model="form.admission_no" label="Admission No" :error="form.errors.admission_no" required />
-                            <FormInput v-model="form.roll_no" label="Roll No" :error="form.errors.roll_no" />
+                            <FormInput v-model="form.admission_no" label="Admission No" :error="form.errors.admission_no" required
+                                :help-text="form.admission_no === lastSuggestedAdmission ? '↻ Auto-suggested next number for this school — type to override' : ''" />
+                            <FormInput v-model="form.roll_no" label="Roll No" :error="form.errors.roll_no"
+                                :help-text="form.section_id && form.roll_no === lastSuggestedRoll ? '↻ Auto-suggested next roll for this section — type to override' : ''" />
                             <FormInput v-model="form.name" label="Student Name" :error="form.errors.name" required />
                         </div>
-                        <div class="form-grid-3">
+                        <div class="form-grid">
                             <FormInput v-model="form.father_name" label="Father's Name" :error="form.errors.father_name" />
-                            <FormInput v-model="form.mother_name" label="Mother's Name" :error="form.errors.mother_name" />
                             <FormInput v-model="form.guardian_phone" label="Guardian Phone" :error="form.errors.guardian_phone" />
                         </div>
                         <div class="form-grid-3">

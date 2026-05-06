@@ -57,17 +57,7 @@
         padding: 2.5mm 3mm 2mm;
         position: relative;
     }
-    .front-id-tag {
-        position: absolute;
-        right: 2.5mm; top: 2mm;
-        background: #f59e0b;
-        color: #422006;
-        font-size: 5.5pt;
-        font-weight: bold;
-        letter-spacing: 1px;
-        padding: 0.5mm 1.5mm;
-        border-radius: 0.8mm;
-    }
+    /* yellow ID tag removed for cleaner look */
     .front-header-flex {
         display: table;
         width: 100%;
@@ -267,7 +257,6 @@
             <div class="cell">
                 <div class="card front">
                     <div class="front-header">
-                        <div class="front-id-tag">ID</div>
                         <div class="front-header-flex">
                             <div class="front-logo">
                                 <div>
