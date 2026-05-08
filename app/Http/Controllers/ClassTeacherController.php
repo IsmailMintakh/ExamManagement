@@ -278,6 +278,21 @@ class ClassTeacherController extends Controller
             ->filter(fn ($r) => count($r['subject_marks']) > 0)
             ->values();
 
+        // Available exams that target this section's class — used by the
+        // Actions panel to drop into the right report URL. Sorted recent-first.
+        $availableExams = Exam::query()
+            ->whereHas('examSubjects', fn ($q) => $q->where('school_class_id', $section->school_class_id))
+            ->whereHas('schools', fn ($q) => $q->where('schools.id', $section->schoolClass->school_id))
+            ->where('status', '!=', 'draft')
+            ->orderByDesc('start_date')
+            ->limit(20)
+            ->get(['id', 'name', 'start_date'])
+            ->map(fn ($e) => [
+                'id' => $e->id,
+                'name' => $e->name,
+                'start_date' => $e->start_date?->format('d M Y'),
+            ]);
+
         return Inertia::render('ClassTeacher/Index', [
             'sections' => $sections->map(fn ($s) => [
                 'id' => $s->id,
@@ -285,6 +300,7 @@ class ClassTeacherController extends Controller
                 'class_name' => $s->schoolClass?->name,
                 'school_name' => $s->schoolClass?->school?->name,
             ]),
+            'availableExams' => $availableExams,
             'activeSection' => [
                 'id' => $section->id,
                 'name' => $section->name,
