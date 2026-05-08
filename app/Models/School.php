@@ -62,9 +62,16 @@ class School extends Model
         return $this->belongsToMany(Exam::class, 'exam_schools');
     }
 
+    /**
+     * Resolves the logo URL via the public disk's configured URL prefix
+     * (controlled by FILESYSTEM_PUBLIC_URL_PREFIX in .env). On shared hosts
+     * where the public/storage symlink is broken, this points at our
+     * Laravel-served /uploads/{path} or /storage/{path} fallback route
+     * instead of the symlink, so logos always render.
+     */
     public function getLogoUrlAttribute(): ?string
     {
-        return $this->logo ? asset('storage/' . $this->logo) : null;
+        return $this->logo ? \Illuminate\Support\Facades\Storage::disk('public')->url($this->logo) : null;
     }
 
     public function scopeActive($query)

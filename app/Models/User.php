@@ -107,7 +107,12 @@ class User extends Authenticatable
 
     public function getAvatarUrlAttribute(): ?string
     {
-        return $this->avatar ? asset('storage/' . $this->avatar) : null;
+        // Same pattern as School::logo_url — uses Storage::disk('public')->url()
+        // so the configured prefix (default /uploads) is respected and the
+        // file is reachable even when public/storage symlink is broken.
+        return $this->avatar
+            ? \Illuminate\Support\Facades\Storage::disk('public')->url($this->avatar)
+            : null;
     }
 
     public function scopeActive($query)

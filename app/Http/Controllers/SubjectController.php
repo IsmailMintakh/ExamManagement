@@ -52,7 +52,11 @@ class SubjectController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'code' => ['required', 'string', 'max:20', 'unique:subjects,code'],
-            'type' => ['required', 'string', 'in:theory,practical,both'],
+            // Match the values the Vue form sends + the seed data already
+            // stored in the table. Earlier this was theory/practical/both
+            // which was incompatible with the form, so every submission
+            // failed validation silently.
+            'type' => ['required', 'string', 'in:core,elective'],
             'is_main' => ['boolean'],
             'is_active' => ['boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
@@ -84,7 +88,7 @@ class SubjectController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'code' => ['required', 'string', 'max:20', 'unique:subjects,code,' . $subject->id],
-            'type' => ['required', 'string', 'in:theory,practical,both'],
+            'type' => ['required', 'string', 'in:core,elective'],
             'is_main' => ['boolean'],
             'is_active' => ['boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],

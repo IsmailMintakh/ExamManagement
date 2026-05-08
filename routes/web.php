@@ -56,12 +56,15 @@ Route::post('/check-result', [PublicResultLookupController::class, 'lookup'])->n
  * Bulletproof file delivery for the public storage disk.
  *
  * Bypasses the public/storage symlink — useful on shared hosts where the
- * symlink is broken, gives 403, or gets reset by the platform. Activate
- * by setting FILESYSTEM_PUBLIC_URL_PREFIX=/uploads in .env. Files served
- * with strong cache headers since their hashed filenames make them
+ * symlink is broken, gives 403, or gets reset by the platform. Files
+ * served with strong cache headers since their hashed filenames make them
  * effectively immutable.
+ *
+ * BOTH /uploads/* and /storage/* are wired so legacy hardcoded URLs in
+ * Vue templates continue to work even when the symlink is missing on the
+ * production host. The handler is the same.
  */
-Route::get('/uploads/{path}', function (string $path) {
+$serveStorage = function (string $path) {
     $path = ltrim($path, '/');
     // Disallow path traversal — reject anything containing ..
     if (str_contains($path, '..')) abort(404);
@@ -72,7 +75,13 @@ Route::get('/uploads/{path}', function (string $path) {
     return response()->file($full, [
         'Cache-Control' => 'public, max-age=2592000, immutable',  // 30 days
     ]);
-})->where('path', '.*')->name('uploads');
+};
+Route::get('/uploads/{path}', $serveStorage)->where('path', '.*')->name('uploads');
+// Fallback: the same handler under /storage/* so older hardcoded URLs work
+// even when the public/storage symlink is broken (common on shared hosting).
+// Route registers ONLY if the symlink is missing OR an env override forces
+// it on, so dev machines with a working symlink keep using the symlink.
+Route::get('/storage/{path}', $serveStorage)->where('path', '.*')->name('storage-fallback');
 
 // Public website (marketing/info pages — no auth required)
 Route::get('/', [PublicController::class, 'home'])->name('home');

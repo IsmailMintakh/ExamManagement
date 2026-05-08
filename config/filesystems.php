@@ -33,7 +33,12 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            // serve:false stops Laravel from auto-registering a /storage/{path}
+            // route for this disk that would shadow our /storage/{path} fallback
+            // in routes/web.php. Without this, the auto-route looks in
+            // storage/app/private (wrong dir) and 404s for legitimately uploaded
+            // files in storage/app/public.
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],

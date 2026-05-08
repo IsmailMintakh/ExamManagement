@@ -70,7 +70,10 @@
       "Bash(php -l app/Models/Result.php)",
       "Bash(php -l app/Models/ResultAmendment.php)",
       "Bash(php -l app/Notifications/ResultAmendedNotification.php)",
-      "Bash(php -l app/Http/Controllers/PublicResultLookupController.php)"
+      "Bash(php -l app/Http/Controllers/PublicResultLookupController.php)",
+      "Bash(grep -n \"FILESYSTEM_PUBLIC_URL_PREFIX\\\\|url\\\\\\\\b.*storage\\\\|asset.*storage\" config/filesystems.php)",
+      "Bash(php -l app/Http/Controllers/SubjectController.php)",
+      "Bash(php -l app/Models/User.php)"
     ]
   }
 }
