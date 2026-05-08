@@ -19,6 +19,7 @@ class Result extends Model
         'is_passed', 'remarks', 'subject_results',
         'status', 'generated_by', 'generated_at',
         'submitted_by', 'submitted_at', 'finalized_by', 'finalized_at',
+        'published_at', 'last_amended_at',
         'is_supplementary_eligible', 'supplementary_subjects',
         'supplementary_status', 'supplementary_at',
     ];
@@ -35,10 +36,25 @@ class Result extends Model
             'generated_at' => 'datetime',
             'submitted_at' => 'datetime',
             'finalized_at' => 'datetime',
+            'published_at' => 'datetime',
+            'last_amended_at' => 'datetime',
             'is_supplementary_eligible' => 'boolean',
             'supplementary_subjects' => 'array',
             'supplementary_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Visible-to-public scope: only results that have either been published
+     * directly (per-row) OR whose parent exam has been published. Used by
+     * the Family Portal and public result-lookup page.
+     */
+    public function scopePublished($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereNotNull('published_at')
+              ->orWhereHas('exam', fn ($q2) => $q2->whereNotNull('results_published_at'));
+        });
     }
 
     public function getActivitylogOptions(): LogOptions
@@ -79,6 +95,17 @@ class Result extends Model
     public function submittedBy()
     {
         return $this->belongsTo(User::class, 'submitted_by');
+    }
+
+    /** Amendment history — most-recent first. Used by the Family Portal banner. */
+    public function amendments()
+    {
+        return $this->hasMany(ResultAmendment::class)->latest();
+    }
+
+    public function academicSession()
+    {
+        return $this->belongsTo(AcademicSession::class);
     }
 
     public function finalizedBy()

@@ -7,7 +7,8 @@ import {
     CheckCircleIcon, ExclamationTriangleIcon, EyeIcon,
     InformationCircleIcon, PaperAirplaneIcon, ChevronDownIcon,
     MagnifyingGlassIcon, AcademicCapIcon, BoltIcon,
-    ArrowPathIcon, ClockIcon,
+    ArrowPathIcon, ClockIcon, PrinterIcon, DocumentDuplicateIcon,
+    IdentificationIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -16,6 +17,7 @@ const props = defineProps({
     sections: Array,
     marksStatus: Array,
     existingResults: Array,
+    totalGeneratedResults: { type: Number, default: 0 },
 })
 
 const page = usePage()
@@ -152,6 +154,25 @@ function submitToDdo() {
     })
 }
 
+// ─── Publish / unpublish ───
+// "Publish" flips a timestamp on the exam + every result row, makes the
+// results visible in the Family Portal and public lookup, and sends a
+// notification to every linked student/parent. "Unpublish" reverses it.
+const confirmPublish = ref(false)
+const confirmUnpublish = ref(false)
+function publishResults() {
+    router.post(route('results.publish', props.exam.id), {}, {
+        preserveScroll: true,
+        onSuccess: () => { confirmPublish.value = false },
+    })
+}
+function unpublishResults() {
+    router.post(route('results.unpublish', props.exam.id), {}, {
+        preserveScroll: true,
+        onSuccess: () => { confirmUnpublish.value = false },
+    })
+}
+
 // One-click "Generate All Ready" — kicks off sequential generation for
 // every section that's marked ready. Useful when a school has many
 // sections with all marks already submitted.
@@ -218,6 +239,71 @@ async function generateAllReady() {
                     >
                         <PaperAirplaneIcon class="w-4 h-4" /> Submit to DDO
                     </button>
+                    <!-- Bulk PDF downloads — render only after at least one
+                         section's results exist. Saves the user from
+                         downloading per-section PDFs and stapling them. -->
+                    <a v-if="totalGeneratedResults > 0"
+                        :href="route('reports.bulk-result-sheets', exam.id)" target="_blank"
+                        class="btn btn-outline btn-sm gap-1.5">
+                        <PrinterIcon class="w-4 h-4" /> All Result Sheets
+                    </a>
+                    <a v-if="totalGeneratedResults > 0"
+                        :href="route('reports.bulk-mark-sheets', exam.id)" target="_blank"
+                        class="btn btn-outline btn-sm gap-1.5">
+                        <DocumentDuplicateIcon class="w-4 h-4" /> All Mark Sheets
+                    </a>
+                    <a :href="route('scheduling.admit-cards-bulk', exam.id)" target="_blank"
+                        class="btn btn-outline btn-sm gap-1.5">
+                        <IdentificationIcon class="w-4 h-4" /> All Admit Cards
+                    </a>
+                </div>
+            </div>
+
+            <!-- ───── Publish state banner ─────
+                 The single most important visibility gate. Until published,
+                 Family Portal and the public lookup don't expose results.
+                 Publishing also fires a notification to every linked
+                 student/parent account. -->
+            <div v-if="totalGeneratedResults > 0"
+                class="surface"
+                :class="exam.is_results_published ? 'surface-accent-left accent-success' : 'surface-accent-left accent-warning'"
+                :style="exam.is_results_published ? '--bc-accent: var(--su)' : '--bc-accent: var(--wa)'">
+                <div class="surface-body">
+                    <div class="flex items-start gap-3 flex-col md:flex-row md:items-center md:justify-between">
+                        <div class="flex items-start gap-3">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-lg shrink-0"
+                                :class="exam.is_results_published ? 'bg-success/15' : 'bg-warning/15'">
+                                <CheckCircleIcon v-if="exam.is_results_published" class="h-5 w-5 text-success" />
+                                <ClockIcon v-else class="h-5 w-5 text-warning" />
+                            </div>
+                            <div>
+                                <p class="text-sm font-bold">
+                                    {{ exam.is_results_published ? 'Results are PUBLISHED' : 'Results are NOT yet published' }}
+                                </p>
+                                <p class="text-xs text-base-content/60 mt-0.5">
+                                    <template v-if="exam.is_results_published">
+                                        Visible in the Family Portal &amp; public lookup. Students/parents have been notified.
+                                    </template>
+                                    <template v-else>
+                                        {{ totalGeneratedResults }} result{{ totalGeneratedResults === 1 ? '' : 's' }} generated.
+                                        Hidden from students/parents until you publish.
+                                    </template>
+                                </p>
+                            </div>
+                        </div>
+                        <div class="flex gap-2 shrink-0">
+                            <button v-if="!exam.is_results_published"
+                                @click="confirmPublish = true"
+                                class="btn btn-success btn-sm gap-1.5">
+                                <PaperAirplaneIcon class="w-4 h-4" /> Publish Results
+                            </button>
+                            <button v-else
+                                @click="confirmUnpublish = true"
+                                class="btn btn-ghost btn-sm gap-1.5 text-warning">
+                                <ArrowPathIcon class="w-4 h-4" /> Unpublish
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -442,6 +528,16 @@ async function generateAllReady() {
             message="Submit all generated results to DDO for final review and approval? This action cannot be undone."
             type="info" confirm-text="Submit"
             @confirm="submitToDdo" @cancel="confirmSubmitDdo = false" />
+
+        <ConfirmDialog :show="confirmPublish" title="Publish results?"
+            :message="`Make all ${totalGeneratedResults} results visible to students &amp; parents and notify their accounts. This is the official announcement.`"
+            type="info" confirm-text="Publish &amp; Notify"
+            @confirm="publishResults" @cancel="confirmPublish = false" />
+
+        <ConfirmDialog :show="confirmUnpublish" title="Unpublish results?"
+            message="Hide results from students/parents again. They will no longer appear in the Family Portal or the public lookup. Already-sent notifications stay in the bell."
+            type="warning" confirm-text="Unpublish"
+            @confirm="unpublishResults" @cancel="confirmUnpublish = false" />
 
         <!-- ───── Bulk generation overlay ───── -->
         <div v-if="bulkRunning" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">

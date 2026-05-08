@@ -26,6 +26,13 @@ class StoreSchoolRequest extends FormRequest
             'exam_officer_signature' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1024'],
             'exam_officer_name' => ['nullable', 'string', 'max:120'],
             'principal_name' => ['nullable', 'string', 'max:120'],
+            // Principal login account — optional but recommended.
+            // Leave blank to skip; the school can be created and a Principal
+            // user added later via Users → Add User. When supplied, all three
+            // are required as a unit and the email must be globally unique
+            // across the users table.
+            'principal_email' => ['nullable', 'required_with:principal_password', 'email', 'max:255', 'unique:users,email'],
+            'principal_password' => ['nullable', 'required_with:principal_email', 'string', 'min:8', 'confirmed'],
             'is_main' => ['boolean'],
             'is_active' => ['boolean'],
             'settings' => ['nullable', 'array'],

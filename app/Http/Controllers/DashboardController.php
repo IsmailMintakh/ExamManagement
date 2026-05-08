@@ -36,12 +36,9 @@ class DashboardController extends Controller
             return $this->classTeacherDashboard($user, $currentSession);
         }
 
-        if ($user->hasRole('student')) {
-            return redirect()->route('student-portal.dashboard');
-        }
-
-        if ($user->hasRole('parent')) {
-            return redirect()->route('parent-portal.dashboard');
+        // Both student and parent roles route to the unified Family Portal.
+        if ($user->hasRole('student') || $user->hasRole('parent')) {
+            return redirect()->route('portal.dashboard');
         }
 
         return $this->subjectTeacherDashboard($user, $currentSession);
@@ -153,7 +150,7 @@ class DashboardController extends Controller
                 ->role(['class-teacher', 'subject-teacher'])
                 ->count();
 
-            $activeExams = Exam::whereHas('schools', fn ($q) => $q->where('schools.id', $schoolId))
+            $activeExams = Exam::visibleToSchool($schoolId)
                 ->where('status', 'marks_entry')
                 ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
                 ->count();
@@ -165,7 +162,7 @@ class DashboardController extends Controller
                 ? round($results->clone()->where('is_passed', true)->count() / $totalResults * 100, 1)
                 : 0;
 
-            $recentExams = Exam::whereHas('schools', fn ($q) => $q->where('schools.id', $schoolId))
+            $recentExams = Exam::visibleToSchool($schoolId)
                 ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
                 ->with('examType')
                 ->latest()
@@ -432,7 +429,7 @@ class DashboardController extends Controller
             ->whereHas('roles', fn ($q) => $q->whereIn('name', ['class-teacher', 'subject-teacher']))
             ->count();
         $examsCount = Exam::query()
-            ->when($isAdmin, fn ($q) => $q->whereHas('schools', fn ($q2) => $q2->where('schools.id', $schoolId)))
+            ->when($isAdmin, fn ($q) => $q->visibleToSchool($schoolId))
             ->count();
 
         $steps = [];

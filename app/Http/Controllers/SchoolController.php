@@ -10,6 +10,8 @@ use App\Models\Student;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -20,7 +22,15 @@ class SchoolController extends Controller
     {
         $this->authorize('viewAny', School::class);
 
+        $user = $request->user();
+
         $schools = School::query()
+            // Cross-tenant guard: a non-super-admin (Principal, teacher) must
+            // never see schools other than the one they belong to. Without
+            // this filter, the index returned every school in the system —
+            // including names, emails, logos and signatures of competitor
+            // schools.
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('id', $user->school_id))
             ->when($request->has('search'), function ($query) use ($request) {
                 $search = $request->input('search');
                 $query->where(function ($q) use ($search) {
@@ -75,9 +85,42 @@ class SchoolController extends Controller
             $data['exam_officer_signature'] = $request->file('exam_officer_signature')->store('schools/signatures', 'public');
         }
 
-        School::create($data);
+        // Principal account fields aren't part of the schools table — peel
+        // them out before School::create() so the mass-assignment doesn't
+        // try to set non-existent columns.
+        $principalEmail = $data['principal_email'] ?? null;
+        $principalPassword = $data['principal_password'] ?? null;
+        unset($data['principal_email'], $data['principal_password'], $data['principal_password_confirmation']);
 
-        return redirect()->route('schools.index')->with('success', 'School created successfully.');
+        // Wrap in a transaction so a failure creating the Principal user
+        // doesn't leave a half-created school behind. If anything throws
+        // (e.g. permission/role issue), both rows roll back.
+        $school = DB::transaction(function () use ($data, $principalEmail, $principalPassword) {
+            $school = School::create($data);
+
+            if ($principalEmail && $principalPassword) {
+                $user = User::create([
+                    // The school's principal_name (free text on the School
+                    // table) doubles as the User's display name. Falls back
+                    // to the school name if not provided.
+                    'name' => $data['principal_name'] ?? ($data['name'] . ' Principal'),
+                    'email' => $principalEmail,
+                    'password' => Hash::make($principalPassword),
+                    'school_id' => $school->id,
+                    'is_active' => true,
+                ]);
+                $user->assignRole('school-admin');
+            }
+
+            return $school;
+        });
+
+        $msg = 'School created successfully.';
+        if ($principalEmail) {
+            $msg .= " Principal can sign in with {$principalEmail}.";
+        }
+
+        return redirect()->route('schools.index')->with('success', $msg);
     }
 
     public function show(School $school): Response

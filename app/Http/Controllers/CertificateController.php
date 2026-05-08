@@ -24,19 +24,35 @@ class CertificateController extends Controller
         $user = $request->user();
         abort_unless($user->can('certificates.view'), 403);
 
+        // Build the visibility filter once and reuse it for the list query
+        // and every stats sub-query — keeps stats and rows in lockstep.
+        $applyScope = function ($query) use ($user) {
+            if ($user->isSuperAdmin()) {
+                return $query;
+            }
+            // Always at least narrow to the user's school via the student.
+            $query->whereHas('student', fn ($q2) => $q2->where('school_id', $user->school_id));
+            // Class-teachers further narrow to their assigned section(s) —
+            // a class-teacher should not see certificates for another
+            // section's students even within their own school.
+            if ($user->isClassTeacher() && !$user->isSchoolAdmin()) {
+                $sectionIds = $user->classSections->pluck('id');
+                $query->whereHas('student', fn ($q2) => $q2->whereIn('section_id', $sectionIds));
+            }
+            return $query;
+        };
+
         $certificates = IssuedCertificate::query()
-            ->when(!$user->isSuperAdmin(), function ($q) use ($user) {
-                $q->whereHas('student', fn ($q2) => $q2->where('school_id', $user->school_id));
-            })
+            ->tap($applyScope)
             ->with(['student:id,name,admission_no,school_id', 'exam:id,name', 'template:id,name,type', 'issuedBy:id,name'])
             ->latest('issued_at')
             ->paginate(20);
 
         $stats = [
-            'total' => IssuedCertificate::when(!$user->isSuperAdmin(), fn ($q) => $q->whereHas('student', fn ($q2) => $q2->where('school_id', $user->school_id)))->count(),
-            'merit' => IssuedCertificate::where('type', 'merit')->when(!$user->isSuperAdmin(), fn ($q) => $q->whereHas('student', fn ($q2) => $q2->where('school_id', $user->school_id)))->count(),
-            'toppers' => IssuedCertificate::where('type', 'subject_topper')->when(!$user->isSuperAdmin(), fn ($q) => $q->whereHas('student', fn ($q2) => $q2->where('school_id', $user->school_id)))->count(),
-            'pass' => IssuedCertificate::where('type', 'pass')->when(!$user->isSuperAdmin(), fn ($q) => $q->whereHas('student', fn ($q2) => $q2->where('school_id', $user->school_id)))->count(),
+            'total' => IssuedCertificate::query()->tap($applyScope)->count(),
+            'merit' => IssuedCertificate::query()->where('type', 'merit')->tap($applyScope)->count(),
+            'toppers' => IssuedCertificate::query()->where('type', 'subject_topper')->tap($applyScope)->count(),
+            'pass' => IssuedCertificate::query()->where('type', 'pass')->tap($applyScope)->count(),
         ];
 
         $templatesCount = CertificateTemplate::active()->count();

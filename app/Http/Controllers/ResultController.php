@@ -14,8 +14,11 @@ use App\Models\Section;
 use App\Models\Subject;
 use App\Models\School;
 use App\Models\User;
+use App\Models\ResultAmendment;
+use App\Notifications\ResultAmendedNotification;
 use App\Notifications\ResultApprovedNotification;
 use App\Notifications\ResultGeneratedNotification;
+use App\Notifications\ResultPublishedNotification;
 use App\Notifications\ResultReturnedForCorrectionNotification;
 use App\Notifications\ResultSubmittedToDdoNotification;
 use App\Services\ResultProcessingService;
@@ -36,9 +39,9 @@ class ResultController extends Controller
         $exams = Exam::query()
             ->whereIn('status', ['marks_entry', 'processing', 'completed', 'published'])
             ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
-            ->when(!$user->isSuperAdmin(), function ($query) use ($user) {
-                $query->whereHas('schools', fn ($q) => $q->where('schools.id', $user->school_id));
-            })
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->visibleToSchool($user->school_id))
+            // Teachers see only exams they actually teach in.
+            ->forTeacher($user)
             ->with(['examType', 'academicSession', 'schools'])
             ->withCount('results')
             ->latest()
@@ -107,6 +110,13 @@ class ResultController extends Controller
             ->when(!$user->isSuperAdmin(), function ($q) use ($user) {
                 $q->whereHas('schoolClass', fn ($q2) => $q2->where('school_id', $user->school_id));
             })
+            // Class-teacher: only their own sections appear in the picker.
+            // Subject-teachers fall back to the (school-scoped) full list of
+            // sections that contain their subject — same set MarksController
+            // already shows them.
+            ->when($user->isClassTeacher() && !$user->isSchoolAdmin() && !$user->isSuperAdmin(),
+                fn ($q) => $q->where('class_teacher_id', $user->id)
+            )
             ->active()
             ->get(['id', 'name', 'school_class_id']);
 
@@ -163,11 +173,17 @@ class ResultController extends Controller
         });
 
         return Inertia::render('Results/Generate', [
-            'exam' => $exam,
+            'exam' => array_merge($exam->toArray(), [
+                // Surface the publication state to the page so it can show
+                // the "Publish" button vs the "Published — Unpublish" pill.
+                'results_published_at' => $exam->results_published_at?->toIso8601String(),
+                'is_results_published' => $exam->isResultsPublished(),
+            ]),
             'classes' => $classes,
             'sections' => $sections,
             'marksStatus' => $marksStatus,
             'existingResults' => $existingResults,
+            'totalGeneratedResults' => Result::where('exam_id', $exam->id)->count(),
         ]);
     }
 
@@ -224,6 +240,17 @@ class ResultController extends Controller
             abort(403, 'This section does not belong to your school.');
         }
 
+        // Class-teacher row-level guard: a class-teacher can only open the
+        // result page for sections they're actually assigned to as the
+        // class teacher. Without this they could view any section in their
+        // school by URL-guessing.
+        if ($user->isClassTeacher() && !$user->isSchoolAdmin() && !$user->isSuperAdmin()) {
+            $ownsSection = $user->classSections->pluck('id')->contains($section->id);
+            if (!$ownsSection) {
+                abort(403, 'You are not the class teacher for this section.');
+            }
+        }
+
         // Filter results to ONLY this section + same-school scope. The
         // whereHas hop ensures any future reuse of the query (or a leaked
         // section_id with mismatched school) won't surface foreign rows.
@@ -259,7 +286,8 @@ class ResultController extends Controller
                 'total' => $es->total_marks,
             ]);
 
-        // Re-index subject_results by subject_id for the Vue table
+        // Re-index subject_results by subject_id for the Vue table.
+        // Also expose `last_amended_at` so the row can show an "Amended" badge.
         $results->getCollection()->transform(function ($result) {
             $stored = $result->subject_results ?? [];
             $indexed = [];
@@ -272,8 +300,19 @@ class ResultController extends Controller
                 ];
             }
             $result->subject_results = $indexed;
+            $result->last_amended_iso = $result->last_amended_at?->toIso8601String();
             return $result;
         });
+
+        // Pull the latest amendment per result (if any) so the UI can show a
+        // small "Amended on X" indicator without an extra request.
+        $resultIds = $results->getCollection()->pluck('id');
+        $latestAmendments = ResultAmendment::whereIn('result_id', $resultIds)
+            ->with('amendedBy:id,name')
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('result_id')
+            ->map(fn ($group) => $group->first());
 
         return Inertia::render('Results/Show', [
             'exam' => $exam,
@@ -282,6 +321,8 @@ class ResultController extends Controller
             'results' => $results,
             'summary' => $summary,
             'subjects' => $subjects,
+            'latestAmendments' => $latestAmendments,
+            'canAmend' => $user->isSuperAdmin() || $user->isSchoolAdmin(),
         ]);
     }
 
@@ -532,5 +573,189 @@ class ResultController extends Controller
         }
 
         return redirect()->back()->with('warning', 'Result submission returned to school for correction.');
+    }
+
+    /**
+     * Publish all results for the given exam — flips the timestamp on the
+     * exam itself + every result row, and notifies linked student/parent
+     * users so they get the bell + email + browser push.
+     *
+     * Idempotent: re-publishing just refreshes the timestamps and re-fires
+     * the notification (helpful if the first attempt landed nobody because
+     * accounts hadn't been linked yet).
+     */
+    public function publishResults(Request $request, Exam $exam): RedirectResponse
+    {
+        $this->authorize('view', $exam);
+        $user = $request->user();
+        abort_unless($user->can('results.generate') || $user->isSuperAdmin() || $user->isSchoolAdmin(), 403);
+
+        $now = now();
+
+        \DB::transaction(function () use ($exam, $now) {
+            $exam->forceFill(['results_published_at' => $now])->save();
+            // Stamp every existing result row too so the per-row scope
+            // `whereNotNull('published_at')` works without an exam join.
+            Result::where('exam_id', $exam->id)
+                ->whereNull('published_at')
+                ->update(['published_at' => $now]);
+        });
+
+        // Notify recipients: every student with a result for this exam,
+        // plus their linked parent users. Filter out duplicates so a parent
+        // with two children writing the same exam doesn't get notified twice.
+        try {
+            $results = Result::where('exam_id', $exam->id)
+                ->with('student.user', 'student.parentUser')
+                ->get();
+
+            $byUser = collect();
+            foreach ($results as $result) {
+                $student = $result->student;
+                if (!$student) continue;
+
+                if ($student->user) {
+                    $byUser->put('u' . $student->user->id, [
+                        'user' => $student->user,
+                        'result_id' => $result->id,
+                    ]);
+                }
+                if ($student->parentUser) {
+                    // Per parent, the result_id is the LATEST published one we
+                    // saw — fine for the toast/message. Detail link uses it.
+                    $byUser->put('p' . $student->parentUser->id, [
+                        'user' => $student->parentUser,
+                        'result_id' => $result->id,
+                    ]);
+                }
+            }
+
+            foreach ($byUser as $entry) {
+                $entry['user']->notify(new ResultPublishedNotification($exam, $entry['result_id']));
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('ResultPublishedNotification failed: ' . $e->getMessage());
+        }
+
+        return redirect()->back()->with('success', sprintf(
+            'Results published. %d student/parent account(s) notified.',
+            isset($byUser) ? $byUser->count() : 0
+        ));
+    }
+
+    /**
+     * Amend a single result row. Captures a before/after snapshot in
+     * result_amendments, updates the result, and notifies the linked
+     * student + parent users so they know something changed about a
+     * result they may already have seen.
+     *
+     * Editable fields: obtained_marks, percentage, grade, position, remarks.
+     * Recompute of percentage/grade is left to the caller — schools usually
+     * have their own re-checking process; we just store what they decide.
+     */
+    public function amendResult(Request $request, Result $result): RedirectResponse
+    {
+        $this->authorize('view', $result->exam);
+        $user = $request->user();
+        // Only super-admin / school-admin can amend. Class-teachers and
+        // subject-teachers can flag errors verbally but not rewrite results.
+        abort_unless($user->isSuperAdmin() || $user->isSchoolAdmin(), 403,
+            'Only Principals and DDO can amend a result.');
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:5', 'max:500'],
+            'obtained_marks' => ['nullable', 'numeric', 'min:0'],
+            'percentage' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'grade' => ['nullable', 'string', 'max:8'],
+            'position' => ['nullable', 'integer', 'min:1'],
+            'remarks' => ['nullable', 'string', 'max:500'],
+        ], [
+            'reason.required' => 'Please describe why this result is being amended — it gets logged in the audit trail.',
+        ]);
+
+        // School-scope guard: a school-admin can only amend results for
+        // their own school, even if they have the right permission.
+        if (!$user->isSuperAdmin() && $result->school_id !== $user->school_id) {
+            abort(403, 'You can only amend results for your own school.');
+        }
+
+        // Snapshot BEFORE state for the audit log.
+        $before = [
+            'obtained_marks' => $result->obtained_marks,
+            'percentage' => $result->percentage,
+            'grade' => $result->grade,
+            'position' => $result->position,
+            'remarks' => $result->remarks,
+            'is_passed' => $result->is_passed,
+        ];
+
+        // Apply only the fields the user actually filled in. Empty/null
+        // means "leave unchanged".
+        $changes = array_filter(
+            array_intersect_key($validated, array_flip(['obtained_marks', 'percentage', 'grade', 'position', 'remarks'])),
+            fn ($v) => $v !== null && $v !== ''
+        );
+
+        if (empty($changes)) {
+            return redirect()->back()->with('error', 'No fields were changed — fill at least one to amend.');
+        }
+
+        \DB::transaction(function () use ($result, $changes, $validated, $user, $before) {
+            $result->fill($changes);
+            $result->last_amended_at = now();
+            $result->save();
+
+            $after = [
+                'obtained_marks' => $result->obtained_marks,
+                'percentage' => $result->percentage,
+                'grade' => $result->grade,
+                'position' => $result->position,
+                'remarks' => $result->remarks,
+                'is_passed' => $result->is_passed,
+            ];
+
+            ResultAmendment::create([
+                'result_id' => $result->id,
+                'amended_by' => $user->id,
+                'reason' => $validated['reason'],
+                'before' => $before,
+                'after' => $after,
+            ]);
+        });
+
+        // Notify the student + their parents. Wrapped in try/catch so a
+        // notification failure doesn't roll back the legitimate amendment.
+        try {
+            $result->loadMissing(['student.user', 'student.parentUser', 'exam']);
+            $recipients = collect();
+            if ($result->student?->user) $recipients->push($result->student->user);
+            if ($result->student?->parentUser) $recipients->push($result->student->parentUser);
+
+            foreach ($recipients as $recipient) {
+                $recipient->notify(new ResultAmendedNotification($result, $validated['reason']));
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('ResultAmendedNotification failed: ' . $e->getMessage());
+        }
+
+        return redirect()->back()->with('success', 'Result amended. Student/parent has been notified.');
+    }
+
+    /**
+     * Unpublish — clears both timestamps so the Family Portal hides results
+     * again. Useful if a mistake is caught after announcement.
+     */
+    public function unpublishResults(Request $request, Exam $exam): RedirectResponse
+    {
+        $this->authorize('view', $exam);
+        $user = $request->user();
+        abort_unless($user->can('results.generate') || $user->isSuperAdmin() || $user->isSchoolAdmin(), 403);
+
+        \DB::transaction(function () use ($exam) {
+            $exam->forceFill(['results_published_at' => null])->save();
+            Result::where('exam_id', $exam->id)->update(['published_at' => null]);
+        });
+
+        return redirect()->back()->with('warning', 'Results unpublished. Students/parents can no longer see them.');
     }
 }

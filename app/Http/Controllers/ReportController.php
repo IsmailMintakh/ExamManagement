@@ -27,7 +27,9 @@ class ReportController extends Controller
         $exams = Exam::query()
             ->whereIn('status', ['marks_entry', 'processing', 'completed', 'published'])
             ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->whereHas('schools', fn ($q2) => $q2->where('schools.id', $user->school_id)))
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->visibleToSchool($user->school_id))
+            // Teachers: narrow to exams they actually teach in.
+            ->forTeacher($user)
             ->with('examType')
             ->withCount('results')
             ->latest()
@@ -53,6 +55,11 @@ class ReportController extends Controller
         $results = Result::where('exam_id', $exam)
             ->where('is_passed', true)
             ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            // Class-teachers see only their assigned section(s) in the
+            // award list — no cross-class peeking.
+            ->when($user->isClassTeacher() && !$user->isSchoolAdmin() && !$user->isSuperAdmin(),
+                fn ($q) => $q->whereIn('section_id', $user->classSections->pluck('id'))
+            )
             ->with(['student', 'school', 'schoolClass', 'section'])
             ->orderByDesc('percentage')
             ->get();
@@ -79,6 +86,16 @@ class ReportController extends Controller
         $user = request()->user();
         if (!$user->isSuperAdmin() && $schoolClassModel->school_id !== $user->school_id) {
             abort(403, 'You can only view result sheets for your school.');
+        }
+
+        // Class-teachers can only print result sheets for the class their
+        // assigned section(s) belong to. Without this guard, a class-teacher
+        // could URL-guess any class in their school.
+        if ($user->isClassTeacher() && !$user->isSchoolAdmin() && !$user->isSuperAdmin()) {
+            $teacherClassIds = $user->classSections->pluck('school_class_id')->unique();
+            if (!$teacherClassIds->contains($schoolClass)) {
+                abort(403, 'You can only view result sheets for your assigned class.');
+            }
         }
 
         $results = Result::where('exam_id', $exam)
@@ -350,6 +367,192 @@ class ReportController extends Controller
         ])->setPaper('a4', 'portrait');
 
         return $pdf->stream("mark-sheets-{$examModel->slug}-{$sectionModel->slug}.pdf");
+    }
+
+    /**
+     * Bulk mark sheets for an entire exam — every section across every
+     * class in a single multi-page PDF. Optional ?school_class_id= narrows
+     * to one class (so a Principal can print "all sections of Class V").
+     *
+     * Same blade as the per-section variant; we just stack more student
+     * sheets into the $sheets array.
+     */
+    public function bulkMarkSheets(Request $request, int $exam)
+    {
+        $examModel = Exam::with(['examType', 'gradingScale.entries', 'academicSession', 'examController:id,name'])->findOrFail($exam);
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'school_class_id' => ['nullable', 'integer', 'exists:school_classes,id'],
+        ]);
+
+        $resultsQ = Result::where('exam_id', $exam)
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->when(!empty($validated['school_class_id']),
+                fn ($q) => $q->where('school_class_id', $validated['school_class_id']))
+            ->with(['student', 'schoolClass', 'section'])
+            ->orderBy('school_class_id')
+            ->orderBy('section_id')
+            ->orderBy('position');
+
+        // Class-teacher narrow — only their assigned section(s).
+        if ($user->isClassTeacher() && !$user->isSchoolAdmin() && !$user->isSuperAdmin()) {
+            $resultsQ->whereIn('section_id', $user->classSections->pluck('id'));
+        }
+
+        $results = $resultsQ->get();
+
+        if ($results->isEmpty()) {
+            return redirect()->back()->with('error', 'No generated results found in your scope.');
+        }
+
+        $gradingEntries = $examModel->gradingScale?->entries ?? collect();
+
+        $sheets = $results->map(function ($result) use ($gradingEntries) {
+            $subjectResults = collect($result->subject_results ?? [])->map(function ($sr) use ($gradingEntries) {
+                $pct = (float) ($sr['percentage'] ?? 0);
+                $grade = '-';
+                foreach ($gradingEntries as $entry) {
+                    if ($pct >= (float) $entry->min_percentage && $pct <= (float) $entry->max_percentage) {
+                        $grade = $entry->grade;
+                        break;
+                    }
+                }
+                return [
+                    'subject_name' => $sr['subject_name'] ?? '',
+                    'subject_code' => $sr['subject_code'] ?? '',
+                    'total_marks' => $sr['total_marks'] ?? 0,
+                    'passing_marks' => $sr['passing_marks'] ?? 0,
+                    'obtained' => $sr['effective_marks'] ?? $sr['marks_obtained'] ?? 0,
+                    'grace_marks' => $sr['grace_marks'] ?? 0,
+                    'percentage' => $sr['percentage'] ?? 0,
+                    'grade' => $grade,
+                    'is_absent' => $sr['is_absent'] ?? false,
+                    'failed' => !($sr['is_passed'] ?? true),
+                ];
+            })->values()->toArray();
+
+            return (object) [
+                'result' => $result,
+                'student' => $result->student,
+                'subjectResults' => $subjectResults,
+                // Per-sheet class/section so the blade can label each page
+                // (the outer $section/$schoolClass don't apply in bulk mode).
+                'schoolClass' => $result->schoolClass,
+                'section' => $result->section,
+            ];
+        });
+
+        // Use the first sheet's school for the header (all sheets are same
+        // school in non-super-admin mode; super-admin won't typically print
+        // bulk across schools anyway).
+        $school = $results->first()->schoolClass?->school;
+
+        $pdf = Pdf::loadView('reports.section-mark-sheets', [
+            'exam' => $examModel,
+            'section' => null,
+            'schoolClass' => null,
+            'school' => $school,
+            'academicSession' => $examModel->academicSession,
+            'sheets' => $sheets,
+            'gradingEntries' => $gradingEntries,
+        ])->setPaper('a4', 'portrait');
+
+        $suffix = !empty($validated['school_class_id']) ? '-class-' . $validated['school_class_id'] : '-all';
+        return $pdf->stream("mark-sheets-{$examModel->slug}{$suffix}.pdf");
+    }
+
+    /**
+     * Result sheets for ALL classes in an exam, consolidated.
+     *
+     * Wraps the existing per-class blade and stacks them with page breaks
+     * between. Hands a Principal one PDF instead of N separate downloads.
+     */
+    public function bulkResultSheets(Request $request, int $exam)
+    {
+        $examModel = Exam::with(['examType', 'gradingScale.entries', 'examController:id,name', 'examSubjects.subject'])
+            ->findOrFail($exam);
+        $user = $request->user();
+
+        // Pull every class this exam touches in the user's school.
+        $classIds = ExamSubject::where('exam_id', $exam)->pluck('school_class_id')->unique();
+        $classes = SchoolClass::whereIn('id', $classIds)
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->with(['sections.classTeacher:id,name', 'school'])
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+
+        if ($classes->isEmpty()) {
+            return redirect()->back()->with('error', 'No classes found for this exam in your scope.');
+        }
+
+        // Build a per-class block of results identical to the single-class
+        // resultSheet shape, so the same blade can render multiple stacked.
+        $blocks = $classes->map(function ($class) use ($examModel, $exam) {
+            $results = Result::where('exam_id', $exam)
+                ->where('school_class_id', $class->id)
+                ->with(['student', 'section'])
+                ->orderBy('section_id')
+                ->orderBy('position')
+                ->get();
+
+            // Attach per-subject marks like resultSheet() does.
+            $results->each(function ($r) use ($exam) {
+                $marks = Mark::where('exam_id', $exam)->where('student_id', $r->student_id)->get();
+                $bySubj = [];
+                foreach ($marks as $m) {
+                    $bySubj[$m->subject_id] = [
+                        'obtained' => $m->marks_obtained,
+                        'total' => $m->total_marks,
+                        'is_absent' => $m->is_absent,
+                        'failed' => $m->marks_obtained < ($m->examSubject?->passing_marks ?? 0) && !$m->is_absent,
+                    ];
+                }
+                $r->subject_results = $bySubj;
+            });
+
+            $subjects = $examModel->examSubjects
+                ->where('school_class_id', $class->id)
+                ->map(fn ($es) => [
+                    'id' => $es->subject_id,
+                    'code' => $es->subject?->code ?? $es->subject?->name,
+                    'name' => $es->subject?->name,
+                    'total' => $es->total_marks,
+                ])
+                ->values()
+                ->toArray();
+
+            $passed = $results->where('is_passed', true)->count();
+            $total = $results->count();
+            $summary = [
+                'total' => $total,
+                'passed' => $passed,
+                'failed' => $total - $passed,
+                'passPercentage' => $total > 0 ? round($passed / $total * 100, 2) : 0,
+                'highestPercentage' => $results->max('percentage'),
+                'lowestPercentage' => $results->min('percentage'),
+                'averagePercentage' => round($results->avg('percentage') ?? 0, 2),
+            ];
+
+            return (object) [
+                'schoolClass' => $class,
+                'results' => $results,
+                'subjects' => $subjects,
+                'summary' => $summary,
+            ];
+        });
+
+        $school = $classes->first()?->school;
+
+        $pdf = Pdf::loadView('reports.bulk-result-sheets', [
+            'exam' => $examModel,
+            'school' => $school,
+            'academicSession' => $examModel->academicSession,
+            'blocks' => $blocks,
+        ])->setPaper('a4', 'portrait');
+
+        return $pdf->stream("result-sheets-{$examModel->slug}-all-classes.pdf");
     }
 
     /**

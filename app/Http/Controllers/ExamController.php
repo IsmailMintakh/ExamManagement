@@ -40,9 +40,14 @@ class ExamController extends Controller
                     $query->where('academic_session_id', $currentSession->id);
                 }
             })
-            ->when(!$user->isSuperAdmin(), function ($query) use ($user) {
-                $query->whereHas('schools', fn ($q) => $q->where('schools.id', $user->school_id));
-            })
+            // Visibility: school in pivot AND at least one exam_subject for
+            // a class belonging to the school. The class check hides exams
+            // whose target classes don't exist at this school (e.g. a Class
+            // 6 exam at a Nursery–5 primary school).
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->visibleToSchool($user->school_id))
+            // Teachers: narrow further to exams they actually teach in
+            // (class-teacher's class + subject-teacher's subject tuples).
+            ->forTeacher($user)
             ->with(['examType', 'academicSession', 'gradingScale'])
             ->withCount(['examSubjects', 'marks', 'results'])
             ->latest()

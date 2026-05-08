@@ -36,9 +36,7 @@ class SupplementaryController extends Controller
 
         $exams = Exam::query()
             ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
-            ->when(!$user->isSuperAdmin(), function ($query) use ($user) {
-                $query->whereHas('schools', fn ($q) => $q->where('schools.id', $user->school_id));
-            })
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->visibleToSchool($user->school_id))
             ->whereHas('results', function ($q) use ($user) {
                 $q->where('is_supplementary_eligible', true)
                     ->when(!$user->isSuperAdmin(), fn ($q2) => $q2->where('school_id', $user->school_id));

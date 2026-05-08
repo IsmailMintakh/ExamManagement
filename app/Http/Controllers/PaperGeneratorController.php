@@ -92,10 +92,10 @@ class PaperGeneratorController extends Controller
             ->paginate(15)
             ->withQueryString();
 
-        $subjects = Subject::active()->orderBy('name')->get(['id', 'name', 'code']);
-        $classes = SchoolClass::query()
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
-            ->active()->ordered()->get(['id', 'name', 'school_id']);
+        // Subject + class dropdowns reflect what the user can actually pick.
+        // Subject-teachers (who aren't also school-admin) get narrowed to
+        // only the subjects/classes they're assigned to teach.
+        [$subjects, $classes] = $this->narrowedSubjectsAndClasses($user);
 
         return Inertia::render('Papers/Index', [
             'papers' => $papers,
@@ -105,14 +105,61 @@ class PaperGeneratorController extends Controller
         ]);
     }
 
+    /**
+     * Resolve the subject + class dropdowns for paper generation, narrowed
+     * by role. Returns [Collection $subjects, Collection $classes].
+     *
+     * - super-admin: all active subjects + (no school) all classes
+     * - school-admin: all active subjects + classes in their school
+     * - subject-teacher (not also admin): only subjects they teach AND
+     *   classes they teach in those subjects (per subject_teachers pivot)
+     * - class-teacher (not also admin/subject-teacher): subjects of their
+     *   classes' assigned subject pool + their classes only
+     */
+    protected function narrowedSubjectsAndClasses($user): array
+    {
+        if ($user->isSuperAdmin() || $user->isSchoolAdmin()) {
+            $subjects = Subject::active()->orderBy('name')->get(['id', 'name', 'code']);
+            $classes = SchoolClass::query()
+                ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+                ->active()->ordered()->get(['id', 'name', 'school_id']);
+            return [$subjects, $classes];
+        }
+
+        if ($user->isSubjectTeacher()) {
+            $assignments = $user->subjectTeachings ?? collect();
+            $subjectIds = $assignments->pluck('subject_id')->unique()->all();
+            $classIds = $assignments->pluck('school_class_id')->unique()->all();
+            $subjects = Subject::active()->whereIn('id', $subjectIds)->orderBy('name')->get(['id', 'name', 'code']);
+            $classes = SchoolClass::active()->whereIn('id', $classIds)->ordered()->get(['id', 'name', 'school_id']);
+            return [$subjects, $classes];
+        }
+
+        if ($user->isClassTeacher()) {
+            $classIds = $user->classSections->pluck('school_class_id')->unique()->all();
+            $classes = SchoolClass::active()->whereIn('id', $classIds)->ordered()->get(['id', 'name', 'school_id']);
+            // Subjects: union of subjects assigned to the class-teacher's
+            // classes via class_subjects pivot. Falls back to all subjects
+            // if the class-subject pivot isn't seeded.
+            $subjects = Subject::active()
+                ->whereHas('classes', fn ($q) => $q->whereIn('school_classes.id', $classIds))
+                ->orderBy('name')
+                ->get(['id', 'name', 'code']);
+            if ($subjects->isEmpty()) {
+                $subjects = Subject::active()->orderBy('name')->get(['id', 'name', 'code']);
+            }
+            return [$subjects, $classes];
+        }
+
+        // Fallback: empty (no role-relevant scope).
+        return [collect(), collect()];
+    }
+
     public function create(Request $request): Response
     {
         $user = $request->user();
 
-        $subjects = Subject::active()->orderBy('name')->get(['id', 'name', 'code']);
-        $classes = SchoolClass::query()
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
-            ->active()->ordered()->get(['id', 'name', 'school_id']);
+        [$subjects, $classes] = $this->narrowedSubjectsAndClasses($user);
 
         $topics = Question::query()
             ->when(true, fn ($q) => $this->scopeQuestionsForUser($q, $user, 'all'))

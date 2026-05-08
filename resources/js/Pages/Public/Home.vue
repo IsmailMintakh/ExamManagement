@@ -280,6 +280,32 @@ function fmtDate(d) {
         </section>
 
         <!-- ══════════════════════════════════════════════════════════════
+             CHECK RESULT BANNER — Direct entry to the public lookup page
+             so students/parents don't have to hunt through the nav.
+        ═══════════════════════════════════════════════════════════════ -->
+        <section class="bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 text-white py-10">
+            <div class="max-w-[1400px] mx-auto px-6 lg:px-10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div class="flex items-start md:items-center gap-4">
+                    <div class="hidden md:flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/15 backdrop-blur">
+                        <AcademicCapIcon class="w-6 h-6 text-amber-300" />
+                    </div>
+                    <div>
+                        <p class="text-[10px] uppercase tracking-[0.2em] font-bold text-amber-300">Students &amp; Parents</p>
+                        <h2 class="text-xl md:text-2xl font-bold mt-1">Check your exam result online</h2>
+                        <p class="text-sm text-emerald-50/85 mt-1 max-w-xl">
+                            Enter your admission number and date of birth to view your published results — no login needed.
+                        </p>
+                    </div>
+                </div>
+                <Link href="/check-result"
+                    class="inline-flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-950 px-6 py-3 rounded-full text-sm font-bold shadow-lg transition-all">
+                    Check Result
+                    <ArrowRightIcon class="w-4 h-4" />
+                </Link>
+            </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════════════════════════
              STATS STRIP — Live counts from database
         ═══════════════════════════════════════════════════════════════ -->
         <section class="bg-white border-b border-stone-100 py-14" data-counter>

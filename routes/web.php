@@ -15,7 +15,9 @@ use App\Http\Controllers\GradingScaleController;
 use App\Http\Controllers\MarksController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaperGeneratorController;
+use App\Http\Controllers\FamilyPortalController;
 use App\Http\Controllers\ParentPortalController;
+use App\Http\Controllers\PublicResultLookupController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PromotionController;
 use App\Http\Controllers\PublicController;
@@ -43,6 +45,12 @@ use Inertia\Inertia;
 // Offline fallback page (rendered by service worker when both network
 // and cache miss). No auth so it works even before login.
 Route::get('/offline', fn () => Inertia::render('Offline'))->name('offline');
+
+// Public result lookup — no auth needed. Admission number + DOB shows
+// only published results. IP rate-limited inside the controller to stop
+// admission-number scraping.
+Route::get('/check-result', [PublicResultLookupController::class, 'index'])->name('public.result-lookup');
+Route::post('/check-result', [PublicResultLookupController::class, 'lookup'])->name('public.result-lookup.search');
 
 /**
  * Bulletproof file delivery for the public storage disk.
@@ -152,6 +160,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('results/{exam}/finalize/{school}', [ResultController::class, 'finalize'])->name('results.finalize');
     Route::post('result-submissions/{submission}/approve', [ResultController::class, 'approve'])->name('result-submissions.approve');
     Route::post('result-submissions/{submission}/return', [ResultController::class, 'returnForCorrection'])->name('result-submissions.return');
+    // Result publishing — gates Family Portal & public lookup visibility
+    Route::post('results/{exam}/publish', [ResultController::class, 'publishResults'])->name('results.publish');
+    Route::post('results/{exam}/unpublish', [ResultController::class, 'unpublishResults'])->name('results.unpublish');
+    // Result correction — logs an amendment row and re-notifies the student/parent
+    Route::post('results/{result}/amend', [ResultController::class, 'amendResult'])->name('results.amend');
 
     // Analytics (DDO insights)
     Route::get('analytics', [AnalyticsController::class, 'index'])->name('analytics.index');
@@ -171,6 +184,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('result-sheet/{exam}/{schoolClass}', [ReportController::class, 'resultSheet'])->name('result-sheet');
         Route::get('report-card/{exam}/{student}', [ReportController::class, 'reportCard'])->name('report-card');
         Route::get('section-mark-sheets/{exam}/{section}', [ReportController::class, 'sectionMarkSheets'])->name('section-mark-sheets');
+        // Bulk: every student in the exam (or one class via ?school_class_id) in one stacked PDF.
+        Route::get('bulk-mark-sheets/{exam}', [ReportController::class, 'bulkMarkSheets'])->name('bulk-mark-sheets');
+        // Bulk: result sheet for every class in one PDF, page-break between classes.
+        Route::get('bulk-result-sheets/{exam}', [ReportController::class, 'bulkResultSheets'])->name('bulk-result-sheets');
         Route::get('attendance-sheet/{exam}/{schoolClass}', [ReportController::class, 'attendanceSheet'])->name('attendance-sheet');
         Route::get('progress-report/{student}', [ReportController::class, 'progressReport'])->name('progress-report');
         Route::get('export/{type}/{exam}', [ReportController::class, 'exportExcel'])->name('export');
@@ -315,6 +332,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('exams/{exam}/invigilators/pdf', [ExamSchedulingController::class, 'invigilatorDutyPdf'])->name('invigilator-pdf');
         Route::get('exams/{exam}/admit-cards', [ExamSchedulingController::class, 'admitCards'])->name('admit-cards');
         Route::get('exams/{exam}/admit-cards/download', [ExamSchedulingController::class, 'downloadAdmitCards'])->name('admit-cards-download');
+        // Bulk: every student in the exam in one PDF (optionally filtered by ?school_class_id)
+        Route::get('exams/{exam}/admit-cards/bulk', [ExamSchedulingController::class, 'downloadBulkAdmitCards'])->name('admit-cards-bulk');
 
         // Write endpoints — require additional 'scheduling.manage' permission
         Route::middleware('can:scheduling.manage')->group(function () {
@@ -374,18 +393,28 @@ Route::get('verify/certificate/{code}', [CertificateController::class, 'verify']
 // Public student ID verification (QR target on student ID cards)
 Route::get('verify/student/{admission}', [\App\Http\Controllers\PublicController::class, 'verifyStudent'])->name('verify-student');
 
-// Student Portal (read-only views for students)
-Route::prefix('my')->name('student-portal.')->middleware('auth')->group(function () {
-    Route::get('dashboard', [StudentPortalController::class, 'dashboard'])->name('dashboard');
-    Route::get('results', [StudentPortalController::class, 'results'])->name('results');
-    Route::get('results/{result}', [StudentPortalController::class, 'resultDetail'])->name('result-detail');
-    Route::get('results/{result}/report-card', [StudentPortalController::class, 'downloadReportCard'])->name('report-card');
+// Unified Family Portal — serves both student and parent roles from one set
+// of routes. The controller adapts the response based on the role: students
+// see their own data, parents see a child picker that scopes the same pages
+// to a chosen child.
+Route::prefix('portal')->name('portal.')->middleware('auth')->group(function () {
+    Route::get('dashboard', [FamilyPortalController::class, 'dashboard'])->name('dashboard');
+    Route::get('results', [FamilyPortalController::class, 'results'])->name('results');
+    Route::get('results/{result}', [FamilyPortalController::class, 'resultDetail'])->name('result-detail');
+    Route::get('results/{result}/report-card', [FamilyPortalController::class, 'downloadReportCard'])->name('report-card');
 });
 
-// Parent Portal (read-only views for parents)
+// Legacy aliases — old bookmarks / emails to /my/* and /parent/* keep working
+// by redirecting to the new unified URLs. Safe to delete after a release or two.
+Route::prefix('my')->name('student-portal.')->middleware('auth')->group(function () {
+    Route::get('dashboard', fn () => redirect()->route('portal.dashboard'))->name('dashboard');
+    Route::get('results', fn () => redirect()->route('portal.results'))->name('results');
+    Route::get('results/{result}', fn ($result) => redirect()->route('portal.result-detail', $result))->name('result-detail');
+    Route::get('results/{result}/report-card', fn ($result) => redirect()->route('portal.report-card', $result))->name('report-card');
+});
 Route::prefix('parent')->name('parent-portal.')->middleware('auth')->group(function () {
-    Route::get('dashboard', [ParentPortalController::class, 'dashboard'])->name('dashboard');
-    Route::get('children/{student}', [ParentPortalController::class, 'childResults'])->name('child-results');
+    Route::get('dashboard', fn () => redirect()->route('portal.dashboard'))->name('dashboard');
+    Route::get('children/{student}', fn ($student) => redirect()->route('portal.dashboard', ['student_id' => $student]))->name('child-results');
 });
 
 // Bind {transfer} param to StudentTransfer model

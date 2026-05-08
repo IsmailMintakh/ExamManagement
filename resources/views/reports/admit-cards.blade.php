@@ -221,18 +221,22 @@
                     {{-- Two-column key/value grid: 4-column table where odd
                          columns are labels and even columns are values. Reads
                          like an ID-card data block instead of a vertical stack. --}}
+                    {{-- Use the student's OWN class + section (loaded as
+                         relations) so the bulk admit-card PDF shows correct
+                         info per card. The outer $schoolClass / $section
+                         variables are null in bulk mode. --}}
                     <table class="stu-meta">
                         <tr>
                             <td class="lbl">Father's Name</td>
                             <td class="val">{{ $student->father_name ?? '—' }}</td>
                             <td class="lbl">Class</td>
-                            <td class="val">{{ $schoolClass?->name ?? '—' }}</td>
+                            <td class="val">{{ $student->schoolClass?->name ?? $schoolClass?->name ?? '—' }}</td>
                         </tr>
                         <tr>
                             <td class="lbl">Admission #</td>
                             <td class="val">{{ $student->admission_no }}</td>
                             <td class="lbl">Section</td>
-                            <td class="val">{{ $section?->name ?? '—' }}</td>
+                            <td class="val">{{ $student->section?->name ?? $section?->name ?? '—' }}</td>
                         </tr>
                         <tr>
                             <td class="lbl">Roll #</td>
@@ -260,8 +264,13 @@
                 </div>
             </div>
 
-            {{-- Schedule table — now includes a Day column per user request --}}
-            @if($schedules->isNotEmpty())
+            {{-- Schedule table — filtered to THIS student's class so the
+                 bulk PDF shows the right schedule on each card. The outer
+                 $schedules collection might span multiple classes. --}}
+            @php
+                $studentSchedules = $schedules->where('school_class_id', $student->school_class_id)->values();
+            @endphp
+            @if($studentSchedules->isNotEmpty())
             <table class="sched">
                 <thead>
                     <tr>
@@ -274,7 +283,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach($schedules as $i => $s)
+                    @foreach($studentSchedules as $i => $s)
                     <tr>
                         <td class="c">{{ $i + 1 }}</td>
                         <td>{{ $s->subject?->name }}</td>

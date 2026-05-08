@@ -27,7 +27,22 @@ const form = useForm({
     principal_signature: null,
     exam_officer_signature: null,
     is_active: props.school?.is_active ?? true,
+    // Principal login fields — only sent on create. On edit, the Principal
+    // user already exists; password resets happen via the User edit page.
+    principal_email: '',
+    principal_password: '',
+    principal_password_confirmation: '',
 })
+
+// Generate a memorable random password (10 chars, mixed case + digits).
+// Saves the user typing one out and ensures it passes the min:8 rule.
+function generatePassword() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+    let pw = ''
+    for (let i = 0; i < 10; i++) pw += chars[Math.floor(Math.random() * chars.length)]
+    form.principal_password = pw
+    form.principal_password_confirmation = pw
+}
 
 // Build absolute URLs for already-saved images so the FileUpload preview can
 // render them on the edit screen. The /storage prefix maps to the public
@@ -100,6 +115,37 @@ function submit() {
                                 placeholder="e.g. Mr. Ahmad Khan"
                                 help-text="Shown beneath the Exam Officer signature on PDFs." />
                         </div>
+                    </div>
+
+                    <!-- Principal Login Account — only on create. Optional;
+                         leaving blank means the school is created without a
+                         login, which an admin can add later via Users → Add. -->
+                    <div v-if="!isEdit" class="pt-4 border-t border-base-200">
+                        <p class="text-[11px] font-bold uppercase tracking-wider text-base-content/55 mb-1">
+                            Principal Login Account
+                            <span class="text-base-content/40 normal-case font-medium">· optional, recommended</span>
+                        </p>
+                        <p class="text-xs text-base-content/55 mb-3">
+                            Creates a Principal (school-admin) user so this school can sign in.
+                            Skip this and add a user later via <strong>Users → Add User</strong>.
+                        </p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <FormInput v-model="form.principal_email" label="Login Email" type="email"
+                                :error="form.errors.principal_email"
+                                placeholder="principal@school.edu.pk"
+                                help-text="The email the Principal will use to sign in." />
+                            <div></div>
+                            <FormInput v-model="form.principal_password" label="Password" type="password"
+                                :error="form.errors.principal_password"
+                                placeholder="Minimum 8 characters"
+                                help-text="Share this with the Principal securely." />
+                            <FormInput v-model="form.principal_password_confirmation" label="Confirm Password" type="password"
+                                placeholder="Type it again" />
+                        </div>
+                        <button type="button" @click="generatePassword"
+                            class="btn btn-ghost btn-xs gap-1 mt-2">
+                            ↻ Generate strong password
+                        </button>
                     </div>
 
                     <div class="form-control">

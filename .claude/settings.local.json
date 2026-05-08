@@ -57,7 +57,20 @@
       "Bash(composer show *)",
       "Bash(php -l app/Policies/SectionPolicy.php)",
       "Bash(php -l app/Http/Controllers/SectionController.php)",
-      "Bash(php -l app/Http/Controllers/GradingScaleController.php)"
+      "Bash(php -l app/Http/Controllers/GradingScaleController.php)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(php -l app/Policies/SchoolPolicy.php)",
+      "Bash(grep -E \"\\\\.\\(php|vue\\)$\")",
+      "Read(//c/Users/LAPYONE/AppData/Local/Temp/claude/e--laragon-www-exam_management/1d6f9340-43db-4376-bc7d-6f24eb887898/tasks/**)",
+      "Bash(Get-ChildItem -Path \"e:\\\\laragon\\\\www\\\\exam_management\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(php -l app/Http/Controllers/ReportController.php)",
+      "Bash(php -l app/Http/Controllers/FamilyPortalController.php)",
+      "Bash(php -l routes/web.php)",
+      "Bash(php -l app/Models/Result.php)",
+      "Bash(php -l app/Models/ResultAmendment.php)",
+      "Bash(php -l app/Notifications/ResultAmendedNotification.php)",
+      "Bash(php -l app/Http/Controllers/PublicResultLookupController.php)"
     ]
   }
 }

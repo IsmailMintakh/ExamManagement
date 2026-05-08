@@ -26,6 +26,9 @@ function onScroll() { scrolled.value = window.scrollY > 40 }
 onMounted(() => window.addEventListener('scroll', onScroll, { passive: true }))
 onUnmounted(() => window.removeEventListener('scroll', onScroll))
 
+// Top-level navigation. The two result-related pages collapse into one
+// "Results" dropdown below — keeping them as separate flat items cluttered
+// the header (parents had three result entry points to choose between).
 const navItems = [
     { label: 'Home', href: '/' },
     { label: 'About', href: '/about' },
@@ -34,11 +37,32 @@ const navItems = [
     { label: 'Faculty', href: '/faculty' },
     { label: 'Gallery', href: '/gallery' },
     { label: 'News', href: '/news' },
-    { label: 'Results', href: '/board-results' },
     { label: 'Contact', href: '/contact' },
 ]
 
+// Single dropdown that holds both result entry points. Inserted into the
+// nav between News and Contact (see desktop template below).
+const resultsMenu = [
+    { label: 'Check Your Result', href: '/check-result', desc: 'Look up an individual student result by admission number' },
+    { label: 'Board Results', href: '/board-results', desc: 'School-level board exam results announcements' },
+]
+
 const isActive = (href) => href === '/' ? currentPath.value === '/' : currentPath.value?.startsWith(href)
+// True when the current page matches any result page — used to highlight
+// the Results dropdown trigger.
+const resultsActive = computed(() => resultsMenu.some(r => currentPath.value?.startsWith(r.href)))
+
+// Hover/click control for the desktop dropdown.
+const resultsOpen = ref(false)
+let resultsCloseTimer = null
+function openResults() {
+    if (resultsCloseTimer) { clearTimeout(resultsCloseTimer); resultsCloseTimer = null }
+    resultsOpen.value = true
+}
+function closeResultsSoon() {
+    // Small delay so moving cursor from trigger to menu doesn't dismiss.
+    resultsCloseTimer = setTimeout(() => { resultsOpen.value = false }, 150)
+}
 
 // Footer social links — only show ones the admin has set
 const socialLinks = computed(() => [
@@ -102,23 +126,82 @@ const socialLinks = computed(() => [
                         </div>
                     </Link>
 
-                    <!-- Desktop nav -->
+                    <!-- Desktop nav.
+                         The Results dropdown is rendered manually after News
+                         and before Contact so we don't have to special-case
+                         the v-for. Keeps mobile flat (rendered separately
+                         below) without complicating the data model. -->
                     <nav class="hidden lg:flex items-center gap-0.5">
-                        <Link
-                            v-for="item in navItems"
-                            :key="item.href"
-                            :href="item.href"
-                            class="px-4 py-2 text-[13px] font-medium rounded-full transition-all duration-300 relative"
-                            :class="isActive(item.href)
-                                ? 'text-emerald-700'
-                                : 'text-slate-600 hover:text-slate-900'"
-                        >
-                            {{ item.label }}
-                            <span v-if="isActive(item.href)" class="absolute left-1/2 -translate-x-1/2 -bottom-0.5 w-1 h-1 rounded-full bg-amber-500"></span>
-                        </Link>
+                        <template v-for="item in navItems" :key="item.href">
+                            <Link
+                                :href="item.href"
+                                class="px-4 py-2 text-[13px] font-medium rounded-full transition-all duration-300 relative"
+                                :class="isActive(item.href)
+                                    ? 'text-emerald-700'
+                                    : 'text-slate-600 hover:text-slate-900'"
+                            >
+                                {{ item.label }}
+                                <span v-if="isActive(item.href)" class="absolute left-1/2 -translate-x-1/2 -bottom-0.5 w-1 h-1 rounded-full bg-amber-500"></span>
+                            </Link>
+
+                            <!-- Inject Results dropdown right after News -->
+                            <div
+                                v-if="item.href === '/news'"
+                                class="relative"
+                                @mouseenter="openResults"
+                                @mouseleave="closeResultsSoon"
+                            >
+                                <button
+                                    type="button"
+                                    @click="resultsOpen = !resultsOpen"
+                                    class="px-4 py-2 text-[13px] font-medium rounded-full transition-all duration-300 relative inline-flex items-center gap-1"
+                                    :class="resultsActive
+                                        ? 'text-emerald-700'
+                                        : 'text-slate-600 hover:text-slate-900'"
+                                    :aria-expanded="resultsOpen"
+                                >
+                                    Results
+                                    <ChevronDownIcon class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-180': resultsOpen }" />
+                                    <span v-if="resultsActive" class="absolute left-1/2 -translate-x-1/2 -bottom-0.5 w-1 h-1 rounded-full bg-amber-500"></span>
+                                </button>
+
+                                <Transition
+                                    enter-active-class="transition duration-150 ease-out"
+                                    enter-from-class="opacity-0 -translate-y-1"
+                                    enter-to-class="opacity-100 translate-y-0"
+                                    leave-active-class="transition duration-100 ease-in"
+                                    leave-from-class="opacity-100"
+                                    leave-to-class="opacity-0 -translate-y-1"
+                                >
+                                    <div
+                                        v-if="resultsOpen"
+                                        class="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-72 bg-white rounded-2xl shadow-xl border border-stone-200 overflow-hidden z-50"
+                                    >
+                                        <Link
+                                            v-for="r in resultsMenu"
+                                            :key="r.href"
+                                            :href="r.href"
+                                            @click="resultsOpen = false"
+                                            class="block px-4 py-3 hover:bg-emerald-50 transition-colors group"
+                                            :class="isActive(r.href) ? 'bg-emerald-50' : ''"
+                                        >
+                                            <div class="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                                                {{ r.label }}
+                                            </div>
+                                            <div class="text-[11px] text-slate-500 mt-0.5 leading-tight">
+                                                {{ r.desc }}
+                                            </div>
+                                        </Link>
+                                    </div>
+                                </Transition>
+                            </div>
+                        </template>
                     </nav>
 
-                    <!-- CTA + Mobile -->
+                    <!-- CTA + Mobile.
+                         Result entry points live in the nav dropdown above —
+                         no separate Check Result button so the header stops
+                         showing three different ways to reach results. -->
                     <div class="flex items-center gap-3">
                         <Link
                             href="/admissions"
@@ -146,17 +229,34 @@ const socialLinks = computed(() => [
             >
                 <div v-if="mobileOpen" class="lg:hidden border-t border-stone-200 bg-white/95 backdrop-blur-xl">
                     <div class="px-4 py-4 space-y-0.5">
-                        <Link
-                            v-for="(item, i) in navItems"
-                            :key="item.href"
-                            :href="item.href"
-                            @click="mobileOpen = false"
-                            class="block px-4 py-3 text-sm font-medium rounded-xl transition-colors"
-                            :class="isActive(item.href) ? 'text-emerald-700 bg-emerald-50' : 'text-slate-700 hover:bg-stone-50'"
-                            :style="`animation: slideIn 0.3s ease ${i * 30}ms both`"
-                        >
-                            {{ item.label }}
-                        </Link>
+                        <template v-for="(item, i) in navItems" :key="item.href">
+                            <Link
+                                :href="item.href"
+                                @click="mobileOpen = false"
+                                class="block px-4 py-3 text-sm font-medium rounded-xl transition-colors"
+                                :class="isActive(item.href) ? 'text-emerald-700 bg-emerald-50' : 'text-slate-700 hover:bg-stone-50'"
+                                :style="`animation: slideIn 0.3s ease ${i * 30}ms both`"
+                            >
+                                {{ item.label }}
+                            </Link>
+
+                            <!-- Inject the Results sub-items right after News.
+                                 Mobile menus don't do dropdowns well, so we
+                                 render them as flat indented siblings. -->
+                            <template v-if="item.href === '/news'">
+                                <p class="px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Results</p>
+                                <Link
+                                    v-for="r in resultsMenu"
+                                    :key="r.href"
+                                    :href="r.href"
+                                    @click="mobileOpen = false"
+                                    class="block px-4 py-3 text-sm font-medium rounded-xl transition-colors ml-3"
+                                    :class="isActive(r.href) ? 'text-emerald-700 bg-emerald-50' : 'text-slate-700 hover:bg-stone-50'"
+                                >
+                                    {{ r.label }}
+                                </Link>
+                            </template>
+                        </template>
                         <Link href="/login" class="block px-4 py-3 text-sm font-medium rounded-xl text-slate-700 hover:bg-stone-50 mt-2 border-t border-stone-100 pt-4">Admin Login</Link>
                     </div>
                 </div>

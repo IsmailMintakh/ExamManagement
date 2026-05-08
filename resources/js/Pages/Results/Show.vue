@@ -1,23 +1,64 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
 import Pagination from '@/Components/Pagination.vue'
-import { Head, Link } from '@inertiajs/vue3'
+import ConfirmDialog from '@/Components/ConfirmDialog.vue'
+import { Head, Link, useForm } from '@inertiajs/vue3'
+import { ref, computed } from 'vue'
 import {
     PrinterIcon, DocumentArrowDownIcon,
     UserGroupIcon, CheckCircleIcon,
     XCircleIcon, AcademicCapIcon,
     ChartBarIcon, IdentificationIcon,
-    DocumentDuplicateIcon,
+    DocumentDuplicateIcon, PencilSquareIcon,
+    ArrowPathIcon, ClockIcon, XMarkIcon,
 } from '@heroicons/vue/24/outline'
 
-defineProps({
+const props = defineProps({
     exam: Object,
     section: Object,
     schoolClass: Object,
     results: Object,
     summary: Object,
     subjects: Array,
+    latestAmendments: { type: Object, default: () => ({}) },
+    canAmend: { type: Boolean, default: false },
 })
+
+// ─── Amendment workflow ───
+// Open the modal pre-filled with the result's current marks; teacher edits
+// only what changed + writes a reason; submit logs an audit row and notifies
+// the linked student/parent.
+const amendDialog = ref(false)
+const amendingResult = ref(null)
+const amendForm = useForm({
+    reason: '',
+    obtained_marks: null,
+    percentage: null,
+    grade: '',
+    position: null,
+    remarks: '',
+})
+
+function openAmend(result) {
+    amendingResult.value = result
+    amendForm.reset()
+    // Prefill with current values so the teacher can see what's there.
+    amendForm.obtained_marks = result.obtained_marks
+    amendForm.percentage = result.percentage
+    amendForm.grade = result.grade
+    amendForm.position = result.position
+    amendForm.remarks = result.remarks || ''
+    amendForm.reason = ''
+    amendDialog.value = true
+}
+
+function submitAmendment() {
+    if (!amendingResult.value) return
+    amendForm.post(route('results.amend', amendingResult.value.id), {
+        preserveScroll: true,
+        onSuccess: () => { amendDialog.value = false; amendingResult.value = null },
+    })
+}
 
 function printResultSheet(examId, classId) {
     window.open(route('reports.result-sheet', [examId, classId]), '_blank')
@@ -153,6 +194,7 @@ function downloadAllMarkSheets(examId, sectionId) {
                                     <th class="bg-base-200 text-center w-16">%</th>
                                     <th class="bg-base-200 text-center w-16">Grade</th>
                                     <th class="bg-base-200 text-center w-20">Status</th>
+                                    <th v-if="canAmend" class="bg-base-200 text-center w-12"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -187,13 +229,27 @@ function downloadAllMarkSheets(examId, sectionId) {
                                         <span class="badge badge-outline badge-sm">{{ result.grade || '-' }}</span>
                                     </td>
                                     <td class="text-center">
-                                        <span :class="['badge badge-sm', result.is_passed ? 'badge-success' : 'badge-error']">
-                                            {{ result.is_passed ? 'PASS' : 'FAIL' }}
-                                        </span>
+                                        <div class="flex items-center justify-center gap-1">
+                                            <span :class="['badge badge-sm', result.is_passed ? 'badge-success' : 'badge-error']">
+                                                {{ result.is_passed ? 'PASS' : 'FAIL' }}
+                                            </span>
+                                            <span v-if="result.last_amended_iso"
+                                                class="badge badge-xs badge-warning"
+                                                :title="`Amended — see audit trail. Latest: ${latestAmendments?.[result.id]?.reason || ''}`">
+                                                Amended
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td v-if="canAmend" class="text-center">
+                                        <button @click="openAmend(result)"
+                                            class="btn btn-ghost btn-xs btn-square"
+                                            title="Amend this result">
+                                            <PencilSquareIcon class="w-4 h-4 text-warning" />
+                                        </button>
                                     </td>
                                 </tr>
                                 <tr v-if="!results?.data?.length">
-                                    <td :colspan="5 + (subjects?.length || 0) + 4" class="text-center py-8 text-base-content/50">
+                                    <td :colspan="5 + (subjects?.length || 0) + 4 + (canAmend ? 1 : 0)" class="text-center py-8 text-base-content/50">
                                         No results found for this section.
                                     </td>
                                 </tr>
@@ -205,6 +261,90 @@ function downloadAllMarkSheets(examId, sectionId) {
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- ─── Amendment dialog ───
+             Pre-filled with the result's current values so the admin sees
+             what's there. They edit only what changed and write a reason
+             (required, min 5 chars). Saving fires a notification to the
+             linked student + parent. -->
+        <div v-if="amendDialog" class="modal modal-open">
+            <div class="modal-box max-w-2xl">
+                <div class="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                        <h3 class="text-lg font-bold flex items-center gap-2">
+                            <ArrowPathIcon class="w-5 h-5 text-warning" />
+                            Amend Result
+                        </h3>
+                        <p class="text-sm text-base-content/65 mt-1">
+                            <span class="font-semibold">{{ amendingResult?.student?.name }}</span>
+                            ({{ amendingResult?.student?.roll_no || '—' }}) ·
+                            current total: {{ amendingResult?.obtained_marks }}/{{ amendingResult?.total_marks }} ({{ amendingResult?.percentage }}%)
+                        </p>
+                    </div>
+                    <button @click="amendDialog = false" class="btn btn-ghost btn-sm btn-square">
+                        <XMarkIcon class="w-4 h-4" />
+                    </button>
+                </div>
+
+                <div class="rounded-lg bg-warning/10 border border-warning/30 p-3 text-xs text-warning-content/80 mb-4 flex items-start gap-2">
+                    <ClockIcon class="w-4 h-4 shrink-0 mt-0.5 text-warning" />
+                    <div>
+                        Amending a published result fires a notification to the student/parent and
+                        records a permanent audit trail entry. Empty fields below are left unchanged.
+                    </div>
+                </div>
+
+                <form @submit.prevent="submitAmendment" class="space-y-3">
+                    <div>
+                        <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">
+                            Reason for amendment <span class="text-error">*</span>
+                        </label>
+                        <textarea v-model="amendForm.reason" rows="2"
+                            placeholder="e.g. Math paper re-checked, 3 extra marks found"
+                            class="textarea textarea-bordered w-full mt-1"></textarea>
+                        <p v-if="amendForm.errors.reason" class="text-xs text-error mt-1">{{ amendForm.errors.reason }}</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Obtained Marks</label>
+                            <input v-model.number="amendForm.obtained_marks" type="number" step="0.01" min="0"
+                                class="input input-bordered w-full mt-1 font-mono" />
+                            <p v-if="amendForm.errors.obtained_marks" class="text-xs text-error mt-1">{{ amendForm.errors.obtained_marks }}</p>
+                        </div>
+                        <div>
+                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Percentage</label>
+                            <input v-model.number="amendForm.percentage" type="number" step="0.01" min="0" max="100"
+                                class="input input-bordered w-full mt-1 font-mono" />
+                            <p v-if="amendForm.errors.percentage" class="text-xs text-error mt-1">{{ amendForm.errors.percentage }}</p>
+                        </div>
+                        <div>
+                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Grade</label>
+                            <input v-model="amendForm.grade" type="text" maxlength="8"
+                                class="input input-bordered w-full mt-1" />
+                        </div>
+                        <div>
+                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Position</label>
+                            <input v-model.number="amendForm.position" type="number" min="1"
+                                class="input input-bordered w-full mt-1 font-mono" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Remarks (optional)</label>
+                        <input v-model="amendForm.remarks" type="text" maxlength="500"
+                            class="input input-bordered w-full mt-1" />
+                    </div>
+
+                    <div class="modal-action">
+                        <button type="button" @click="amendDialog = false" class="btn btn-ghost">Cancel</button>
+                        <button type="submit" class="btn btn-warning gap-1.5" :disabled="amendForm.processing">
+                            <ArrowPathIcon class="w-4 h-4" />
+                            {{ amendForm.processing ? 'Saving…' : 'Save Amendment' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-backdrop" @click="amendDialog = false"></div>
         </div>
     </AppLayout>
 </template>

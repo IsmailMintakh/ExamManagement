@@ -43,7 +43,7 @@ class MarksController extends Controller
         $examsRaw = Exam::query()
             ->where('status', 'marks_entry')
             ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->whereHas('schools', fn ($q2) => $q2->where('schools.id', $user->school_id)))
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->visibleToSchool($user->school_id))
             ->with(['examType', 'academicSession', 'examSubjects.subject', 'examSubjects.schoolClass'])
             ->latest()
             ->get();

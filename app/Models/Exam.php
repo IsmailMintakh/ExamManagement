@@ -22,7 +22,7 @@ class Exam extends Model
         'position_calculation', 'passing_rules', 'combination_rules',
         'apply_to_all_schools', 'applicable_class_ids',
         'status', 'marks_entry_deadline', 'is_locked', 'created_by',
-        'exam_controller_id',
+        'exam_controller_id', 'results_published_at',
     ];
 
     protected function casts(): array
@@ -31,6 +31,7 @@ class Exam extends Model
             'start_date' => 'date',
             'end_date' => 'date',
             'marks_entry_deadline' => 'datetime',
+            'results_published_at' => 'datetime',
             'total_marks' => 'decimal:2',
             'passing_marks' => 'decimal:2',
             'passing_percentage' => 'decimal:2',
@@ -120,8 +121,95 @@ class Exam extends Model
         return $this->status === 'marks_entry' && !$this->is_locked;
     }
 
+    /**
+     * Has the DDO/Principal officially announced the results?
+     * Used by the Family Portal and the public result-lookup page to gate
+     * visibility — students don't see their own results until this is set.
+     */
+    public function isResultsPublished(): bool
+    {
+        return $this->results_published_at !== null;
+    }
+
     public function scopePublished($query)
     {
         return $query->where('status', '!=', 'draft');
+    }
+
+    /**
+     * Scope: narrow exams to those a TEACHER actually teaches in.
+     *
+     * - class-teacher: exam has at least one exam_subjects row whose
+     *   school_class_id matches one of the teacher's assigned sections'
+     *   classes (User::classSections → school_class_id).
+     * - subject-teacher: exam has at least one exam_subjects row matching
+     *   any of the teacher's (school_class_id, subject_id) tuples in
+     *   subject_teachers.
+     * - both roles: union of the two above.
+     * - super-admin / school-admin: pass through (use visibleToSchool for
+     *   admin scoping).
+     *
+     * If a teacher has no assignments at all, the result is an empty set —
+     * which is the right answer ("you teach nothing yet, you see nothing").
+     */
+    public function scopeForTeacher($query, \App\Models\User $user)
+    {
+        if ($user->isSuperAdmin() || $user->isSchoolAdmin()) {
+            return $query;
+        }
+
+        $classIds = $user->classSections->pluck('school_class_id')->filter()->unique()->values();
+        $subjectAssignments = $user->subjectTeachings ?? collect();
+
+        // No assignments → no exams.
+        if ($classIds->isEmpty() && $subjectAssignments->isEmpty()) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereHas('examSubjects', function ($q) use ($classIds, $subjectAssignments) {
+            $q->where(function ($inner) use ($classIds, $subjectAssignments) {
+                if ($classIds->isNotEmpty()) {
+                    // Class-teacher branch: any subject for one of my classes
+                    $inner->orWhereIn('school_class_id', $classIds->all());
+                }
+                foreach ($subjectAssignments as $a) {
+                    if (!$a->school_class_id || !$a->subject_id) continue;
+                    // Subject-teacher branch: exact (class, subject) tuple
+                    $inner->orWhere(function ($t) use ($a) {
+                        $t->where('school_class_id', $a->school_class_id)
+                          ->where('subject_id', $a->subject_id);
+                    });
+                }
+            });
+        });
+    }
+
+    /**
+     * Scope: only exams that are visible to the given school.
+     *
+     * Two conditions must hold (defense in depth):
+     *   1. The school is in the exam_schools pivot — i.e. the DDO either
+     *      picked this school explicitly OR turned on "apply to all schools"
+     *      (which fans out the pivot).
+     *   2. The exam has at least one exam_subjects row whose school_class_id
+     *      belongs to a class at this school. This prevents a "Class 6
+     *      district test" from showing up at a Nursery–5 primary school —
+     *      that school's classes simply aren't in exam_subjects, so the
+     *      whereHas misses.
+     *
+     * Pass null/0 to disable scoping (super-admin / DDO sees everything).
+     */
+    public function scopeVisibleToSchool($query, ?int $schoolId)
+    {
+        if (!$schoolId) {
+            return $query;
+        }
+
+        return $query
+            ->whereHas('schools', fn ($q) => $q->where('schools.id', $schoolId))
+            ->whereHas(
+                'examSubjects.schoolClass',
+                fn ($q) => $q->where('school_id', $schoolId)
+            );
     }
 }

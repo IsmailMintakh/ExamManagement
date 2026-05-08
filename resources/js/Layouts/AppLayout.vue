@@ -113,26 +113,48 @@ const roleBadge = computed(() => {
 
 // ----- Navigation Structure -----
 const menuGroups = computed(() => {
-    // Student-only nav
-    if (hasRole('student')) {
+    // ─── Unified Family Portal (student + parent share one nav) ───
+    // Student sees their own dashboard; parent sees the same page with
+    // a child picker. Same routes, controller adapts via role.
+    if (hasRole('student') || hasRole('parent')) {
         return [{
-            label: 'My Account',
+            label: hasRole('parent') ? 'Family' : 'My Account',
             items: [
-                { label: 'Dashboard', href: '/my/dashboard', icon: HomeIcon },
-                { label: 'My Results', href: '/my/results', icon: ChartBarIcon },
+                { label: 'Dashboard', href: '/portal/dashboard', icon: HomeIcon },
+                { label: 'Results', href: '/portal/results', icon: ChartBarIcon },
                 { label: 'Notifications', href: '/notifications', icon: BellAlertIcon },
             ],
         }]
     }
-    // Parent-only nav
-    if (hasRole('parent')) {
-        return [{
-            label: 'Family',
-            items: [
-                { label: 'My Children', href: '/parent/dashboard', icon: UserGroupIcon },
-                { label: 'Notifications', href: '/notifications', icon: BellAlertIcon },
-            ],
-        }]
+
+    // ─── Teacher-only menu (focused, no admin-tooling clutter) ───
+    // Class-teachers and subject-teachers see only what they can actually
+    // act on: their class/sections, marks entry, their results. Admin
+    // sections (Schools, Users, Master Data, Website, etc.) are hidden
+    // because they'd resolve to empty/403 pages anyway.
+    const isAdminish = hasRole('super-admin') || hasRole('school-admin')
+    const isTeacher = hasRole('class-teacher') || hasRole('subject-teacher')
+    if (isTeacher && !isAdminish) {
+        const workItems = []
+        workItems.push({ label: 'Dashboard', href: '/dashboard', icon: HomeIcon })
+        if (hasRole('class-teacher')) workItems.push({ label: 'My Class', href: '/my-class', icon: AcademicCapIcon })
+        if (hasPerm('exams.view')) workItems.push({ label: 'Exams', href: '/exams', icon: ClipboardDocumentListIcon })
+        if (hasPerm('marks.view') || hasPerm('marks.enter')) workItems.push({ label: 'Marks Entry', href: '/marks', icon: DocumentTextIcon })
+        if (hasPerm('results.view')) workItems.push({ label: 'Results', href: '/results', icon: ChartBarIcon })
+        if (hasPerm('reports.view')) workItems.push({ label: 'Reports', href: '/reports', icon: DocumentTextIcon })
+        if (hasPerm('questions.view')) workItems.push({ label: 'Question Bank', href: '/questions', icon: QuestionMarkCircleIcon })
+        if (hasPerm('papers.view')) workItems.push({ label: 'Paper Generator', href: '/papers', icon: DocumentDuplicateIcon })
+
+        const sysItems = [
+            { label: 'Notifications', href: '/notifications', icon: BellAlertIcon },
+        ]
+        if (hasPerm('settings.view')) sysItems.push({ label: 'Settings', href: '/settings', icon: Cog6ToothIcon })
+        sysItems.push({ label: 'Help & Docs', href: '/help', icon: LifebuoyIcon })
+
+        return [
+            { label: 'Workflow', items: workItems },
+            { label: 'System', items: sysItems },
+        ]
     }
 
     const groups = []
@@ -226,12 +248,31 @@ const menuGroups = computed(() => {
 const sidebarOpen = ref(false)
 // Desktop-only collapse state. Persisted across reloads so the user's choice
 // sticks. When collapsed the sidebar shrinks to icons-only (72px) — full
-// labels reappear on hover via :hover styles, but click toggles the state.
+// labels reappear on hover via the floating tooltip below.
 const sidebarCollapsed = ref(localStorage.getItem('sidebar-collapsed') === '1')
 function toggleSidebarCollapsed() {
     sidebarCollapsed.value = !sidebarCollapsed.value
     localStorage.setItem('sidebar-collapsed', sidebarCollapsed.value ? '1' : '0')
 }
+
+// ─── Floating sidebar tooltip ───
+// CSS-only pseudo-element tooltips kept getting clipped by the aside's
+// overflow rules. We render a SINGLE position:fixed tip outside the aside
+// and reposition it on hover. JS-driven but trivial — one setter per event.
+const tip = ref({ visible: false, label: '', top: 0, left: 0 })
+function showTip(event, label) {
+    if (!sidebarCollapsed.value) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    tip.value = {
+        visible: true,
+        label,
+        // Vertically center the tip on the link.
+        top: rect.top + rect.height / 2,
+        // Sit just to the right of the sidebar (72px) with a small gap.
+        left: rect.right + 8,
+    }
+}
+function hideTip() { tip.value.visible = false }
 const userMenuOpen = ref(false)
 const sessionMenuOpen = ref(false)
 const commandPalette = ref(null)
@@ -334,6 +375,11 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                                 :href="item.href"
                                 class="sidebar-link"
                                 :class="{ active: isActive(item.href) }"
+                                :title="item.label"
+                                @mouseenter="showTip($event, item.label)"
+                                @mouseleave="hideTip"
+                                @focus="showTip($event, item.label)"
+                                @blur="hideTip"
                             >
                                 <component :is="item.icon" class="sidebar-icon" />
                                 <span class="flex-1 truncate">{{ item.label }}</span>
@@ -572,6 +618,20 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                     <slot />
                 </div>
             </main>
+        </div>
+
+        <!-- Floating sidebar tooltip — rendered as a sibling of <aside> so
+             nothing in the aside's tree can clip it. Shown only when the
+             sidebar is collapsed (showTip bails early otherwise). -->
+        <div
+            v-show="tip.visible"
+            class="sidebar-tip"
+            :class="{ 'is-visible': tip.visible }"
+            :style="{ top: tip.top + 'px', left: tip.left + 'px' }"
+            role="tooltip"
+            aria-hidden="true"
+        >
+            {{ tip.label }}
         </div>
 
         <!-- Mobile bottom tab bar — hidden on lg+, opens drawer for "More" -->

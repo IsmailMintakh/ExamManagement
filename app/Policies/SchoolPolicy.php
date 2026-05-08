@@ -37,6 +37,10 @@ class SchoolPolicy
 
     public function delete(User $user, School $school): bool
     {
-        return $user->hasPermissionTo('schools.delete');
+        // Defense in depth: even if a non-super-admin somehow had
+        // schools.delete permission, they couldn't delete a school other
+        // than their own. Super-admins bypass this via before().
+        return $user->hasPermissionTo('schools.delete')
+            && $user->school_id === $school->id;
     }
 }
