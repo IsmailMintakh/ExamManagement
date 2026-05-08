@@ -177,6 +177,107 @@ class ClassTeacherController extends Controller
                 'subject_code' => $st->subject?->code,
             ]);
 
+        // ─── "My Subjects" — what THIS user teaches as a subject teacher ───
+        // Many class teachers also teach subjects in other sections. Show
+        // those assignments, the marks-entry progress on each, and the
+        // latest published results so the user has one screen for "the
+        // classes I lead" + "the subjects I teach".
+        $myAssignments = SubjectTeacher::where('user_id', $user->id)
+            ->where('is_active', true)
+            ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+            ->with([
+                'subject:id,name,code',
+                'schoolClass:id,name',
+                'section:id,name,school_class_id',
+            ])
+            ->get();
+
+        // For each assignment, what's the latest exam's marks-submission state
+        // (so the user can see "Math · Class V-A · Mid-Term: 23/25 entered, submitted").
+        $mySubjectStatus = $myAssignments->map(function ($a) use ($currentSession) {
+            $latestExam = Exam::query()
+                ->where('status', '!=', 'draft')
+                ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+                ->whereHas('examSubjects', fn ($q) => $q
+                    ->where('subject_id', $a->subject_id)
+                    ->where('school_class_id', $a->school_class_id))
+                ->latest('start_date')
+                ->first();
+
+            $studentsTotal = Student::where('section_id', $a->section_id)->active()->count();
+            $entered = $latestExam
+                ? Mark::where('exam_id', $latestExam->id)
+                    ->where('subject_id', $a->subject_id)
+                    ->where('section_id', $a->section_id)
+                    ->count()
+                : 0;
+            $submission = $latestExam
+                ? MarksSubmission::where('exam_id', $latestExam->id)
+                    ->where('subject_id', $a->subject_id)
+                    ->where('section_id', $a->section_id)
+                    ->first()
+                : null;
+
+            return [
+                'subject_id' => $a->subject_id,
+                'subject_name' => $a->subject?->name,
+                'subject_code' => $a->subject?->code,
+                'class_name' => $a->schoolClass?->name,
+                'section_id' => $a->section_id,
+                'section_name' => $a->section?->name,
+                'latest_exam' => $latestExam ? [
+                    'id' => $latestExam->id,
+                    'name' => $latestExam->name,
+                ] : null,
+                'students_total' => $studentsTotal,
+                'students_entered' => $entered,
+                'submission_status' => $submission?->status ?? ($entered > 0 ? 'draft' : 'pending'),
+            ];
+        });
+
+        // Latest results for the subjects + sections this user teaches —
+        // pulled from the section's results, then narrowed to subjects in
+        // their assignment set. Best-effort: shows top 30.
+        $mySectionIds = $myAssignments->pluck('section_id')->unique();
+        $mySubjectIds = $myAssignments->pluck('subject_id')->unique();
+        $myRecentResults = Result::query()
+            ->whereIn('section_id', $mySectionIds)
+            ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+            ->with(['student:id,name,roll_no', 'exam:id,name', 'section:id,name', 'schoolClass:id,name'])
+            ->latest('updated_at')
+            ->limit(30)
+            ->get()
+            ->map(function ($r) use ($mySubjectIds) {
+                // Pull just the per-subject rows that belong to subjects
+                // this user teaches, from the JSON snapshot on the result.
+                $subjectMarks = collect($r->subject_results ?? [])
+                    ->filter(fn ($sr) => isset($sr['subject_id']) && $mySubjectIds->contains($sr['subject_id']))
+                    ->map(fn ($sr) => [
+                        'subject_id' => $sr['subject_id'] ?? null,
+                        'subject_name' => $sr['subject_name'] ?? null,
+                        'obtained_marks' => $sr['effective_marks'] ?? $sr['marks_obtained'] ?? null,
+                        'total_marks' => $sr['total_marks'] ?? null,
+                        'is_passed' => $sr['is_passed'] ?? null,
+                    ])
+                    ->values();
+
+                return [
+                    'id' => $r->id,
+                    'student_name' => $r->student?->name,
+                    'roll_no' => $r->student?->roll_no,
+                    'exam_name' => $r->exam?->name,
+                    'class_name' => $r->schoolClass?->name,
+                    'section_name' => $r->section?->name,
+                    'overall_percentage' => (float) $r->percentage,
+                    'overall_grade' => $r->grade,
+                    'subject_marks' => $subjectMarks,
+                ];
+            })
+            // Drop rows where none of the user's subjects appear (e.g. results
+            // for sections they teach a different subject in).
+            ->filter(fn ($r) => count($r['subject_marks']) > 0)
+            ->values();
+
         return Inertia::render('ClassTeacher/Index', [
             'sections' => $sections->map(fn ($s) => [
                 'id' => $s->id,
@@ -198,6 +299,8 @@ class ClassTeacherController extends Controller
             'sectionTeam' => $sectionTeam,
             'stats' => $stats,
             'currentSession' => $currentSession ? ['id' => $currentSession->id, 'name' => $currentSession->name] : null,
+            'mySubjectStatus' => $mySubjectStatus,
+            'myRecentResults' => $myRecentResults,
         ]);
     }
 }
