@@ -6,7 +6,7 @@ import {
     ArrowsRightLeftIcon, ArrowLeftIcon, CalendarDaysIcon, BoltIcon,
     CheckCircleIcon, XCircleIcon, PrinterIcon, ExclamationTriangleIcon,
     UserMinusIcon, UserPlusIcon, ClockIcon, PencilSquareIcon,
-    InformationCircleIcon,
+    InformationCircleIcon, QuestionMarkCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -80,6 +80,11 @@ function confirmA(a) {
 function declineA(a) {
     router.post(route('timetable.substitutions.decline', a.id), {}, { preserveScroll: true })
 }
+
+// Score-trace popover — shows admin "why this teacher was picked"
+const scoreTrace = ref(null)
+function openScore(a) { scoreTrace.value = a }
+function closeScore() { scoreTrace.value = null }
 
 // Reassignment modal
 const reassignTarget = ref(null)
@@ -335,7 +340,14 @@ function statusPill(status) {
                                 <td class="px-3 py-2.5 text-xs">{{ a.class }} · {{ a.section }}</td>
                                 <td class="px-3 py-2.5 text-xs font-semibold">{{ a.subject || '—' }}</td>
                                 <td class="px-3 py-2.5 text-xs text-rose-600 dark:text-rose-400">{{ a.original_teacher }}</td>
-                                <td class="px-3 py-2.5 text-xs font-bold">{{ a.substitute_teacher }}</td>
+                                <td class="px-3 py-2.5 text-xs font-bold">
+                                    <span>{{ a.substitute_teacher }}</span>
+                                    <button v-if="a.score_breakdown" @click="openScore(a)"
+                                        class="ml-1 align-middle text-base-content/40 hover:text-violet-600"
+                                        title="Why this teacher?">
+                                        <QuestionMarkCircleIcon class="w-3.5 h-3.5 inline" />
+                                    </button>
+                                </td>
                                 <td class="px-3 py-2.5 text-center">
                                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 capitalize"
                                         :class="statusPill(a.status)">
@@ -366,6 +378,43 @@ function statusPill(status) {
                 <ExclamationTriangleIcon class="w-9 h-9 text-amber-500 mx-auto mb-2" />
                 <p class="font-bold text-sm">{{ absentCount }} teacher{{ absentCount === 1 ? '' : 's' }} marked absent</p>
                 <p class="text-xs text-base-content/65 mt-1">Click <strong>Generate substitutions</strong> to auto-fill their empty periods.</p>
+            </div>
+
+            <!-- ═════════ SCORE TRACE POPOVER ═════════ -->
+            <div v-if="scoreTrace" class="modal modal-open">
+                <div class="modal-box max-w-md">
+                    <div class="flex items-center gap-2 mb-2">
+                        <QuestionMarkCircleIcon class="w-5 h-5 text-violet-600 dark:text-violet-400" />
+                        <h3 class="text-base font-bold">Why this substitute?</h3>
+                    </div>
+                    <p class="text-xs text-base-content/65 mb-4">
+                        How <strong>{{ scoreTrace.substitute_teacher }}</strong> was picked for {{ scoreTrace.subject }} ({{ scoreTrace.class }} · {{ scoreTrace.section }}, {{ scoreTrace.time_slot }}).
+                    </p>
+                    <div v-if="scoreTrace.score_breakdown?.reasons?.length" class="space-y-1.5 mb-3">
+                        <div v-for="(r, idx) in scoreTrace.score_breakdown.reasons" :key="idx"
+                            class="flex items-start gap-2 text-sm">
+                            <span class="font-mono font-bold tabular-nums w-10 text-right shrink-0"
+                                :class="parseInt(r[0]) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
+                                {{ r[0] }}
+                            </span>
+                            <span class="text-base-content/75">{{ r[1] }}</span>
+                        </div>
+                    </div>
+                    <div v-else class="text-sm text-base-content/55 italic">
+                        No score detail recorded — this assignment may have been made manually or before the trace was added.
+                    </div>
+                    <div v-if="scoreTrace.score_breakdown?.total !== undefined"
+                        class="border-t border-base-300 pt-2 mt-3 flex items-center justify-between text-sm">
+                        <span class="font-bold">Total score</span>
+                        <span class="font-mono font-bold tabular-nums text-violet-700 dark:text-violet-300">
+                            {{ scoreTrace.score_breakdown.total }}
+                        </span>
+                    </div>
+                    <div class="modal-action">
+                        <button @click="closeScore" class="btn btn-ghost btn-sm">Close</button>
+                    </div>
+                </div>
+                <div class="modal-backdrop" @click="closeScore"></div>
             </div>
 
             <!-- ═════════ ABSENCE MODAL — full vs partial day ═════════ -->

@@ -17,6 +17,9 @@ import {
 const props = defineProps({
     exams: Array,
     classes: Array,
+    sections: { type: Array, default: () => [] },
+    students: { type: Array, default: () => [] },
+    teachers: { type: Array, default: () => [] },
 })
 
 const search = ref('')
@@ -124,10 +127,66 @@ const reports = computed(() => [
         route: 'reports.export',
         routeFormat: (values) => ({ type: 'award-list', exam: values.exam }),
     },
+    // ─── Analytics & insight reports ───
+    {
+        id: 'exam-analytics',
+        title: 'Exam Analytics Dashboard',
+        description: 'Drill into one exam — pass rate by class & subject, school comparison (DDO), grade distribution, top performers.',
+        category: 'analytics',
+        categoryLabel: 'Analytics',
+        icon: ChartBarIcon,
+        color: 'primary',
+        format: 'WEB',
+        inputs: [{ key: 'exam', label: 'Exam', type: 'exam', required: true }],
+        route: 'reports.exam-analytics',
+        routeFormat: (values) => [values.exam],
+        target: '_self',
+    },
+    {
+        id: 'progress-booklet',
+        title: 'Student Progress Booklet',
+        description: 'Multi-page PDF for one student: profile, all-exam results, subject-wise trend. Hand at PTM.',
+        category: 'students',
+        categoryLabel: 'Student Reports',
+        icon: DocumentTextIcon,
+        color: 'success',
+        format: 'PDF',
+        inputs: [{ key: 'student', label: 'Student', type: 'student', required: true }],
+        route: 'reports.progress-booklet',
+        routeFormat: (values) => [values.student],
+    },
+    {
+        id: 'progress-booklet-bulk',
+        title: 'Section Progress Booklets (bulk)',
+        description: 'One PDF with a progress page per student in the section — perfect for the whole-class PTM run.',
+        category: 'classes',
+        categoryLabel: 'Class Reports',
+        icon: DocumentDuplicateIcon,
+        color: 'success',
+        format: 'PDF',
+        inputs: [{ key: 'section', label: 'Section', type: 'section', required: true }],
+        route: 'reports.progress-booklet-bulk',
+        routeFormat: (values) => [values.section],
+    },
+    {
+        id: 'teacher-report-card',
+        title: "Teacher's Report Card",
+        description: 'A single teacher across all sections + subjects: marks-entry status, pass rate, average. Year-end review staple.',
+        category: 'analytics',
+        categoryLabel: 'Analytics',
+        icon: AcademicCapIcon,
+        color: 'info',
+        format: 'WEB',
+        inputs: [{ key: 'user', label: 'Teacher', type: 'teacher', required: true }],
+        route: 'reports.teacher-report-card',
+        routeFormat: (values) => [values.user],
+        target: '_self',
+    },
 ])
 
 const categories = [
     { key: 'all', label: 'All Reports', icon: Squares2X2Icon, count: computed(() => reports.value.length) },
+    { key: 'analytics', label: 'Analytics', icon: ChartBarIcon, count: computed(() => reports.value.filter(r => r.category === 'analytics').length) },
     { key: 'students', label: 'Student Reports', icon: UserGroupIcon, count: computed(() => reports.value.filter(r => r.category === 'students').length) },
     { key: 'classes', label: 'Class Reports', icon: AcademicCapIcon, count: computed(() => reports.value.filter(r => r.category === 'classes').length) },
     { key: 'exports', label: 'Data Exports', icon: ArrowDownTrayIcon, count: computed(() => reports.value.filter(r => r.category === 'exports').length) },
@@ -160,7 +219,13 @@ function generate(report) {
     if (!report.route) return
     const values = getInputs(report.id)
     const params = report.routeFormat(values)
-    window.open(route(report.route, params), '_blank')
+    const url = route(report.route, params)
+    // Web pages (analytics dashboards) navigate in-place; PDFs open in new tab.
+    if (report.target === '_self') {
+        window.location.href = url
+    } else {
+        window.open(url, '_blank')
+    }
 }
 
 // Stats
@@ -342,9 +407,14 @@ const completedExams = computed(() => props.exams?.filter(e => e.status === 'com
                                 <FormSelect
                                     v-model="getInputs(report.id)[inp.key]"
                                     :label="inp.label"
-                                    :options="inp.type === 'exam'
-                                        ? (exams?.map(e => ({ value: e.id, label: e.name })) || [])
-                                        : (classes?.map(c => ({ value: c.id, label: c.name })) || [])"
+                                    :options="(
+                                        inp.type === 'exam' ? exams :
+                                        inp.type === 'class' ? classes :
+                                        inp.type === 'section' ? sections :
+                                        inp.type === 'student' ? students :
+                                        inp.type === 'teacher' ? teachers :
+                                        []
+                                    )?.map(o => ({ value: o.id, label: o.name })) || []"
                                     :placeholder="`Select ${inp.label.toLowerCase()}`"
                                     :required="inp.required"
                                     size="sm"

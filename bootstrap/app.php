@@ -18,6 +18,13 @@ return Application::configure(basePath: dirname(__DIR__))
             ->withoutOverlapping(2)
             ->onOneServer()
             ->runInBackground();
+
+        // Daily digest: once at 07:00 Mon-Sat, push each teacher their day-at-
+        // a-glance so the per-period reminders feel less spammy.
+        $schedule->command('timetable:send-daily-digest')
+            ->dailyAt('07:00')
+            ->weekdays()
+            ->onOneServer();
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(append: [

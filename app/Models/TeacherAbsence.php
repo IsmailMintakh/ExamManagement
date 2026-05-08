@@ -12,16 +12,34 @@ use Illuminate\Database\Eloquent\Model;
  */
 class TeacherAbsence extends Model
 {
-    protected $fillable = ['user_id', 'absent_on', 'reason', 'from_time', 'marked_by'];
+    protected $fillable = [
+        'user_id', 'academic_session_id', 'absent_on',
+        'reason', 'from_time', 'was_backdated', 'marked_by',
+    ];
 
     protected function casts(): array
     {
-        return ['absent_on' => 'date'];
+        return [
+            'absent_on' => 'date',
+            'was_backdated' => 'boolean',
+        ];
     }
 
     public function isPartialDay(): bool
     {
         return !empty($this->from_time);
+    }
+
+    public function scopeForSession($query, ?int $sessionId = null)
+    {
+        $sid = $sessionId ?? AcademicSession::currentSession()?->id;
+        if (!$sid) return $query;
+        return $query->where('academic_session_id', $sid);
+    }
+
+    public function academicSession()
+    {
+        return $this->belongsTo(AcademicSession::class, 'academic_session_id');
     }
 
     public function user()

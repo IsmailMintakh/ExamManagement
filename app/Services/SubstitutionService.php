@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\AcademicSession;
+use App\Models\ExamSchedule;
 use App\Models\SubstitutionAssignment;
 use App\Models\SubjectTeacher;
 use App\Models\TeacherAbsence;
@@ -20,65 +22,67 @@ use Illuminate\Support\Facades\Notification;
  * Outputs: SubstitutionAssignment rows in 'suggested' state for every empty
  * timetable cell caused by an absent teacher.
  *
- * Algorithm:
- *   1. Pull all teachers absent on `date`.
- *   2. For each, find their timetable entries on that weekday.
- *   3. For each entry, score every potentially-free other teacher on:
- *        +10  same-subject teacher elsewhere
- *        + 5  teaches any subject in the same class
- *        + 3  class-teacher in the same class
- *        - 2  per substitution already assigned to them today
- *   4. Pick the top score; tie → fewest current subs → alphabetical.
- *   5. Insert / update the assignment row (UPSERT on date + entry).
+ * Algorithm (with hard-stops + soft scoring):
+ *   HARD FILTERS (any one fails → candidate skipped):
+ *     - busy in this slot
+ *     - school mismatch
+ *     - already at max_periods_per_day cover cap
+ *     - invigilating an exam at this date+time (ExamSchedule cross-check)
  *
- * Side-effect-free aside from the DB writes — re-running the same date is
- * safe (existing rows update, nothing duplicates).
+ *   SOFT SCORING (additive):
+ *     +10  same-subject teacher elsewhere
+ *     + 5  teaches any subject in the same class
+ *     + 3  class-teacher in the same section
+ *     - 2  per substitution already given today (load balancing)
+ *
+ *   TIE-BREAK: fewer existing covers → alphabetical by name.
+ *
+ * Output stores `score_breakdown` json on each SubstitutionAssignment so the
+ * admin "why this teacher?" popover can render the score components.
  */
 class SubstitutionService
 {
+    /** Hard cap: no teacher gets more than this many covers in one day. */
+    public const MAX_COVERS_PER_DAY = 3;
+
     /** Map ISO weekday number → our 'mon'..'sat' enum values. */
     protected array $weekdayMap = [
         1 => 'mon', 2 => 'tue', 3 => 'wed', 4 => 'thu', 5 => 'fri', 6 => 'sat',
     ];
 
-    /**
-     * Generate suggestions for the given date. Returns a summary array
-     * suitable for showing the admin: {date, total_periods, covered, uncovered,
-     * by_substitute: [...], uncovered_periods: [...]}.
-     */
     public function generateForDate(Carbon $date, ?int $createdBy = null): array
     {
         $weekday = $this->weekdayMap[$date->dayOfWeekIso] ?? null;
         if (!$weekday) {
-            // Sunday — no school, return zero summary.
             return $this->emptySummary($date);
         }
 
-        // ── 1. Absent teachers today (each carries optional from_time cutoff) ──
-        $absences = TeacherAbsence::where('absent_on', $date->toDateString())->get();
+        $sessionId = AcademicSession::currentSession()?->id;
+
+        // ── 1. Absent teachers today ──
+        $absencesQ = TeacherAbsence::where('absent_on', $date->toDateString());
+        if ($sessionId) $absencesQ->where('academic_session_id', $sessionId);
+        $absences = $absencesQ->get();
         if ($absences->isEmpty()) {
             return $this->emptySummary($date);
         }
 
         $absentTeacherIds = $absences->pluck('user_id')->all();
-        // Map: user_id → from_time (HH:MM:SS string) or null (full-day).
         $cutoffByTeacher = $absences->mapWithKeys(fn ($a) => [
             $a->user_id => $a->from_time,
         ])->all();
 
         // ── 2. Their entries this weekday — filter by per-teacher cutoff ──
-        // Pull all candidates first, then drop entries whose slot starts before
-        // the teacher's cutoff (those are still being taught by them).
         $needsCover = TimetableEntry::query()
+            ->when($sessionId, fn ($q) => $q->where('academic_session_id', $sessionId))
             ->whereIn('teacher_id', $absentTeacherIds)
             ->where('weekday', $weekday)
             ->with(['timeSlot', 'subject', 'schoolClass', 'section', 'teacher'])
             ->get()
             ->filter(function ($e) use ($cutoffByTeacher) {
                 $cutoff = $cutoffByTeacher[$e->teacher_id] ?? null;
-                if (!$cutoff) return true; // full-day absence → all periods need cover
+                if (!$cutoff) return true;
                 if (!$e->timeSlot) return false;
-                // Period starts at or after the cutoff → cover needed.
                 return $e->timeSlot->starts_at >= $cutoff;
             })
             ->values();
@@ -87,44 +91,46 @@ class SubstitutionService
             return $this->emptySummary($date);
         }
 
-        // ── 3. Pre-load context: every teacher's slot occupancy + subject mastery ──
-        $allEntriesToday = TimetableEntry::where('weekday', $weekday)
+        // ── 3. Pre-load context ──
+        $allEntriesToday = TimetableEntry::query()
+            ->when($sessionId, fn ($q) => $q->where('academic_session_id', $sessionId))
+            ->where('weekday', $weekday)
             ->select(['teacher_id', 'time_slot_id', 'subject_id', 'school_class_id'])
             ->get();
 
-        // Map: "<teacher_id>|<time_slot_id>" → true (already busy)
         $busy = $allEntriesToday
             ->whereNotNull('teacher_id')
             ->mapWithKeys(fn ($e) => [$e->teacher_id . '|' . $e->time_slot_id => true])
             ->all();
 
-        // Map: teacher_id → set<subject_id> (subjects they teach anywhere)
         $teacherSubjects = $allEntriesToday
             ->whereNotNull('teacher_id')
             ->whereNotNull('subject_id')
             ->groupBy('teacher_id')
             ->map(fn ($rows) => $rows->pluck('subject_id')->unique()->all());
 
-        // Map: teacher_id → set<class_id> (classes they teach in)
         $teacherClasses = $allEntriesToday
             ->whereNotNull('teacher_id')
             ->groupBy('teacher_id')
             ->map(fn ($rows) => $rows->pluck('school_class_id')->unique()->all());
 
-        // Class-teacher relation: section_id → user_id (for the +3 bonus)
         $classTeacherBySection = \App\Models\Section::pluck('class_teacher_id', 'id')->all();
 
-        // Pool of candidate teachers: any active class/subject teacher not absent today,
-        // scoped to the school of the absent entries (admins of the same school).
+        // ── ExamSchedule cross-check ──
+        // Pull every (subject_id, school_class_id) being examined today between
+        // the bell-schedule period boundaries. If the candidate teacher is the
+        // assigned teacher for any of those exams, they're invigilating —
+        // treat that as busy.
+        $examInvigilators = $this->buildInvigilatorSet($date);
+
         $candidatePool = User::query()
             ->where('is_active', true)
             ->whereHas('roles', fn ($q) => $q->whereIn('name', ['class-teacher', 'subject-teacher']))
             ->whereNotIn('id', $absentTeacherIds)
             ->get(['id', 'name', 'school_id']);
 
-        // ── 4. Process each uncovered cell, accumulating substitution counts as we go ──
-        $subsAssigned = []; // user_id → count of subs given today, used for load balancing
-        // Pre-seed with confirmed subs from this date (so re-runs don't double-count).
+        // ── 4. Process each uncovered cell ──
+        $subsAssigned = [];
         $existing = SubstitutionAssignment::where('date', $date->toDateString())->get();
         foreach ($existing as $row) {
             $subsAssigned[$row->substitute_teacher_id] = ($subsAssigned[$row->substitute_teacher_id] ?? 0) + 1;
@@ -134,36 +140,56 @@ class SubstitutionService
         $uncoveredPeriods = [];
 
         foreach ($needsCover as $entry) {
-            // Score every candidate
             $best = null;
             $bestScore = -1e9;
+            $bestBreakdown = null;
+
             foreach ($candidatePool as $cand) {
-                // Hard filter: must be free in this slot
+                // Hard filter 1: must be free in this slot
                 if (isset($busy[$cand->id . '|' . $entry->time_slot_id])) continue;
-                // Hard filter: school match (skip if the entry's class isn't in their school)
+
+                // Hard filter 2: school match
                 if ($cand->school_id && $entry->schoolClass?->school_id
                     && $cand->school_id !== $entry->schoolClass->school_id) continue;
 
+                // Hard filter 3: max-covers-per-day cap
+                if (($subsAssigned[$cand->id] ?? 0) >= self::MAX_COVERS_PER_DAY) continue;
+
+                // Hard filter 4: not invigilating an exam in this slot
+                if ($this->isInvigilating($examInvigilators, $cand->id, $entry)) continue;
+
+                // ── Scoring ──
                 $score = 0;
-                // Same-subject bonus
+                $reasons = [];
+
                 if ($entry->subject_id && in_array($entry->subject_id, $teacherSubjects[$cand->id] ?? [], true)) {
                     $score += 10;
+                    $reasons[] = ['+10', 'teaches ' . ($entry->subject?->name ?? 'this subject') . ' elsewhere'];
                 }
-                // Same-class familiarity bonus
                 if (in_array($entry->school_class_id, $teacherClasses[$cand->id] ?? [], true)) {
                     $score += 5;
+                    $reasons[] = ['+5', 'familiar with ' . ($entry->schoolClass?->name ?? 'this class')];
                 }
-                // Class-teacher of this exact section
                 if (($classTeacherBySection[$entry->section_id] ?? null) === $cand->id) {
                     $score += 3;
+                    $reasons[] = ['+3', 'class teacher of section ' . ($entry->section?->name ?? '')];
                 }
-                // Load penalty: -2 per substitution already assigned today
-                $score -= 2 * ($subsAssigned[$cand->id] ?? 0);
+                $existingCovers = $subsAssigned[$cand->id] ?? 0;
+                if ($existingCovers > 0) {
+                    $penalty = -2 * $existingCovers;
+                    $score += $penalty;
+                    $reasons[] = [(string) $penalty, "already has {$existingCovers} cover(s) today"];
+                }
 
                 if ($score > $bestScore
                     || ($score === $bestScore && $cand->name < ($best?->name ?? "\xff"))) {
                     $best = $cand;
                     $bestScore = $score;
+                    $bestBreakdown = [
+                        'teacher_name' => $cand->name,
+                        'total' => $score,
+                        'reasons' => $reasons,
+                    ];
                 }
             }
 
@@ -183,18 +209,16 @@ class SubstitutionService
                 'entry' => $entry,
                 'substitute' => $best,
                 'score' => $bestScore,
+                'breakdown' => $bestBreakdown,
             ];
         }
 
-        // ── 5. Persist (upsert) inside a transaction ──
-        // Snapshot prior substitute per entry so we can tell which rows are
-        // genuinely new/changed and only notify those teachers (running
-        // generate twice should not spam the same person twice).
+        // ── 5. Persist + collect for notification ──
         $priorByEntry = $existing->keyBy('timetable_entry_id')
             ->map(fn ($a) => $a->substitute_teacher_id);
 
         $persistedRows = [];
-        DB::transaction(function () use ($assignments, $date, $createdBy, &$persistedRows) {
+        DB::transaction(function () use ($assignments, $date, $createdBy, $sessionId, &$persistedRows) {
             foreach ($assignments as $a) {
                 $row = SubstitutionAssignment::updateOrCreate(
                     [
@@ -202,21 +226,23 @@ class SubstitutionService
                         'timetable_entry_id' => $a['entry']->id,
                     ],
                     [
+                        'academic_session_id' => $sessionId,
                         'original_teacher_id' => $a['entry']->teacher_id,
                         'substitute_teacher_id' => $a['substitute']->id,
                         'status' => 'suggested',
                         'created_by' => $createdBy,
+                        'score_breakdown' => $a['breakdown'],
                     ]
                 );
                 $persistedRows[] = ['row' => $row, 'meta' => $a];
             }
         });
 
-        // ── 6. Notify only substitutes whose assignment is new or reassigned ──
+        // ── 6. Notify only new/reassigned substitutes ──
         foreach ($persistedRows as $p) {
             $row = $p['row'];
             $prevSubId = $priorByEntry->get($row->timetable_entry_id);
-            if ($prevSubId === $row->substitute_teacher_id) continue; // unchanged
+            if ($prevSubId === $row->substitute_teacher_id) continue;
             $teacher = User::find($row->substitute_teacher_id);
             if (!$teacher) continue;
             $row->loadMissing(['timetableEntry.timeSlot', 'timetableEntry.subject', 'timetableEntry.schoolClass', 'timetableEntry.section', 'originalTeacher']);
@@ -227,7 +253,6 @@ class SubstitutionService
             }
         }
 
-        // ── Build summary ──
         $bySubstitute = collect($assignments)
             ->groupBy(fn ($a) => $a['substitute']->id)
             ->map(fn ($rows, $uid) => [
@@ -255,6 +280,68 @@ class SubstitutionService
             'by_substitute' => $bySubstitute,
             'uncovered_periods' => $uncoveredPeriods,
         ];
+    }
+
+    /**
+     * Build a quick-lookup set of teachers invigilating exams on this date.
+     *
+     * Returns: collection of arrays {teacher_id, school_class_id, subject_id, start_time, end_time}
+     * — the caller checks if a candidate is in this set for the entry's slot.
+     */
+    protected function buildInvigilatorSet(Carbon $date): Collection
+    {
+        if (!class_exists(ExamSchedule::class)) return collect();
+
+        $rows = ExamSchedule::query()
+            ->whereDate('exam_date', $date->toDateString())
+            ->with('exam:id')
+            ->get();
+
+        // Each ExamSchedule row covers one (subject, class, time-window).
+        // Cross-reference with SubjectTeacher to find who'd normally be teaching
+        // (and therefore likely invigilating) that subject in that class.
+        if ($rows->isEmpty()) return collect();
+
+        $assignments = SubjectTeacher::query()
+            ->where('is_active', true)
+            ->whereIn('school_class_id', $rows->pluck('school_class_id'))
+            ->whereIn('subject_id', $rows->pluck('subject_id'))
+            ->get();
+
+        // Build the set keyed by teacher_id with the time windows.
+        $set = collect();
+        foreach ($rows as $r) {
+            $matchingTeachers = $assignments->where('school_class_id', $r->school_class_id)
+                ->where('subject_id', $r->subject_id);
+            foreach ($matchingTeachers as $st) {
+                $set->push([
+                    'teacher_id' => $st->user_id,
+                    'school_class_id' => $r->school_class_id,
+                    'subject_id' => $r->subject_id,
+                    'start_time' => $r->start_time,
+                    'end_time' => $r->end_time,
+                ]);
+            }
+        }
+        return $set;
+    }
+
+    /**
+     * Is `teacherId` in an exam during the candidate slot's window?
+     */
+    protected function isInvigilating(Collection $invigilators, int $teacherId, TimetableEntry $entry): bool
+    {
+        if ($invigilators->isEmpty() || !$entry->timeSlot) return false;
+        $slotStart = $entry->timeSlot->starts_at;
+        $slotEnd = $entry->timeSlot->ends_at;
+        foreach ($invigilators as $inv) {
+            if ($inv['teacher_id'] !== $teacherId) continue;
+            // Overlap check: slot intersects exam window?
+            if ($slotEnd > $inv['start_time'] && $slotStart < $inv['end_time']) {
+                return true;
+            }
+        }
+        return false;
     }
 
     protected function emptySummary(Carbon $date): array

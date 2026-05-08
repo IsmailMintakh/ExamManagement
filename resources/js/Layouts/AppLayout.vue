@@ -144,6 +144,9 @@ const menuGroups = computed(() => {
         if (hasPerm('reports.view')) workItems.push({ label: 'Reports', href: '/reports', icon: DocumentTextIcon })
         // Teachers see their own read-only timetable view.
         workItems.push({ label: 'Timetable', href: '/timetable', icon: CalendarIcon })
+        if (hasRole('class-teacher') || hasRole('subject-teacher')) {
+            workItems.push({ label: 'My Cover Duties', href: '/my-covers', icon: ArrowsRightLeftIcon })
+        }
         if (hasPerm('questions.view')) workItems.push({ label: 'Question Bank', href: '/questions', icon: QuestionMarkCircleIcon })
         if (hasPerm('papers.view')) workItems.push({ label: 'Paper Generator', href: '/papers', icon: DocumentDuplicateIcon })
 
@@ -327,14 +330,14 @@ watch(() => page.url, () => { sidebarOpen.value = false })
             :data-collapsed="sidebarCollapsed ? 'true' : 'false'"
             style="border-right: 1px solid oklch(var(--bc) / 0.08);"
         >
-            <!-- Desktop collapse toggle — sits on the right edge as a small floating tab -->
+            <!-- Desktop collapse toggle — floating tab on the right edge -->
             <button
                 @click="toggleSidebarCollapsed"
-                class="hidden lg:flex absolute -right-3 top-20 z-20 w-6 h-6 items-center justify-center rounded-full bg-base-100 border border-base-200 text-base-content/55 hover:text-primary hover:border-primary/40 hover:shadow-md transition-all"
+                class="hidden lg:flex sidebar-collapse-btn"
                 :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
                 :aria-label="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
             >
-                <ChevronLeftIcon class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-180': sidebarCollapsed }" />
+                <ChevronLeftIcon class="w-3.5 h-3.5 chev" />
             </button>
 
             <!-- Brand / Logo — premium teal-to-deep-teal gradient -->
@@ -431,6 +434,11 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                                         :href="item.href"
                                         class="sidebar-link"
                                         :class="{ active: isActive(item.href) }"
+                                        :title="item.label"
+                                        @mouseenter="showTip($event, item.label)"
+                                        @mouseleave="hideTip"
+                                        @focus="showTip($event, item.label)"
+                                        @blur="hideTip"
                                     >
                                         <component :is="item.icon" class="sidebar-icon" />
                                         <span class="flex-1 truncate">{{ item.label }}</span>

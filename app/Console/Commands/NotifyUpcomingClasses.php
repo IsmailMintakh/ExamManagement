@@ -13,18 +13,17 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Notification;
 
 /**
- * Fires "your class starts in 2 minutes" web-push notifications.
+ * Fires "your class starts in 2 minutes" web-push notifications, but ONLY
+ * for the teacher's next-up class — not every period of the day. The full
+ * daily list is sent once at start of day by `timetable:send-daily-digest`,
+ * so this is just the urgent "head into your classroom" nudge.
  *
- * Schedule: every minute. The command picks period slots whose start time
- * falls in the [now+2, now+3) window and pushes a notification to the
- * teacher (or substitute, if the original is absent today).
+ * "Next-up" = first period among today's remaining whose start is in the
+ * [now+lead, now+lead+1) window. If a teacher has no further classes after
+ * the matched slot, we still send (it's their last). The matched slot is
+ * marked in cache for ~5 min so re-runs don't repeat.
  *
- * Idempotency:
- *   We use a signature ("upcoming-{date}-{slot}-{teacher}") that the
- *   service-worker push handler treats as a tag, so a repeated push for
- *   the same slot is silently replaced — duplicate alerts won't surface
- *   to the user even if scheduling drifts and we fire the same window
- *   twice within the minute.
+ * Schedule: every minute (cron in bootstrap/app.php).
  */
 class NotifyUpcomingClasses extends Command
 {

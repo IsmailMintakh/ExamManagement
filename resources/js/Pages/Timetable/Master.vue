@@ -38,6 +38,7 @@ const filterClass = ref('') // school_class_id filter — empty = all classes
 const teacherFilter = ref('')
 const subjectFilter = ref('')
 const search = ref('')
+const heatMap = ref(false)
 
 function entry(day, slotId, sectionId) {
     return props.entries[`${day}|${slotId}|${sectionId}`]
@@ -104,6 +105,32 @@ const distinctSubjects = computed(() => {
     })
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
 })
+
+// Heatmap: per-teacher load across the active day. Used to color cells when
+// heatMap mode is on — light = teaches few periods, dark = stretched thin.
+const teacherLoadToday = computed(() => {
+    if (!heatMap.value) return {}
+    const counts = {}
+    for (const slot of props.slots) {
+        if (!isPeriod(slot)) continue
+        if (!slotApplies(slot, activeDay.value)) continue
+        for (const sec of props.sections) {
+            const e = entry(activeDay.value, slot.id, sec.id)
+            if (e?.teacher_id) {
+                counts[e.teacher_id] = (counts[e.teacher_id] || 0) + 1
+            }
+        }
+    }
+    return counts
+})
+function heatColor(e) {
+    if (!heatMap.value || !e?.teacher_id) return ''
+    const count = teacherLoadToday.value[e.teacher_id] || 0
+    if (count >= 6) return 'bg-rose-500/40 ring-rose-500/60'
+    if (count >= 4) return 'bg-amber-500/30 ring-amber-500/60'
+    if (count >= 2) return 'bg-emerald-500/20 ring-emerald-500/40'
+    return 'bg-sky-500/10 ring-sky-500/30'
+}
 
 // Per-day stats for the badge on the day pills.
 function statsForDay(dayCode) {
@@ -240,12 +267,24 @@ function switchSchool(id) {
                         <input v-model="search" type="text" placeholder="Search class/section…"
                             class="input input-bordered input-xs rounded-lg pl-7 w-full text-xs" />
                     </div>
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer ml-auto">
+                        <input type="checkbox" v-model="heatMap" class="toggle toggle-error toggle-xs" />
+                        <span :class="heatMap ? 'font-bold text-rose-700 dark:text-rose-300' : 'text-base-content/55'">
+                            Heat-map
+                        </span>
+                    </label>
                     <button v-if="filterClass || teacherFilter || subjectFilter || search"
                         @click="clearFilters"
                         class="btn btn-ghost btn-xs rounded-lg gap-1">
                         <XCircleIcon class="w-3.5 h-3.5" /> Clear
                     </button>
                 </div>
+                <p v-if="heatMap" class="text-[11px] text-base-content/55 mt-2">
+                    <span class="inline-block w-2.5 h-2.5 rounded bg-sky-500/40 mr-1"></span>1 period
+                    <span class="inline-block w-2.5 h-2.5 rounded bg-emerald-500/40 ml-2 mr-1"></span>2-3
+                    <span class="inline-block w-2.5 h-2.5 rounded bg-amber-500/40 ml-2 mr-1"></span>4-5
+                    <span class="inline-block w-2.5 h-2.5 rounded bg-rose-500/60 ml-2 mr-1"></span>6+ (overloaded)
+                </p>
             </div>
 
             <!-- Conflict warning -->
@@ -307,6 +346,9 @@ function switchSchool(id) {
                                                 : '',
                                             (teacherFilter || subjectFilter) && !cellHighlighted(entry(activeDay, slot.id, sec.id))
                                                 ? 'opacity-30'
+                                                : '',
+                                            heatMap && entry(activeDay, slot.id, sec.id)
+                                                ? 'ring-1 ' + heatColor(entry(activeDay, slot.id, sec.id))
                                                 : ''
                                         ]">
                                         <template v-if="entry(activeDay, slot.id, sec.id)">

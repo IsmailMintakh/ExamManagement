@@ -1,11 +1,12 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { Head, Link, useForm } from '@inertiajs/vue3'
+import { Head, Link, useForm, router } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import {
     PencilSquareIcon, ArrowLeftIcon, EyeIcon, CheckIcon,
     XCircleIcon, BoltIcon, CursorArrowRaysIcon, InformationCircleIcon,
-    TrashIcon, Square2StackIcon,
+    TrashIcon, Square2StackIcon, LockClosedIcon, LockOpenIcon,
+    DocumentDuplicateIcon, ArrowsRightLeftIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -14,7 +15,30 @@ const props = defineProps({
     entries: { type: Array, default: () => [] },
     subjects: { type: Array, default: () => [] },
     teachers: { type: Array, default: () => [] },
+    copyCandidates: { type: Array, default: () => [] },
 })
+
+// ─── Lock controls ───
+function lockSection() {
+    if (!confirm('Lock this section\'s timetable? Edits will be blocked until unlocked.')) return
+    router.post(route('timetable.section.lock', props.section.id), {}, { preserveScroll: true })
+}
+function unlockSection() {
+    if (!confirm('Unlock to allow edits?')) return
+    router.post(route('timetable.section.unlock', props.section.id), {}, { preserveScroll: true })
+}
+
+// ─── Copy from another section ───
+const copyFromOpen = ref(false)
+const copyFromId = ref('')
+function submitCopy() {
+    if (!copyFromId.value) return
+    if (!confirm('Copy will replace ALL existing entries in this section. Teachers will be cleared (you reassign them after). Continue?')) return
+    router.post(route('timetable.section.copy', { target: props.section.id, source: copyFromId.value }), {}, {
+        preserveScroll: true,
+        onSuccess: () => { copyFromOpen.value = false; copyFromId.value = '' },
+    })
+}
 
 const DAYS = [
     { code: 'mon', label: 'Mon' },
@@ -197,15 +221,73 @@ const showHelp = ref(false)
                         <strong>{{ section.class_name }}</strong> · Section {{ section.name }} · {{ section.school_name }}
                     </p>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button v-if="copyCandidates.length && !section.timetable_locked"
+                        @click="copyFromOpen = true"
+                        class="btn btn-ghost btn-sm rounded-xl gap-1.5">
+                        <DocumentDuplicateIcon class="w-4 h-4" /> Copy from…
+                    </button>
+                    <button v-if="!section.timetable_locked" @click="lockSection"
+                        class="btn btn-ghost btn-sm rounded-xl gap-1.5"
+                        title="Lock to prevent further edits">
+                        <LockClosedIcon class="w-4 h-4" /> Lock
+                    </button>
+                    <button v-else @click="unlockSection"
+                        class="btn btn-warning btn-sm rounded-xl gap-1.5">
+                        <LockOpenIcon class="w-4 h-4" /> Unlock to edit
+                    </button>
                     <Link :href="route('timetable.section', section.id)" class="btn btn-ghost btn-sm rounded-xl gap-1.5">
                         <EyeIcon class="w-4 h-4" /> View
                     </Link>
-                    <button @click="save" :disabled="form.processing || conflicts.size > 0" class="btn btn-primary rounded-xl gap-2">
+                    <button @click="save"
+                        :disabled="form.processing || conflicts.size > 0 || section.timetable_locked"
+                        class="btn btn-primary rounded-xl gap-2">
                         <CheckIcon class="w-4 h-4" />
                         {{ form.processing ? 'Saving…' : 'Save timetable' }}
                     </button>
                 </div>
+            </div>
+
+            <!-- LOCK STATE BANNER -->
+            <div v-if="section.timetable_locked"
+                class="rounded-2xl border-2 border-amber-500/40 bg-amber-500/10 p-4 flex items-start gap-3">
+                <LockClosedIcon class="w-5 h-5 text-amber-700 dark:text-amber-300 mt-0.5 shrink-0" />
+                <div class="flex-1 text-sm">
+                    <p class="font-bold text-amber-900 dark:text-amber-200">Timetable locked</p>
+                    <p class="text-xs text-amber-800 dark:text-amber-300/80 mt-0.5">
+                        Locked
+                        <span v-if="section.timetable_locked_at">on <strong>{{ section.timetable_locked_at }}</strong></span>
+                        <span v-if="section.timetable_locked_by_name"> by <strong>{{ section.timetable_locked_by_name }}</strong></span>.
+                        Edits are blocked until you unlock above.
+                    </p>
+                </div>
+            </div>
+
+            <!-- COPY-FROM MODAL -->
+            <div v-if="copyFromOpen" class="modal modal-open">
+                <div class="modal-box max-w-md">
+                    <div class="flex items-center gap-2 mb-2">
+                        <DocumentDuplicateIcon class="w-5 h-5 text-violet-600 dark:text-violet-400" />
+                        <h3 class="text-base font-bold">Copy timetable from another section</h3>
+                    </div>
+                    <p class="text-xs text-base-content/65 mb-4">
+                        Cells (subjects, rooms) are copied. Teachers are cleared so you can reassign per cell — the same teacher in two sections at the same time would conflict.
+                    </p>
+                    <select v-model="copyFromId" class="select select-bordered select-sm rounded-lg w-full text-sm mb-3">
+                        <option value="">— Select source section —</option>
+                        <option v-for="c in copyCandidates" :key="c.id" :value="c.id">
+                            {{ c.class_name }} — {{ c.name }}
+                        </option>
+                    </select>
+                    <div class="modal-action">
+                        <button @click="copyFromOpen = false" class="btn btn-ghost btn-sm">Cancel</button>
+                        <button @click="submitCopy" :disabled="!copyFromId"
+                            class="btn btn-primary btn-sm gap-1.5">
+                            <DocumentDuplicateIcon class="w-4 h-4" /> Copy
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-backdrop" @click="copyFromOpen = false"></div>
             </div>
 
             <!-- HOW IT WORKS HELPER -->

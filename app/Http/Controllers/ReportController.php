@@ -39,9 +39,44 @@ class ReportController extends Controller
             ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
             ->active()->ordered()->get(['id', 'name']);
 
+        // Pickers for the new analytics reports.
+        $sections = Section::query()
+            ->when(!$user->isSuperAdmin(),
+                fn ($q) => $q->whereHas('schoolClass', fn ($qq) => $qq->where('school_id', $user->school_id)))
+            ->with('schoolClass:id,name')
+            ->active()
+            ->get(['id', 'name', 'school_class_id'])
+            ->map(fn ($s) => [
+                'id' => $s->id,
+                'name' => trim(($s->schoolClass?->name ?? '') . ' — ' . $s->name),
+            ])
+            ->values();
+
+        $students = Student::query()
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->active()
+            ->orderBy('name')
+            ->limit(2000) // safety cap; admin can search via the picker
+            ->get(['id', 'name', 'roll_no'])
+            ->map(fn ($s) => [
+                'id' => $s->id,
+                'name' => $s->name . ($s->roll_no ? " (Roll {$s->roll_no})" : ''),
+            ]);
+
+        $teachers = \App\Models\User::query()
+            ->where('is_active', true)
+            ->whereHas('roles', fn ($q) => $q->whereIn('name', ['class-teacher', 'subject-teacher']))
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn ($t) => ['id' => $t->id, 'name' => $t->name]);
+
         return Inertia::render('Reports/Index', [
             'exams' => $exams,
             'classes' => $classes,
+            'sections' => $sections,
+            'students' => $students,
+            'teachers' => $teachers,
         ]);
     }
 
@@ -656,5 +691,336 @@ class ReportController extends Controller
             default:
                 return redirect()->back()->with('error', 'Invalid export type.');
         }
+    }
+
+    /**
+     * GET /reports/exam-analytics/{exam} — drill-down dashboard for one exam.
+     *
+     * Aggregates pass rate / avg percentage / grade distribution by class,
+     * subject, and (for super-admin) school. Provides the data the DDO and
+     * Principal need to spot weak spots after every exam cycle.
+     */
+    public function examAnalytics(int $exam): Response
+    {
+        $examModel = Exam::with(['examType', 'academicSession'])->findOrFail($exam);
+        $user = request()->user();
+        abort_unless($user->can('reports.view'), 403);
+
+        $results = Result::query()
+            ->where('exam_id', $exam)
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->with([
+                'school:id,name',
+                'schoolClass:id,name',
+                'section:id,name',
+                'student:id,name,roll_no',
+            ])
+            ->get();
+
+        // ── Headline numbers ──
+        $total = $results->count();
+        $passed = $results->where('is_passed', true)->count();
+        $failed = $total - $passed;
+        $avgPercentage = $total > 0 ? round($results->avg('percentage'), 2) : 0;
+        $passRate = $total > 0 ? round($passed / $total * 100, 1) : 0;
+
+        // ── Per-school breakdown (super-admin only) ──
+        $bySchool = [];
+        if ($user->isSuperAdmin()) {
+            $bySchool = $results->groupBy('school_id')
+                ->map(function ($rows, $schoolId) {
+                    $count = $rows->count();
+                    $p = $rows->where('is_passed', true)->count();
+                    return [
+                        'school_id' => (int) $schoolId,
+                        'school_name' => $rows->first()->school?->name,
+                        'students' => $count,
+                        'passed' => $p,
+                        'failed' => $count - $p,
+                        'pass_rate' => $count ? round($p / $count * 100, 1) : 0,
+                        'avg_percentage' => $count ? round($rows->avg('percentage'), 2) : 0,
+                        'top_score' => $count ? round($rows->max('percentage'), 2) : 0,
+                    ];
+                })
+                ->values()
+                ->sortByDesc('pass_rate')
+                ->values()
+                ->all();
+        }
+
+        // ── Per-class breakdown ──
+        $byClass = $results->groupBy('school_class_id')
+            ->map(function ($rows, $classId) {
+                $count = $rows->count();
+                $p = $rows->where('is_passed', true)->count();
+                return [
+                    'class_id' => (int) $classId,
+                    'class_name' => $rows->first()->schoolClass?->name,
+                    'students' => $count,
+                    'passed' => $p,
+                    'pass_rate' => $count ? round($p / $count * 100, 1) : 0,
+                    'avg_percentage' => $count ? round($rows->avg('percentage'), 2) : 0,
+                ];
+            })
+            ->values()
+            ->sortBy('class_name')
+            ->values()
+            ->all();
+
+        // ── Per-subject breakdown (drill into subject_results JSON) ──
+        $subjectStats = [];
+        foreach ($results as $r) {
+            foreach ((array) $r->subject_results as $sr) {
+                if (empty($sr['subject_id'])) continue;
+                $sid = $sr['subject_id'];
+                if (!isset($subjectStats[$sid])) {
+                    $subjectStats[$sid] = [
+                        'subject_id' => $sid,
+                        'subject_name' => $sr['subject_name'] ?? '—',
+                        'attempted' => 0,
+                        'passed' => 0,
+                        'absent' => 0,
+                        'sum_marks' => 0.0,
+                        'sum_total' => 0.0,
+                    ];
+                }
+                if (!empty($sr['is_absent'])) {
+                    $subjectStats[$sid]['absent']++;
+                    continue;
+                }
+                $subjectStats[$sid]['attempted']++;
+                if (!empty($sr['is_passed'])) $subjectStats[$sid]['passed']++;
+                $subjectStats[$sid]['sum_marks'] += (float) ($sr['effective_marks'] ?? $sr['marks_obtained'] ?? 0);
+                $subjectStats[$sid]['sum_total'] += (float) ($sr['total_marks'] ?? 0);
+            }
+        }
+        $bySubject = collect($subjectStats)->map(function ($s) {
+            $att = max(1, $s['attempted']);
+            $totalMarks = max(0.01, $s['sum_total']);
+            return [
+                'subject_id' => $s['subject_id'],
+                'subject_name' => $s['subject_name'],
+                'attempted' => $s['attempted'],
+                'absent' => $s['absent'],
+                'passed' => $s['passed'],
+                'pass_rate' => $s['attempted']
+                    ? round($s['passed'] / $att * 100, 1)
+                    : 0,
+                'avg_percentage' => $s['attempted']
+                    ? round($s['sum_marks'] / $totalMarks * 100, 2)
+                    : 0,
+            ];
+        })->values()->sortBy('subject_name')->values()->all();
+
+        // ── Grade distribution ──
+        $gradeDistribution = $results->groupBy('grade')
+            ->map(fn ($rows) => $rows->count())
+            ->sortKeys()
+            ->all();
+
+        // ── Top performers (top 10 across the result set) ──
+        $top = $results->where('is_passed', true)
+            ->sortByDesc('percentage')
+            ->take(10)
+            ->values()
+            ->map(fn ($r) => [
+                'student_name' => $r->student?->name,
+                'roll_no' => $r->student?->roll_no,
+                'class_name' => $r->schoolClass?->name,
+                'section_name' => $r->section?->name,
+                'school_name' => $r->school?->name,
+                'percentage' => round($r->percentage, 2),
+                'grade' => $r->grade,
+                'position' => $r->position,
+            ])
+            ->all();
+
+        return Inertia::render('Reports/ExamAnalytics', [
+            'exam' => [
+                'id' => $examModel->id,
+                'name' => $examModel->name,
+                'type' => $examModel->examType?->name,
+                'session' => $examModel->academicSession?->name,
+                'status' => $examModel->status,
+            ],
+            'headline' => [
+                'total' => $total,
+                'passed' => $passed,
+                'failed' => $failed,
+                'avg_percentage' => $avgPercentage,
+                'pass_rate' => $passRate,
+            ],
+            'bySchool' => $bySchool,
+            'byClass' => $byClass,
+            'bySubject' => $bySubject,
+            'gradeDistribution' => $gradeDistribution,
+            'topPerformers' => $top,
+            'isSuperAdmin' => $user->isSuperAdmin(),
+        ]);
+    }
+
+    /**
+     * GET /reports/teacher-report-card/{user}
+     *
+     * Per-teacher performance: their subjects across sections, marks-entry
+     * status, average percentage of students they teach. Useful for HR /
+     * year-end review.
+     */
+    public function teacherReportCard(int $user): Response
+    {
+        $actor = request()->user();
+        abort_unless($actor->can('reports.view') || $actor->id === $user, 403);
+
+        $teacher = \App\Models\User::with('school')->findOrFail($user);
+        if (!$actor->isSuperAdmin() && $actor->school_id !== $teacher->school_id) abort(403);
+
+        $currentSession = AcademicSession::currentSession();
+
+        $assignments = \App\Models\SubjectTeacher::query()
+            ->where('user_id', $teacher->id)
+            ->where('is_active', true)
+            ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+            ->with(['subject:id,name,code', 'schoolClass:id,name', 'section:id,name'])
+            ->get();
+
+        $rows = $assignments->map(function ($a) use ($currentSession) {
+            $marks = Mark::query()
+                ->where('subject_id', $a->subject_id)
+                ->where('section_id', $a->section_id)
+                ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+                ->get();
+            $entered = $marks->whereNotNull('marks_obtained')->count();
+            $submitted = $marks->where('status', 'submitted')->count();
+            $passed = $marks->filter(fn ($m) => $m->marks_obtained !== null && $m->total_marks > 0
+                    && ($m->marks_obtained / $m->total_marks) >= 0.40)->count();
+            $avgPct = $marks->whereNotNull('marks_obtained')->where('total_marks', '>', 0)
+                ->avg(fn ($m) => $m->marks_obtained / $m->total_marks * 100);
+
+            return [
+                'subject_id' => $a->subject_id,
+                'subject_name' => $a->subject?->name,
+                'class_name' => $a->schoolClass?->name,
+                'section_name' => $a->section?->name,
+                'students_taught' => Student::where('section_id', $a->section_id)->active()->count(),
+                'entries' => $entered,
+                'submitted' => $submitted,
+                'pass_count' => $passed,
+                'pass_rate' => $marks->count() ? round($passed / $marks->count() * 100, 1) : null,
+                'avg_percentage' => $avgPct ? round($avgPct, 2) : null,
+            ];
+        })->values()->all();
+
+        $totals = [
+            'subjects' => $assignments->pluck('subject_id')->unique()->count(),
+            'sections' => $assignments->pluck('section_id')->unique()->count(),
+            'students' => collect($rows)->sum('students_taught'),
+            'avg_pass_rate' => collect($rows)->whereNotNull('pass_rate')->avg('pass_rate'),
+        ];
+        if ($totals['avg_pass_rate'] !== null) {
+            $totals['avg_pass_rate'] = round($totals['avg_pass_rate'], 1);
+        }
+
+        return Inertia::render('Reports/TeacherReportCard', [
+            'teacher' => [
+                'id' => $teacher->id,
+                'name' => $teacher->name,
+                'email' => $teacher->email,
+                'school' => $teacher->school?->name,
+            ],
+            'session' => $currentSession?->name,
+            'rows' => $rows,
+            'totals' => $totals,
+        ]);
+    }
+
+    /**
+     * GET /reports/progress-booklet/{student} — multi-page PDF for one student.
+     *
+     * Combines: cover, all session results so far, subject-wise trend,
+     * remarks. Designed for handover at PTM (parent-teacher meeting).
+     */
+    public function progressBooklet(int $student)
+    {
+        $studentModel = Student::with(['school', 'schoolClass', 'section', 'academicSession'])
+            ->findOrFail($student);
+        $user = request()->user();
+        abort_unless($user->can('reports.view'), 403);
+        if (!$user->isSuperAdmin() && $user->school_id !== $studentModel->school_id) abort(403);
+
+        $currentSession = AcademicSession::currentSession();
+
+        $results = Result::query()
+            ->where('student_id', $student)
+            ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+            ->with(['exam.examType'])
+            ->orderBy('finalized_at')
+            ->orderBy('created_at')
+            ->get();
+
+        // Subject-wise trend across exams
+        $subjectTrend = [];
+        foreach ($results as $r) {
+            foreach ((array) $r->subject_results as $sr) {
+                $sid = $sr['subject_id'] ?? null;
+                if (!$sid) continue;
+                if (!isset($subjectTrend[$sid])) {
+                    $subjectTrend[$sid] = [
+                        'subject_name' => $sr['subject_name'] ?? '—',
+                        'series' => [],
+                    ];
+                }
+                $subjectTrend[$sid]['series'][] = [
+                    'exam_name' => $r->exam?->name,
+                    'percentage' => isset($sr['percentage']) ? round((float) $sr['percentage'], 1) : null,
+                    'grade' => $sr['grade'] ?? null,
+                    'is_absent' => (bool) ($sr['is_absent'] ?? false),
+                ];
+            }
+        }
+
+        $school = $studentModel->school;
+        $pdf = Pdf::loadView('reports.progress-booklet', [
+            'student' => $studentModel,
+            'school' => $school,
+            'session' => $currentSession,
+            'results' => $results,
+            'subjectTrend' => array_values($subjectTrend),
+        ])->setPaper('a4', 'portrait');
+
+        return $pdf->stream("progress-booklet-{$studentModel->admission_no}.pdf");
+    }
+
+    /** Bulk progress booklets for an entire section (one PDF, one section per student). */
+    public function progressBookletBulk(int $section)
+    {
+        $sectionModel = Section::with('schoolClass.school')->findOrFail($section);
+        $user = request()->user();
+        abort_unless($user->can('reports.view'), 403);
+        if (!$user->isSuperAdmin() && $user->school_id !== $sectionModel->schoolClass->school_id) abort(403);
+
+        $currentSession = AcademicSession::currentSession();
+        $students = Student::query()
+            ->where('section_id', $section)
+            ->active()
+            ->orderBy('roll_no')
+            ->get();
+
+        // Pre-load all results in one query.
+        $resultsByStudent = Result::query()
+            ->whereIn('student_id', $students->pluck('id'))
+            ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+            ->with('exam.examType')
+            ->get()
+            ->groupBy('student_id');
+
+        $pdf = Pdf::loadView('reports.progress-booklet-bulk', [
+            'students' => $students,
+            'school' => $sectionModel->schoolClass->school,
+            'section' => $sectionModel,
+            'session' => $currentSession,
+            'resultsByStudent' => $resultsByStudent,
+        ])->setPaper('a4', 'portrait');
+
+        return $pdf->stream("progress-booklets-{$sectionModel->slug}.pdf");
     }
 }

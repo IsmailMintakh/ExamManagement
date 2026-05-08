@@ -7,7 +7,7 @@ import {
     ArrowsRightLeftIcon, EyeIcon, PencilSquareIcon, PrinterIcon,
     ExclamationTriangleIcon, BookOpenIcon, ChevronRightIcon,
     UserGroupIcon, ClockIcon, BoltIcon, NoSymbolIcon,
-    Squares2X2Icon, RectangleStackIcon, TableCellsIcon,
+    Squares2X2Icon, RectangleStackIcon, TableCellsIcon, ChartBarIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -201,6 +201,32 @@ const totalSectionsWithSchedule = computed(() =>
                     <div class="flex-1 min-w-0">
                         <p class="font-bold text-sm">Wall-chart routine</p>
                         <p class="text-xs text-base-content/55">Whole school on 1-2 A4 sheets — pin in office</p>
+                    </div>
+                    <ChevronRightIcon class="w-4 h-4 text-base-content/40" />
+                </a>
+            </div>
+
+            <!-- Secondary actions: reports -->
+            <div v-if="school && hasSchedule" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Link :href="route('timetable.reports', { school_id: school.id })"
+                    class="group rounded-2xl border border-base-300 bg-base-100 p-4 flex items-center gap-3 hover:border-sky-500/40 hover:bg-sky-500/5 transition-colors">
+                    <div class="w-11 h-11 rounded-xl bg-sky-500/15 text-sky-600 dark:text-sky-400 flex items-center justify-center">
+                        <ChartBarIcon class="w-5 h-5" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-bold text-sm">Timetable reports</p>
+                        <p class="text-xs text-base-content/55">Teacher load, substitution fairness, coverage gaps</p>
+                    </div>
+                    <ChevronRightIcon class="w-4 h-4 text-base-content/40" />
+                </Link>
+                <a :href="route('timetable.school.pdf', { school_id: school.id })" target="_blank"
+                    class="group rounded-2xl border border-base-300 bg-base-100 p-4 flex items-center gap-3 hover:border-emerald-500/40 hover:bg-emerald-500/5 transition-colors">
+                    <div class="w-11 h-11 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                        <PrinterIcon class="w-5 h-5" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-bold text-sm">Per-section booklet PDF</p>
+                        <p class="text-xs text-base-content/55">All sections, one A4 page each</p>
                     </div>
                     <ChevronRightIcon class="w-4 h-4 text-base-content/40" />
                 </a>

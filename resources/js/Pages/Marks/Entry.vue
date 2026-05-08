@@ -1,11 +1,13 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { Head, Link, router } from '@inertiajs/vue3'
-import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { queueSnapshot, getSnapshot, deleteSnapshot, drainAll } from '@/lib/offlineMarksQueue'
 import {
     ArrowLeftIcon, DocumentCheckIcon, CheckCircleIcon, XCircleIcon,
     ExclamationTriangleIcon, UserGroupIcon, CloudIcon, BoltIcon,
     InformationCircleIcon, KeyIcon, ClipboardDocumentIcon,
+    MagnifyingGlassIcon, ChatBubbleLeftEllipsisIcon, ChevronDownIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -47,13 +49,51 @@ const rows = ref(props.students.map(s => {
 
 const showShortcuts = ref(false)
 const showReviewModal = ref(false)
+
+// ─── Search + filter (works on both mobile cards and desktop table) ───
+const search = ref('')
+const filterMode = ref('all') // all | empty | errors | absent
+const expandedRemarks = ref({}) // student_id → bool, controls remarks expander on mobile cards
+
+function rowMatchesFilter(row, idx) {
+    if (search.value.trim()) {
+        const q = search.value.toLowerCase()
+        const haystack = `${row.name} ${row.roll_no || ''} ${row.father_name || ''}`.toLowerCase()
+        if (!haystack.includes(q)) return false
+    }
+    if (filterMode.value === 'empty') {
+        return !row.is_absent && (row.marks_obtained === '' || row.marks_obtained == null)
+    }
+    if (filterMode.value === 'errors') return !!rowErrors.value[idx]
+    if (filterMode.value === 'absent') return row.is_absent
+    return true
+}
+
+const visibleRows = computed(() =>
+    rows.value
+        .map((row, idx) => ({ row, idx }))
+        .filter(({ row, idx }) => rowMatchesFilter(row, idx))
+)
+
+const filterCounts = computed(() => ({
+    all: rows.value.length,
+    empty: rows.value.filter(r => !r.is_absent && (r.marks_obtained === '' || r.marks_obtained == null)).length,
+    errors: Object.keys(rowErrors.value).filter(k => rowErrors.value[k]).length,
+    absent: rows.value.filter(r => r.is_absent).length,
+}))
 const submitProcessing = ref(false)
 const lastSavedAt = ref(null)
-const saveStatus = ref('idle') // idle | saving | saved | error
+const saveStatus = ref('idle') // idle | saving | saved | error | queued
 const saveError = ref(null)
 const lastSavedAgo = ref('')
 let savedAgoTimer = null
 let autosaveTimer = null
+
+// ─── Connectivity + offline queue ───
+const isOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true)
+const hasQueuedSnapshot = ref(false)
+const lastQueuedAt = ref(null)
+const syncInProgress = ref(false)
 
 /** Quick +/- adjustment used by the mobile card view's stepper buttons. */
 function bumpMarks(row, delta) {
@@ -140,28 +180,40 @@ function scheduleAutosave() {
     autosaveTimer = setTimeout(autosave, 2500)
 }
 
+/**
+ * Autosave: try to POST, fall back to IndexedDB on network error.
+ * The queued snapshot replaces any prior queued one (newest wins) and
+ * gets drained on reconnect or page reload.
+ */
 async function autosave() {
     if (props.isSubmitted) return
 
     const dirtyRows = rows.value.filter(r => r.dirty && !rowError(r))
     if (dirtyRows.length === 0) return
 
+    const payload = {
+        subject_id: props.subject.id,
+        section_id: props.section.id,
+        marks: dirtyRows.map(r => ({
+            student_id: r.student_id,
+            marks_obtained: r.is_absent ? null : parseMarks(r.marks_obtained),
+            is_absent: r.is_absent,
+            remarks: r.remarks || null,
+        })),
+    }
+
     saveStatus.value = 'saving'
     saveError.value = null
 
-    try {
-        const res = await window.axios.post(route('marks.autosave', props.exam.id), {
-            subject_id: props.subject.id,
-            section_id: props.section.id,
-            marks: dirtyRows.map(r => ({
-                student_id: r.student_id,
-                marks_obtained: r.is_absent ? null : parseMarks(r.marks_obtained),
-                is_absent: r.is_absent,
-                remarks: r.remarks || null,
-            })),
-        })
+    // Hard-offline shortcut — don't even attempt the request, queue immediately.
+    if (!navigator.onLine) {
+        await queuePayloadOffline(payload, dirtyRows)
+        return
+    }
 
-        // Mark as snapped
+    try {
+        const res = await window.axios.post(route('marks.autosave', props.exam.id), payload)
+
         dirtyRows.forEach(r => {
             r._snap = {
                 marks_obtained: r.marks_obtained,
@@ -174,10 +226,75 @@ async function autosave() {
         lastSavedAt.value = new Date(res.data?.saved_at || Date.now())
         saveStatus.value = 'saved'
         updateSavedAgoLabel()
+
+        // If we had a queued snapshot for this scope, that POST just superseded it.
+        if (hasQueuedSnapshot.value) {
+            try {
+                await deleteSnapshot({
+                    examId: props.exam.id,
+                    subjectId: props.subject.id,
+                    sectionId: props.section.id,
+                })
+                hasQueuedSnapshot.value = false
+            } catch (e) { /* best-effort */ }
+        }
+    } catch (e) {
+        // Network-class failures (no response, status 0) → queue for later.
+        // Validation/server-side errors (status 4xx) → real error, surface it.
+        const isNetwork = !e.response || e.code === 'ERR_NETWORK'
+        if (isNetwork) {
+            await queuePayloadOffline(payload, dirtyRows)
+        } else {
+            saveStatus.value = 'error'
+            saveError.value = e.response?.data?.error || 'Could not autosave. Try again.'
+        }
+    }
+}
+
+async function queuePayloadOffline(payload, dirtyRows) {
+    try {
+        await queueSnapshot({
+            examId: props.exam.id,
+            subjectId: props.subject.id,
+            sectionId: props.section.id,
+            payload,
+        })
+        hasQueuedSnapshot.value = true
+        lastQueuedAt.value = new Date()
+        saveStatus.value = 'queued'
+        // Don't clear dirty — we want the next online autosave to re-send fresh.
+        // But snapshot is on disk so even a refresh won't lose data.
     } catch (e) {
         saveStatus.value = 'error'
-        saveError.value = e.response?.data?.error || 'Could not autosave. Try again.'
+        saveError.value = 'Could not queue offline. Storage full?'
     }
+}
+
+/** Manual or auto sync of any queued snapshots. */
+async function syncQueued(showToast = false) {
+    if (syncInProgress.value || !navigator.onLine) return
+    syncInProgress.value = true
+    try {
+        const result = await drainAll((examId) => route('marks.autosave', examId))
+        if (result.sent > 0) {
+            hasQueuedSnapshot.value = false
+            lastSavedAt.value = new Date()
+            saveStatus.value = 'saved'
+            updateSavedAgoLabel()
+        }
+    } finally {
+        syncInProgress.value = false
+    }
+}
+
+// React to connectivity changes.
+function handleOnline() {
+    isOnline.value = true
+    syncQueued()
+}
+function handleOffline() {
+    isOnline.value = false
+    saveStatus.value = 'queued'
 }
 
 function updateSavedAgoLabel() {
@@ -191,9 +308,31 @@ function updateSavedAgoLabel() {
 
 savedAgoTimer = setInterval(updateSavedAgoLabel, 5000)
 
+onMounted(async () => {
+    // Check if a snapshot is sitting in IDB for this scope (e.g. page closed
+    // before reconnect). If so, mark the badge active and try to flush.
+    try {
+        const snap = await getSnapshot({
+            examId: props.exam.id,
+            subjectId: props.subject.id,
+            sectionId: props.section.id,
+        })
+        if (snap) {
+            hasQueuedSnapshot.value = true
+            lastQueuedAt.value = new Date(snap.queued_at)
+            if (navigator.onLine) syncQueued()
+        }
+    } catch (e) { /* IDB unavailable — fall through */ }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+})
+
 onBeforeUnmount(() => {
     clearInterval(savedAgoTimer)
     clearTimeout(autosaveTimer)
+    window.removeEventListener('online', handleOnline)
+    window.removeEventListener('offline', handleOffline)
 })
 
 // =============== Keyboard Navigation ===============
@@ -412,11 +551,24 @@ const absentStudents = computed(() =>
                         </div>
                     </div>
 
-                    <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-3 flex-wrap">
+                        <!-- Online / offline pill (always visible while saving features matter) -->
+                        <span v-if="!isOnline"
+                            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-700 dark:text-rose-300 text-[10px] font-bold uppercase tracking-wider">
+                            <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                            Offline
+                        </span>
+
                         <!-- Save indicator -->
                         <div v-if="saveStatus === 'saving'" class="text-xs text-base-content/55 flex items-center gap-1.5">
                             <span class="loading loading-spinner loading-xs"></span>
                             Saving...
+                        </div>
+                        <div v-else-if="saveStatus === 'queued' || hasQueuedSnapshot" class="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5 font-medium">
+                            <CloudIcon class="w-3.5 h-3.5" />
+                            <span>Saved locally — will sync when online</span>
+                            <button v-if="isOnline" @click="syncQueued" :disabled="syncInProgress"
+                                class="underline ml-1">{{ syncInProgress ? 'Syncing…' : 'Sync now' }}</button>
                         </div>
                         <div v-else-if="saveStatus === 'saved'" class="text-xs text-emerald-700 flex items-center gap-1.5 font-medium">
                             <CheckCircleIcon class="w-3.5 h-3.5" />
@@ -457,13 +609,50 @@ const absentStudents = computed(() =>
                 </div>
             </div>
 
+            <!-- ═══════════ SEARCH + FILTER (works on both mobile + desktop) ═══════════ -->
+            <div v-if="rows.length" class="rounded-2xl border border-base-200 bg-base-100 p-2.5 sm:p-3 space-y-2">
+                <div class="relative">
+                    <MagnifyingGlassIcon class="w-4 h-4 text-base-content/40 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input v-model="search" type="text"
+                        placeholder="Search by name or roll number…"
+                        class="input input-bordered input-sm w-full pl-9 text-sm" />
+                </div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                    <button v-for="f in [
+                        { k: 'all', label: 'All', count: filterCounts.all },
+                        { k: 'empty', label: 'Empty', count: filterCounts.empty },
+                        { k: 'errors', label: 'Errors', count: filterCounts.errors },
+                        { k: 'absent', label: 'Absent', count: filterCounts.absent },
+                    ]" :key="f.k"
+                        @click="filterMode = f.k"
+                        class="px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition-colors flex items-center gap-1"
+                        :class="filterMode === f.k
+                            ? (f.k === 'errors' ? 'bg-rose-500 text-white'
+                               : f.k === 'empty' ? 'bg-amber-500 text-white'
+                               : f.k === 'absent' ? 'bg-orange-500 text-white'
+                               : 'bg-primary text-primary-content')
+                            : 'bg-base-200 text-base-content/65 hover:bg-base-300'">
+                        <span>{{ f.label }}</span>
+                        <span class="font-mono tabular-nums opacity-80">{{ f.count }}</span>
+                    </button>
+                    <button v-if="search || filterMode !== 'all'"
+                        @click="search = ''; filterMode = 'all'"
+                        class="ml-auto text-[11px] text-base-content/55 hover:text-base-content underline">
+                        Clear
+                    </button>
+                </div>
+                <p v-if="visibleRows.length !== rows.length" class="text-[11px] text-base-content/55">
+                    Showing {{ visibleRows.length }} of {{ rows.length }} students
+                </p>
+            </div>
+
             <!-- ═══════════ MOBILE CARD VIEW (xs–sm) ═══════════
                  Touch-friendly per-student cards. Replaces the table on phones.
                  Layout: 2 rows. Top row = identity + status. Bottom row = stepper input full-width.
                  Percentage + absent shown as inline pills below.
             -->
             <div class="sm:hidden space-y-2.5 max-w-full">
-                <div v-for="(row, idx) in rows" :key="`m-${row.student_id}`"
+                <div v-for="{ row, idx } in visibleRows" :key="`m-${row.student_id}`"
                      class="rounded-2xl border bg-base-100 overflow-hidden transition-colors"
                      :class="[
                          row.is_absent ? 'border-amber-300/70'
@@ -544,11 +733,35 @@ const absentStudents = computed(() =>
                     <div v-if="rowErrors[idx]" class="mx-3 mb-3 px-2.5 py-1.5 rounded-lg bg-rose-500/15 text-rose-700 dark:text-rose-300 text-[11px] font-medium">
                         {{ rowErrors[idx] }} — enter 0 to {{ totalMarks }}
                     </div>
+
+                    <!-- Remarks expander (mobile-only — desktop has its own column) -->
+                    <div v-if="!isSubmitted" class="border-t border-base-200/70">
+                        <button type="button"
+                            @click="expandedRemarks[row.student_id] = !expandedRemarks[row.student_id]"
+                            class="w-full px-3 py-2 flex items-center gap-1.5 text-[11px] text-base-content/55 hover:bg-base-200/50 transition-colors">
+                            <ChatBubbleLeftEllipsisIcon class="w-3.5 h-3.5" />
+                            <span class="font-medium">{{ row.remarks ? 'Edit remark' : 'Add remark' }}</span>
+                            <span v-if="row.remarks" class="ml-1 text-base-content/45 truncate max-w-[55%]">— {{ row.remarks }}</span>
+                            <ChevronDownIcon class="w-3.5 h-3.5 ml-auto transition-transform"
+                                :class="expandedRemarks[row.student_id] ? 'rotate-180' : ''" />
+                        </button>
+                        <div v-if="expandedRemarks[row.student_id]" class="px-3 pb-3 pt-1">
+                            <input v-model="row.remarks" @input="markDirty(row)"
+                                :disabled="row.is_absent"
+                                type="text"
+                                placeholder="e.g. excellent improvement, needs attention"
+                                class="input input-bordered input-sm w-full text-xs" />
+                        </div>
+                    </div>
                 </div>
 
                 <div v-if="!rows.length" class="rounded-2xl border border-base-200 px-4 py-12 text-center text-sm text-base-content/55">
                     <UserGroupIcon class="w-10 h-10 text-base-content/30 mx-auto mb-2" />
                     No students in this section.
+                </div>
+                <div v-else-if="!visibleRows.length" class="rounded-2xl border border-base-200 px-4 py-8 text-center text-sm text-base-content/55">
+                    <MagnifyingGlassIcon class="w-8 h-8 text-base-content/30 mx-auto mb-1.5" />
+                    No students match the current filter.
                 </div>
             </div>
 
@@ -581,7 +794,7 @@ const absentStudents = computed(() =>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-base-200">
-                            <tr v-for="(row, idx) in rows" :key="row.student_id"
+                            <tr v-for="{ row, idx } in visibleRows" :key="row.student_id"
                                 class="transition-colors"
                                 :class="{
                                     'bg-base-200/30': row.is_absent,

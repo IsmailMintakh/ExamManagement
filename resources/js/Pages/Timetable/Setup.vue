@@ -1,11 +1,22 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { Head, Link, useForm } from '@inertiajs/vue3'
+import { Head, Link, useForm, router } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import {
     Cog6ToothIcon, PlusIcon, TrashIcon, ClockIcon, CalendarIcon,
-    ArrowLeftIcon, BookOpenIcon, CheckIcon,
+    ArrowLeftIcon, BookOpenIcon, CheckIcon, SparklesIcon, SunIcon, MoonIcon,
 } from '@heroicons/vue/24/outline'
+
+// ─── Bell schedule presets ───
+const PRESETS = [
+    { key: 'winter', label: 'Winter', sub: '08:00–13:30, 7 periods', icon: 'CalendarIcon' },
+    { key: 'summer', label: 'Summer', sub: '07:30–12:50, 8 periods', icon: 'SunIcon' },
+    { key: 'ramadan', label: 'Ramadan', sub: '08:00–11:45, 6 short periods', icon: 'MoonIcon' },
+]
+function applyPreset(key) {
+    if (!confirm(`Apply the "${key}" preset? This will REPLACE your current bell schedule. You can tweak any slot afterwards.`)) return
+    router.post(route('timetable.setup.preset'), { preset: key }, { preserveScroll: true })
+}
 
 const props = defineProps({
     school: Object,
@@ -126,6 +137,29 @@ function typeColor(type) {
                     {{ form.processing ? 'Saving…' : 'Save schedule' }}
                 </button>
             </div>
+
+            <!-- Bell-schedule presets -->
+            <section class="rounded-2xl border-2 border-violet-500/30 bg-violet-500/5 p-4">
+                <div class="flex items-center gap-2 mb-3">
+                    <SparklesIcon class="w-4 h-4 text-violet-600 dark:text-violet-400" />
+                    <h3 class="text-sm font-bold">Quick start with a preset</h3>
+                    <span class="text-[11px] text-base-content/55">Replace your current schedule with a tested template — tweak any slot afterwards.</span>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button v-for="p in PRESETS" :key="p.key"
+                        @click="applyPreset(p.key)"
+                        type="button"
+                        class="rounded-xl bg-base-100 ring-1 ring-base-300 hover:ring-violet-500/40 hover:bg-violet-500/5 p-3 text-left transition-colors">
+                        <div class="flex items-center gap-2 mb-1">
+                            <CalendarIcon v-if="p.key === 'winter'" class="w-4 h-4 text-sky-600" />
+                            <SunIcon v-else-if="p.key === 'summer'" class="w-4 h-4 text-amber-600" />
+                            <MoonIcon v-else class="w-4 h-4 text-emerald-600" />
+                            <span class="font-bold text-sm">{{ p.label }}</span>
+                        </div>
+                        <p class="text-[11px] text-base-content/55">{{ p.sub }}</p>
+                    </button>
+                </div>
+            </section>
 
             <!-- Slots editor -->
             <section class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">

@@ -15,13 +15,164 @@ use App\Models\SubstitutionAssignment;
 use App\Models\TeacherAbsence;
 use App\Models\TimetableEntry;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
+    /**
+     * "Hero stat" payload — the big featured number on the dashboard with
+     * a delta vs the previous session and an N-point sparkline. Scoped to
+     * a school id (null = whole district / super-admin).
+     *
+     * Returns:
+     *   - value (current pass rate %)
+     *   - delta (percentage points vs previous session, signed)
+     *   - sparkline ([N values, chronological]) — for the mini-trend line
+     *   - sample_size (current period N)
+     *   - prev_session_name (label for the comparison)
+     */
+    protected function heroPassRateStat(?int $schoolId, ?AcademicSession $current): array
+    {
+        $sessions = AcademicSession::orderByDesc('start_date')->take(5)->get()->reverse()->values();
+        $rates = $sessions->map(function ($s) use ($schoolId) {
+            $q = Result::where('academic_session_id', $s->id);
+            if ($schoolId) $q->where('school_id', $schoolId);
+            $count = (clone $q)->count();
+            if ($count === 0) return ['session_id' => $s->id, 'name' => $s->name, 'rate' => 0, 'n' => 0];
+            $passed = (clone $q)->where('is_passed', true)->count();
+            return [
+                'session_id' => $s->id, 'name' => $s->name,
+                'rate' => round($passed / $count * 100, 1), 'n' => $count,
+            ];
+        });
+
+        $currentRow = $rates->firstWhere('session_id', $current?->id) ?? $rates->last();
+        $rateValue = $currentRow['rate'] ?? 0;
+        $sample = $currentRow['n'] ?? 0;
+
+        // Find the most recent prior session that actually had data.
+        $idx = $rates->search(fn ($r) => $r['session_id'] === ($currentRow['session_id'] ?? null));
+        $prev = null;
+        for ($i = max(0, $idx - 1); $i >= 0; $i--) {
+            if (($rates[$i]['n'] ?? 0) > 0) { $prev = $rates[$i]; break; }
+        }
+        $delta = $prev ? round($rateValue - $prev['rate'], 1) : null;
+
+        return [
+            'value' => $rateValue,
+            'delta' => $delta,
+            'sparkline' => $rates->pluck('rate')->all(),
+            'sample_size' => $sample,
+            'prev_session_name' => $prev['name'] ?? null,
+        ];
+    }
+
+    /**
+     * Personal activity feed for the dashboard right column.
+     * Reuses the existing notifications table for context.
+     */
+    protected function activityFeedFor(User $user, int $limit = 8): array
+    {
+        return DatabaseNotification::query()
+            ->where('notifiable_id', $user->id)
+            ->where('notifiable_type', get_class($user))
+            ->latest()
+            ->limit($limit)
+            ->get()
+            ->map(function ($n) {
+                $data = is_array($n->data) ? $n->data : (array) $n->data;
+                return [
+                    'id' => $n->id,
+                    'title' => $data['title'] ?? 'Notification',
+                    'message' => $data['message'] ?? '',
+                    'icon' => $data['icon'] ?? 'bell',
+                    'url' => $data['url'] ?? null,
+                    'when' => $n->created_at->diffForHumans(),
+                    'when_iso' => $n->created_at->toIso8601String(),
+                    'is_unread' => $n->read_at === null,
+                ];
+            })->all();
+    }
+
+    /**
+     * Calendar widget data — exam dates this month + today flag. Scoped
+     * by school for non-DDO. Returns a list of date marker rows.
+     */
+    protected function calendarMarkersFor(?int $schoolId): array
+    {
+        $start = Carbon::now()->startOfMonth();
+        $end = Carbon::now()->endOfMonth();
+
+        $exams = Exam::query()
+            ->whereBetween('start_date', [$start, $end])
+            ->when($schoolId, fn ($q) => $q->visibleToSchool($schoolId))
+            ->select(['id', 'name', 'start_date', 'end_date', 'status'])
+            ->get()
+            ->map(fn ($e) => [
+                'date' => $e->start_date?->toDateString(),
+                'label' => $e->name,
+                'kind' => 'exam',
+                'status' => $e->status,
+            ])
+            ->all();
+
+        return [
+            'month' => $start->format('Y-m'),
+            'month_label' => $start->format('F Y'),
+            'today' => Carbon::today()->toDateString(),
+            'markers' => $exams,
+        ];
+    }
+
+    /**
+     * Auto-generated single-line insight banner. Looks at the hero stat +
+     * top class/school + worst subject and crafts a sentence the user can
+     * skim in 2 seconds.
+     *
+     * Examples:
+     *   "Your school improved by 5.2% this term — best class is V-A at 91%."
+     *   "Pass rate down 3% from last term. Class VIII needs attention."
+     */
+    protected function insightBannerFor(?int $schoolId, array $heroStat, ?AcademicSession $current): ?string
+    {
+        if ($heroStat['sample_size'] === 0) return null;
+
+        $delta = $heroStat['delta'];
+        $value = $heroStat['value'];
+        $parts = [];
+
+        if ($delta !== null) {
+            $verb = $delta > 0 ? 'up' : ($delta < 0 ? 'down' : 'level');
+            $parts[] = $delta != 0
+                ? "Pass rate {$verb} " . abs($delta) . '% vs ' . $heroStat['prev_session_name']
+                : "Pass rate steady at {$value}%";
+        } else {
+            $parts[] = "Pass rate {$value}%";
+        }
+
+        // Find best class in current session
+        $bestClass = Result::query()
+            ->when($schoolId, fn ($q) => $q->where('school_id', $schoolId))
+            ->when($current, fn ($q) => $q->where('academic_session_id', $current->id))
+            ->select('school_class_id', DB::raw('AVG(percentage) as avg_pct'), DB::raw('COUNT(*) as n'))
+            ->groupBy('school_class_id')
+            ->having('n', '>=', 5)
+            ->orderByDesc('avg_pct')
+            ->with('schoolClass:id,name')
+            ->first();
+
+        if ($bestClass && $bestClass->schoolClass) {
+            $parts[] = 'top class ' . $bestClass->schoolClass->name . ' at ' . round($bestClass->avg_pct, 0) . '%';
+        }
+
+        return implode(' — ', $parts) . '.';
+    }
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -115,6 +266,32 @@ class DashboardController extends Controller
             $schoolWiseComparison = collect();
         }
 
+        // ─── Pass/fail donut + grade distribution + 5-session trend ───
+        $resultsAll = Result::query()
+            ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+            ->select(['is_passed', 'grade'])->get();
+        $passFail = [
+            ['label' => 'Passed', 'value' => $resultsAll->where('is_passed', true)->count(), 'color' => 'emerald'],
+            ['label' => 'Failed', 'value' => $resultsAll->where('is_passed', false)->count(), 'color' => 'rose'],
+        ];
+        $gradeDist = $resultsAll->groupBy(fn ($r) => $r->grade ?: '—')
+            ->map(fn ($g) => $g->count())
+            ->sortKeys();
+
+        // Last 5 sessions trend (pass rate)
+        $sessionTrend = AcademicSession::orderByDesc('start_date')->take(5)->get()->reverse()->values()
+            ->map(function ($sess) {
+                $rs = Result::where('academic_session_id', $sess->id)->select(['is_passed'])->get();
+                $rate = $rs->count() > 0
+                    ? round($rs->where('is_passed', true)->count() / $rs->count() * 100, 1) : 0;
+                return ['label' => $sess->name, 'value' => $rate];
+            })->all();
+
+        $hero = $this->heroPassRateStat(null, $currentSession);
+        $insight = $this->insightBannerFor(null, $hero, $currentSession);
+        $activity = $this->activityFeedFor($user);
+        $calendar = $this->calendarMarkersFor(null);
+
         return Inertia::render('Dashboard', [
             'role' => 'super-admin',
             'stats' => [
@@ -130,6 +307,15 @@ class DashboardController extends Controller
             'needsAttention' => $needsAttention,
             'setupStatus' => $setupStatus,
             'currentSession' => $currentSession,
+            'charts' => [
+                'passFail' => $passFail,
+                'gradeDist' => $gradeDist,
+                'sessionTrend' => $sessionTrend,
+            ],
+            'hero' => $hero,
+            'insight' => $insight,
+            'activity' => $activity,
+            'calendar' => $calendar,
         ]);
     }
 
@@ -221,6 +407,33 @@ class DashboardController extends Controller
             $classWisePerformance = collect();
         }
 
+        // ─── Pass/fail donut + grade distribution + 5-session trend (school-scoped) ───
+        $resultsAll = Result::where('school_id', $schoolId)
+            ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+            ->select(['is_passed', 'grade'])->get();
+        $passFail = [
+            ['label' => 'Passed', 'value' => $resultsAll->where('is_passed', true)->count(), 'color' => 'emerald'],
+            ['label' => 'Failed', 'value' => $resultsAll->where('is_passed', false)->count(), 'color' => 'rose'],
+        ];
+        $gradeDist = $resultsAll->groupBy(fn ($r) => $r->grade ?: '—')
+            ->map(fn ($g) => $g->count())
+            ->sortKeys();
+
+        $sessionTrend = AcademicSession::orderByDesc('start_date')->take(5)->get()->reverse()->values()
+            ->map(function ($sess) use ($schoolId) {
+                $rs = Result::where('school_id', $schoolId)
+                    ->where('academic_session_id', $sess->id)
+                    ->select(['is_passed'])->get();
+                $rate = $rs->count() > 0
+                    ? round($rs->where('is_passed', true)->count() / $rs->count() * 100, 1) : 0;
+                return ['label' => $sess->name, 'value' => $rate];
+            })->all();
+
+        $hero = $this->heroPassRateStat($schoolId, $currentSession);
+        $insight = $this->insightBannerFor($schoolId, $hero, $currentSession);
+        $activity = $this->activityFeedFor($user);
+        $calendar = $this->calendarMarkersFor($schoolId);
+
         return Inertia::render('Dashboard', [
             'role' => 'school-admin',
             'stats' => [
@@ -236,6 +449,15 @@ class DashboardController extends Controller
             'needsAttention' => $needsAttention,
             'setupStatus' => $setupStatus,
             'currentSession' => $currentSession,
+            'charts' => [
+                'passFail' => $passFail,
+                'gradeDist' => $gradeDist,
+                'sessionTrend' => $sessionTrend,
+            ],
+            'hero' => $hero,
+            'insight' => $insight,
+            'activity' => $activity,
+            'calendar' => $calendar,
         ]);
     }
 

@@ -11,7 +11,10 @@ class Section extends Model
 {
     use HasFactory, SoftDeletes;
 
-    protected $fillable = ['school_class_id', 'name', 'slug', 'class_teacher_id', 'capacity', 'is_active'];
+    protected $fillable = [
+        'school_class_id', 'name', 'slug', 'class_teacher_id', 'capacity', 'is_active',
+        'timetable_locked', 'timetable_locked_at', 'timetable_locked_by',
+    ];
 
     protected static function booted(): void
     {
@@ -29,7 +32,21 @@ class Section extends Model
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return [
+            'is_active' => 'boolean',
+            'timetable_locked' => 'boolean',
+            'timetable_locked_at' => 'datetime',
+        ];
+    }
+
+    public function timetableLockedBy()
+    {
+        return $this->belongsTo(User::class, 'timetable_locked_by');
+    }
+
+    public function timetableEntries()
+    {
+        return $this->hasMany(TimetableEntry::class);
     }
 
     public function schoolClass()

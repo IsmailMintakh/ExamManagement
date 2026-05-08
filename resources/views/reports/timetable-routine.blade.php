@@ -296,8 +296,12 @@
                                 @endphp
                                 @if($entry && $entry->subject_id)
                                     <td class="cell">
-                                        <div class="sub">{{ $entry->subject?->name ?? '—' }}</div>
-                                        <div class="tch">{{ $entry->teacher?->name ?? 'No teacher' }}</div>
+                                        @if(($show ?? 'both') !== 'teacher')
+                                            <div class="sub">{{ $entry->subject?->name ?? '—' }}</div>
+                                        @endif
+                                        @if(($show ?? 'both') !== 'subject')
+                                            <div class="tch">{{ $entry->teacher?->name ?? 'No teacher' }}</div>
+                                        @endif
                                         @if(($row['has_variant'] ?? false))
                                             <div class="var">* differs some days</div>
                                         @endif

@@ -14,13 +14,29 @@ use Illuminate\Database\Eloquent\Model;
 class SubstitutionAssignment extends Model
 {
     protected $fillable = [
-        'date', 'timetable_entry_id', 'original_teacher_id',
-        'substitute_teacher_id', 'status', 'notes', 'created_by',
+        'academic_session_id', 'date', 'timetable_entry_id',
+        'original_teacher_id', 'substitute_teacher_id',
+        'status', 'notes', 'score_breakdown', 'created_by',
     ];
 
     protected function casts(): array
     {
-        return ['date' => 'date'];
+        return [
+            'date' => 'date',
+            'score_breakdown' => 'array',
+        ];
+    }
+
+    public function scopeForSession($query, ?int $sessionId = null)
+    {
+        $sid = $sessionId ?? AcademicSession::currentSession()?->id;
+        if (!$sid) return $query;
+        return $query->where('academic_session_id', $sid);
+    }
+
+    public function academicSession()
+    {
+        return $this->belongsTo(AcademicSession::class, 'academic_session_id');
     }
 
     public function timetableEntry()

@@ -47,7 +47,7 @@ class SubstitutionController extends Controller
 
         $absences = TeacherAbsence::where('absent_on', $date->toDateString())
             ->whereIn('user_id', $teachers->pluck('id'))
-            ->get(['user_id', 'reason', 'from_time']);
+            ->get(['user_id', 'reason', 'from_time', 'was_backdated']);
         $absentSet = $absences->keyBy('user_id');
 
         // Today's bell schedule — used by the UI to populate the "left after"
@@ -82,6 +82,7 @@ class SubstitutionController extends Controller
                 'from_time' => $absentSet->get($t->id)?->from_time
                     ? substr($absentSet->get($t->id)->from_time, 0, 5)
                     : null,
+                'was_backdated' => (bool) $absentSet->get($t->id)?->was_backdated,
             ]),
             'todaySlots' => $todaySlots->map(fn ($s) => [
                 'id' => $s->id,
@@ -102,6 +103,7 @@ class SubstitutionController extends Controller
                 'substitute_teacher_id' => $a->substitute_teacher_id,
                 'status' => $a->status,
                 'notes' => $a->notes,
+                'score_breakdown' => $a->score_breakdown,
             ]),
         ]);
     }
@@ -161,16 +163,25 @@ class SubstitutionController extends Controller
                 ->delete();
             $msg = 'Marked present.';
         } else {
+            $absentOn = \Carbon\Carbon::parse($validated['date'])->startOfDay();
+            $today = now()->startOfDay();
+            $wasBackdated = $absentOn->lt($today);
+
             TeacherAbsence::create([
                 'user_id' => $validated['user_id'],
+                'academic_session_id' => \App\Models\AcademicSession::currentSession()?->id,
                 'absent_on' => $validated['date'],
                 'reason' => $validated['reason'] ?? null,
                 'from_time' => $validated['from_time'] ?? null,
+                'was_backdated' => $wasBackdated,
                 'marked_by' => $user->id,
             ]);
             $msg = $validated['from_time']
                 ? 'Marked absent from ' . $validated['from_time'] . '.'
                 : 'Marked absent (full day).';
+            if ($wasBackdated) {
+                $msg .= ' (back-dated entry)';
+            }
         }
 
         return redirect()->route('timetable.substitutions', ['date' => $validated['date']])

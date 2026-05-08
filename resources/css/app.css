@@ -148,7 +148,7 @@
        We target via [data-collapsed="true"] on the <aside>. Mobile (drawer
        mode) always shows the full sidebar — these rules only apply at lg:+. */
     @media (min-width: 1024px) {
-        /* Hide all label/section/group-toggle text */
+        /* Hide everything that's text/badge/group-label/etc. */
         aside[data-collapsed="true"] .sidebar-section,
         aside[data-collapsed="true"] .sidebar-group-toggle,
         aside[data-collapsed="true"] .sidebar-link > span:not(.sidebar-icon),
@@ -174,7 +174,7 @@
             padding-right: 0.5rem;
         }
 
-        /* Hide brand text + close button beside the logo, keep just the logo */
+        /* ─── Brand row: drop sidebar to just the logo, no text/padding ─── */
         aside[data-collapsed="true"] .flex.h-16 > div:not(:first-child),
         aside[data-collapsed="true"] .flex.h-16 > button {
             display: none !important;
@@ -184,30 +184,67 @@
             padding: 0;
         }
 
-        /* User card: hide the name/role text, show only the avatar centered */
+        /* ─── User card: collapse to centered avatar only, no margin/padding ───
+           This was the source of the "DDO" pill bleeding past the rail. The
+           wrapper had mx-3 + px-2.5 totaling 44px of horizontal whitespace,
+           leaving just 28px for a 36px avatar — so it overflowed. Force the
+           card to a clean 56px-wide centered block when collapsed. */
         aside[data-collapsed="true"] nav ~ div .flex-1.min-w-0 { display: none !important; }
-        aside[data-collapsed="true"] nav ~ div { justify-content: center; }
+        aside[data-collapsed="true"] nav ~ div {
+            justify-content: center;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+            background: transparent !important;
+            border: 0 !important;
+        }
 
-        /* Hide the developer-credit footer block (small text at the bottom) */
+        /* Hide the developer-credit footer block entirely */
         aside[data-collapsed="true"] aside > div:last-child p,
         aside[data-collapsed="true"] aside > div:last-child a { display: none !important; }
-        /* Fallback selector: any small text-center block at the bottom */
         aside[data-collapsed="true"] > div.text-center { display: none !important; }
 
         /* Defensive overflow clip on the NAV (not the whole aside, which
-           would clip the floating tooltip). Stops icon-only items with
-           lingering label spans from triggering an internal X-scrollbar
-           during the collapse animation. */
-        aside[data-collapsed="true"] nav {
-            overflow-x: hidden;
-        }
+           would clip the floating tooltip). */
+        aside[data-collapsed="true"] nav { overflow-x: hidden; }
         /* Force-hide every direct child span of a sidebar link in collapsed
-           mode — the more permissive selector earlier missed nested spans
-           and was the source of the leftover-text overflow that caused the
-           horizontal scrollbar. */
+           mode — catches deeply nested spans that earlier selectors missed
+           and were the source of the lingering-text horizontal scrollbar. */
         aside[data-collapsed="true"] .sidebar-link span,
         aside[data-collapsed="true"] .sidebar-link > * span {
             display: none !important;
+        }
+
+        /* ─── Collapse toggle button polish ─── */
+        aside .sidebar-collapse-btn {
+            position: absolute;
+            right: -14px;
+            top: 4.5rem;
+            z-index: 30;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 9999px;
+            background: oklch(var(--b1));
+            color: oklch(var(--bc) / 0.6);
+            border: 1px solid oklch(var(--bc) / 0.12);
+            box-shadow: 0 4px 10px -2px rgba(0,0,0,0.08), 0 2px 4px -2px rgba(0,0,0,0.06);
+            transition: all 180ms var(--ease-out);
+        }
+        aside .sidebar-collapse-btn:hover {
+            color: oklch(var(--p));
+            border-color: oklch(var(--p) / 0.4);
+            transform: scale(1.08);
+            box-shadow: 0 6px 14px -2px oklch(var(--p) / 0.18);
+        }
+        aside .sidebar-collapse-btn .chev {
+            transition: transform 240ms var(--ease-out);
+        }
+        aside[data-collapsed="true"] .sidebar-collapse-btn .chev {
+            transform: rotate(180deg);
         }
 
         /* Floating sidebar tooltip — rendered as a single Vue-controlled

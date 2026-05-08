@@ -128,6 +128,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('master/pdf', [TimetableController::class, 'masterPdf'])->name('master.pdf');
         Route::get('routine/pdf', [TimetableController::class, 'routinePdf'])->name('routine.pdf');
 
+        // P5 — Reports
+        Route::get('reports', [\App\Http\Controllers\TimetableReportController::class, 'index'])->name('reports');
+
+        // P2 — Workflow actions
+        Route::post('section/{section}/lock', [TimetableController::class, 'lockSection'])->name('section.lock');
+        Route::post('section/{section}/unlock', [TimetableController::class, 'unlockSection'])->name('section.unlock');
+        Route::post('section/{target}/copy-from/{source}', [TimetableController::class, 'copyFrom'])->name('section.copy');
+        Route::post('swap', [TimetableController::class, 'swap'])->name('swap');
+        Route::post('setup/preset', [TimetableController::class, 'applyPreset'])->name('setup.preset');
+
         // Daily absence + substitutions
         Route::get('substitutions', [SubstitutionController::class, 'index'])->name('substitutions');
         Route::post('substitutions/absences', [SubstitutionController::class, 'toggleAbsence'])->name('substitutions.absence');
@@ -137,6 +147,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('substitutions/{assignment}/decline', [SubstitutionController::class, 'decline'])->name('substitutions.decline');
         Route::get('substitutions/slip', [SubstitutionController::class, 'slip'])->name('substitutions.slip');
     });
+
+    // Personal cover-duty inbox for any teacher.
+    Route::get('/my-covers', [\App\Http\Controllers\MyCoversController::class, 'index'])->name('my-covers');
+    Route::post('/my-covers/{assignment}/decline', [\App\Http\Controllers\MyCoversController::class, 'decline'])->name('my-covers.decline');
 
     // Profile
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -228,6 +242,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('attendance-sheet/{exam}/{schoolClass}', [ReportController::class, 'attendanceSheet'])->name('attendance-sheet');
         Route::get('progress-report/{student}', [ReportController::class, 'progressReport'])->name('progress-report');
         Route::get('export/{type}/{exam}', [ReportController::class, 'exportExcel'])->name('export');
+
+        // ── Analytics & per-teacher reports (web pages + bulk PDFs) ──
+        Route::get('exam-analytics/{exam}', [ReportController::class, 'examAnalytics'])->name('exam-analytics');
+        Route::get('teacher-report-card/{user}', [ReportController::class, 'teacherReportCard'])->name('teacher-report-card');
+        Route::get('progress-booklet/{student}', [ReportController::class, 'progressBooklet'])->name('progress-booklet');
+        Route::get('progress-booklet-bulk/{section}', [ReportController::class, 'progressBookletBulk'])->name('progress-booklet-bulk');
     });
 
     // Users
