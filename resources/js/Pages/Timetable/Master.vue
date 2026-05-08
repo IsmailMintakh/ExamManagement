@@ -1,0 +1,343 @@
+<script setup>
+import AppLayout from '@/Layouts/AppLayout.vue'
+import { Head, Link, router } from '@inertiajs/vue3'
+import { computed, ref } from 'vue'
+import {
+    Squares2X2Icon, ArrowLeftIcon, PrinterIcon, CalendarDaysIcon,
+    AdjustmentsHorizontalIcon, EyeIcon, MagnifyingGlassIcon, ChevronDownIcon,
+    XCircleIcon,
+} from '@heroicons/vue/24/outline'
+
+const props = defineProps({
+    school: Object,
+    slots: { type: Array, default: () => [] },
+    sections: { type: Array, default: () => [] },
+    entries: { type: Object, default: () => ({}) },
+    allSchools: { type: Array, default: () => [] },
+    currentSchoolId: Number,
+})
+
+const DAYS = [
+    { code: 'mon', label: 'Monday' },
+    { code: 'tue', label: 'Tuesday' },
+    { code: 'wed', label: 'Wednesday' },
+    { code: 'thu', label: 'Thursday' },
+    { code: 'fri', label: 'Friday' },
+    { code: 'sat', label: 'Saturday' },
+]
+
+// Default to today's weekday, falling back to Monday on Sundays.
+function todayCode() {
+    const map = ['sun','mon','tue','wed','thu','fri','sat']
+    const c = map[new Date().getDay()]
+    return c === 'sun' ? 'mon' : c
+}
+
+const activeDay = ref(todayCode())
+const filterClass = ref('') // school_class_id filter — empty = all classes
+const teacherFilter = ref('')
+const subjectFilter = ref('')
+const search = ref('')
+
+function entry(day, slotId, sectionId) {
+    return props.entries[`${day}|${slotId}|${sectionId}`]
+}
+function slotApplies(slot, day) {
+    const days = slot.weekdays || ['mon','tue','wed','thu','fri','sat']
+    return days.includes(day)
+}
+function isPeriod(s) { return s.type === 'period' }
+
+// Class filter options derived from sections.
+const classOptions = computed(() => {
+    const seen = new Map()
+    for (const s of props.sections) {
+        if (!seen.has(s.school_class_id)) {
+            seen.set(s.school_class_id, { id: s.school_class_id, name: s.class_name })
+        }
+    }
+    return [...seen.values()]
+})
+
+// Filter visible sections by class filter + search (matching class+section labels).
+const visibleSections = computed(() => {
+    return props.sections.filter(s => {
+        if (filterClass.value && String(s.school_class_id) !== String(filterClass.value)) return false
+        if (search.value) {
+            const q = search.value.toLowerCase()
+            const label = `${s.class_name} ${s.name}`.toLowerCase()
+            if (!label.includes(q)) return false
+        }
+        return true
+    })
+})
+
+// Apply teacher / subject filters by *highlighting* matching cells rather
+// than hiding them — clearer at-a-glance "where is Mr. Khan teaching today?"
+function cellMatchesFilters(e) {
+    if (teacherFilter.value && e?.teacher?.id !== Number(teacherFilter.value)) return false
+    if (subjectFilter.value && e?.subject?.id !== Number(subjectFilter.value)) return false
+    return true
+}
+function cellHighlighted(e) {
+    if (!teacherFilter.value && !subjectFilter.value) return false
+    if (!e) return false
+    return cellMatchesFilters(e)
+}
+
+// Distinct teachers + subjects for the filter dropdowns.
+const distinctTeachers = computed(() => {
+    const map = new Map()
+    Object.values(props.entries).forEach(e => {
+        if (e.teacher?.id && !map.has(e.teacher.id)) {
+            map.set(e.teacher.id, { id: e.teacher.id, name: e.teacher.name })
+        }
+    })
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
+})
+const distinctSubjects = computed(() => {
+    const map = new Map()
+    Object.values(props.entries).forEach(e => {
+        if (e.subject?.id && !map.has(e.subject.id)) {
+            map.set(e.subject.id, { id: e.subject.id, name: e.subject.name })
+        }
+    })
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
+})
+
+// Per-day stats for the badge on the day pills.
+function statsForDay(dayCode) {
+    let filled = 0, total = 0
+    for (const slot of props.slots) {
+        if (!isPeriod(slot)) continue
+        if (!slotApplies(slot, dayCode)) continue
+        for (const sec of props.sections) {
+            total++
+            const e = entry(dayCode, slot.id, sec.id)
+            if (e?.teacher_id) filled++
+        }
+    }
+    return { filled, total, pct: total ? Math.round((filled / total) * 100) : 0 }
+}
+
+// Detect within-day teacher conflicts (same teacher in two sections at the
+// same slot). Returns Set of "<teacher_id>|<slotId>" keys with conflicts.
+const conflictsToday = computed(() => {
+    const seen = {}
+    const conflicts = new Set()
+    for (const slot of props.slots) {
+        if (!isPeriod(slot)) continue
+        if (!slotApplies(slot, activeDay.value)) continue
+        for (const sec of props.sections) {
+            const e = entry(activeDay.value, slot.id, sec.id)
+            if (!e?.teacher_id) continue
+            const key = `${e.teacher_id}|${slot.id}`
+            if (seen[key]) {
+                conflicts.add(seen[key])
+                conflicts.add(`${slot.id}|${sec.id}`)
+            } else {
+                seen[key] = `${slot.id}|${sec.id}`
+            }
+        }
+    }
+    return conflicts
+})
+
+function clearFilters() {
+    filterClass.value = ''
+    teacherFilter.value = ''
+    subjectFilter.value = ''
+    search.value = ''
+}
+
+function switchSchool(id) {
+    router.get(route('timetable.master'), { school_id: id }, { preserveState: false })
+}
+</script>
+
+<template>
+    <Head title="Master Timetable" />
+    <AppLayout :breadcrumbs="[
+        { label: 'Timetable', href: route('timetable.index') },
+        { label: 'Master view' },
+    ]">
+        <div class="space-y-4 max-w-[1900px] mx-auto">
+
+            <!-- Header -->
+            <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
+                <div>
+                    <Link :href="route('timetable.index')" class="btn btn-ghost btn-sm gap-1 mb-2 -ml-2">
+                        <ArrowLeftIcon class="w-4 h-4" /> Back to Timetable
+                    </Link>
+                    <h1 class="text-2xl font-extrabold tracking-tight flex items-center gap-2">
+                        <Squares2X2Icon class="w-6 h-6 text-violet-600 dark:text-violet-400" />
+                        Whole-school master view
+                    </h1>
+                    <p class="text-sm text-base-content/55 mt-1">
+                        Every class &amp; section side-by-side. {{ school?.name }} ·
+                        {{ sections.length }} section{{ sections.length === 1 ? '' : 's' }} ·
+                        {{ slots.filter(s => s.type === 'period').length }} period slots
+                    </p>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <select v-if="allSchools.length"
+                        :value="currentSchoolId"
+                        @change="switchSchool($event.target.value)"
+                        class="select select-bordered select-sm rounded-xl text-sm">
+                        <option v-for="s in allSchools" :key="s.id" :value="s.id">{{ s.name }}</option>
+                    </select>
+                    <a :href="route('timetable.routine.pdf', { school_id: school?.id })" target="_blank"
+                        class="btn btn-primary btn-sm rounded-xl gap-1.5">
+                        <PrinterIcon class="w-4 h-4" /> Wall-chart (1-2 A4)
+                    </a>
+                    <a :href="route('timetable.master.pdf', { school_id: school?.id })" target="_blank"
+                        class="btn btn-outline btn-sm rounded-xl gap-1.5">
+                        <PrinterIcon class="w-4 h-4" /> Day-by-day (A3)
+                    </a>
+                    <a :href="route('timetable.school.pdf', { school_id: school?.id })" target="_blank"
+                        class="btn btn-ghost btn-sm rounded-xl gap-1.5">
+                        <PrinterIcon class="w-4 h-4" /> Per-section booklet
+                    </a>
+                </div>
+            </div>
+
+            <!-- Day pills -->
+            <div class="flex gap-1.5 overflow-x-auto pb-1">
+                <button v-for="d in DAYS" :key="d.code"
+                    @click="activeDay = d.code"
+                    class="px-4 py-2.5 rounded-xl text-sm font-bold ring-2 transition-colors whitespace-nowrap flex items-center gap-2"
+                    :class="activeDay === d.code
+                        ? 'ring-violet-500 bg-violet-500/10 text-violet-700 dark:text-violet-300'
+                        : 'ring-base-300 bg-base-100 hover:bg-base-200/50'">
+                    <span>{{ d.label }}</span>
+                    <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-base-200/70">
+                        {{ statsForDay(d.code).filled }}/{{ statsForDay(d.code).total }}
+                    </span>
+                </button>
+            </div>
+
+            <!-- Filters strip -->
+            <div class="rounded-2xl border border-base-300 bg-base-100 p-3">
+                <div class="flex flex-wrap items-center gap-2">
+                    <div class="flex items-center gap-1.5 text-base-content/55 shrink-0">
+                        <AdjustmentsHorizontalIcon class="w-4 h-4" />
+                        <span class="text-[11px] uppercase tracking-wider font-bold">Filter</span>
+                    </div>
+                    <select v-model="filterClass" class="select select-bordered select-xs rounded-lg text-xs">
+                        <option value="">All classes</option>
+                        <option v-for="c in classOptions" :key="c.id" :value="c.id">{{ c.name }}</option>
+                    </select>
+                    <select v-model="teacherFilter" class="select select-bordered select-xs rounded-lg text-xs">
+                        <option value="">All teachers (highlight one)</option>
+                        <option v-for="t in distinctTeachers" :key="t.id" :value="t.id">{{ t.name }}</option>
+                    </select>
+                    <select v-model="subjectFilter" class="select select-bordered select-xs rounded-lg text-xs">
+                        <option value="">All subjects (highlight one)</option>
+                        <option v-for="s in distinctSubjects" :key="s.id" :value="s.id">{{ s.name }}</option>
+                    </select>
+                    <div class="relative flex-1 min-w-[160px]">
+                        <MagnifyingGlassIcon class="w-3.5 h-3.5 text-base-content/40 absolute left-2 top-1/2 -translate-y-1/2" />
+                        <input v-model="search" type="text" placeholder="Search class/section…"
+                            class="input input-bordered input-xs rounded-lg pl-7 w-full text-xs" />
+                    </div>
+                    <button v-if="filterClass || teacherFilter || subjectFilter || search"
+                        @click="clearFilters"
+                        class="btn btn-ghost btn-xs rounded-lg gap-1">
+                        <XCircleIcon class="w-3.5 h-3.5" /> Clear
+                    </button>
+                </div>
+            </div>
+
+            <!-- Conflict warning -->
+            <div v-if="conflictsToday.size" class="rounded-2xl border-2 border-rose-500/40 bg-rose-500/10 p-3 text-sm flex items-start gap-2">
+                <XCircleIcon class="w-5 h-5 text-rose-600 mt-0.5 shrink-0" />
+                <div>
+                    <p class="font-bold text-rose-900 dark:text-rose-200">Teacher conflicts detected on {{ DAYS.find(d => d.code === activeDay)?.label }}</p>
+                    <p class="text-xs text-rose-700 dark:text-rose-300/80 mt-0.5">A teacher is assigned to two sections at the same time. Conflicting cells are outlined in rose.</p>
+                </div>
+            </div>
+
+            <!-- ════════════ MASTER GRID ════════════ -->
+            <div v-if="visibleSections.length" class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
+                <div class="overflow-auto" style="max-height: 80vh;">
+                    <table class="text-xs border-collapse" style="min-width: 100%;">
+                        <thead>
+                            <tr>
+                                <th class="text-left px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider text-base-content/55 sticky left-0 top-0 bg-base-200 z-30 border-b border-r border-base-300 min-w-[120px]">
+                                    Slot
+                                </th>
+                                <th v-for="sec in visibleSections" :key="sec.id"
+                                    class="text-center px-1.5 py-2 font-bold sticky top-0 bg-base-200 z-20 border-b border-r border-base-300 min-w-[120px]">
+                                    <p class="text-[10px] uppercase tracking-wider text-violet-700 dark:text-violet-300">{{ sec.class_name }}</p>
+                                    <p class="text-[11px] text-base-content/65 normal-case tracking-normal">Sec {{ sec.name }}</p>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="slot in slots" :key="slot.id"
+                                :class="!isPeriod(slot) ? 'bg-amber-500/5' : ''">
+                                <td class="px-2 py-1.5 sticky left-0 z-10 border-b border-r border-base-300 align-top"
+                                    :class="!isPeriod(slot) ? 'bg-amber-500/10' : 'bg-base-100'">
+                                    <p class="font-bold text-xs leading-tight">{{ slot.name }}</p>
+                                    <p class="text-[9px] text-base-content/55 font-mono">{{ slot.starts_at?.slice(0,5) }}–{{ slot.ends_at?.slice(0,5) }}</p>
+                                    <span v-if="!isPeriod(slot)" class="text-[9px] uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300">{{ slot.type }}</span>
+                                </td>
+                                <td v-for="sec in visibleSections" :key="sec.id"
+                                    class="border-b border-r border-base-300 align-top p-0.5"
+                                    :class="!slotApplies(slot, activeDay) ? 'bg-base-200/30' : ''">
+                                    <!-- Slot doesn't apply -->
+                                    <div v-if="!slotApplies(slot, activeDay)"
+                                        class="text-center py-2 text-[9px] text-base-content/35 italic">
+                                        no class
+                                    </div>
+                                    <!-- Break / lunch -->
+                                    <div v-else-if="!isPeriod(slot)"
+                                        class="text-center py-2 text-[9px] uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300">
+                                        {{ slot.type }}
+                                    </div>
+                                    <!-- Period cell -->
+                                    <div v-else
+                                        class="rounded-md p-1.5 text-center min-h-[44px] flex flex-col justify-center transition-colors"
+                                        :class="[
+                                            conflictsToday.has(`${slot.id}|${sec.id}`)
+                                                ? 'ring-2 ring-rose-500 bg-rose-500/10'
+                                                : '',
+                                            cellHighlighted(entry(activeDay, slot.id, sec.id))
+                                                ? 'ring-2 ring-violet-500 bg-violet-500/15 shadow'
+                                                : '',
+                                            (teacherFilter || subjectFilter) && !cellHighlighted(entry(activeDay, slot.id, sec.id))
+                                                ? 'opacity-30'
+                                                : ''
+                                        ]">
+                                        <template v-if="entry(activeDay, slot.id, sec.id)">
+                                            <p class="font-bold text-[11px] truncate leading-tight">
+                                                {{ entry(activeDay, slot.id, sec.id).subject?.name || '—' }}
+                                            </p>
+                                            <p class="text-[9px] text-base-content/55 truncate leading-tight">
+                                                {{ entry(activeDay, slot.id, sec.id).teacher?.name || 'No teacher' }}
+                                            </p>
+                                        </template>
+                                        <template v-else>
+                                            <span class="text-[9px] text-base-content/30 italic">—</span>
+                                        </template>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div v-else class="rounded-2xl border border-base-300 bg-base-100 p-10 text-center">
+                <CalendarDaysIcon class="w-10 h-10 text-base-content/30 mx-auto mb-2" />
+                <p class="font-bold text-sm">No sections match your filter</p>
+                <p class="text-xs text-base-content/55 mt-0.5">Try clearing the search or class filter.</p>
+            </div>
+
+            <p class="text-[11px] text-base-content/45 text-center pb-4">
+                Highlight a teacher or subject above to spotlight where they appear today.
+                Conflicting cells (same teacher, same period) are outlined rose.
+            </p>
+        </div>
+    </AppLayout>
+</template>

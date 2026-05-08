@@ -42,18 +42,22 @@ class Subject extends Model
         return $this->hasMany(SubjectTeacher::class);
     }
 
+    // Qualify the column with the table name so this scope is safe when
+    // chained off a belongsToMany (e.g. $class->subjects()->active()) where
+    // the join with class_subjects also has an `is_active` column → bare
+    // `where('is_active', ...)` raises "Column 'is_active' is ambiguous".
     public function scopeActive($query)
     {
-        return $query->where('is_active', true);
+        return $query->where('subjects.is_active', true);
     }
 
     public function scopeMain($query)
     {
-        return $query->where('is_main', true);
+        return $query->where('subjects.is_main', true);
     }
 
     public function scopeOrdered($query)
     {
-        return $query->orderBy('sort_order')->orderBy('name');
+        return $query->orderBy('subjects.sort_order')->orderBy('subjects.name');
     }
 }

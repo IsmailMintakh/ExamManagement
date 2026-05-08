@@ -20,8 +20,9 @@ import {
     ArrowRightIcon, BoltIcon, TrophyIcon, ExclamationCircleIcon,
     PlusIcon, PencilSquareIcon, EnvelopeIcon, CheckBadgeIcon,
     ChevronRightIcon, RectangleStackIcon, ChevronDownIcon,
+    BellAlertIcon, ArrowsRightLeftIcon, FaceSmileIcon, NoSymbolIcon,
 } from '@heroicons/vue/24/outline'
-import { ref } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 
 const props = defineProps({
     stats: { type: Object, default: () => ({}) },
@@ -39,6 +40,7 @@ const props = defineProps({
     // First-run setup checklist for super-admin/school-admin: each step has
     // { key, label, count, done, action_url, action_label }. Hidden once complete.
     setupStatus: { type: Object, default: null },
+    todaysClasses: { type: Object, default: null },
 })
 
 const page = usePage()
@@ -69,6 +71,40 @@ const greeting = computed(() => {
 const todayLabel = computed(() => new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'short', day: 'numeric',
 }))
+
+// ─── Today's Classes timeline (teachers only) ───
+// Re-tick every 30s so "now/upcoming" markers update without a refresh.
+const nowTick = ref(Date.now())
+let _tick = null
+onMounted(() => { _tick = setInterval(() => { nowTick.value = Date.now() }, 30000) })
+onBeforeUnmount(() => { if (_tick) clearInterval(_tick) })
+
+// Merged + sorted today's slots: own periods + cover periods.
+const todayMerged = computed(() => {
+    if (!props.todaysClasses) return []
+    const own = (props.todaysClasses.periods || []).map(p => ({ ...p, kind: 'own' }))
+    const covers = (props.todaysClasses.covers || []).map(p => ({ ...p, kind: 'cover' }))
+    return [...own, ...covers].sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+})
+
+function nowMinutes() {
+    const d = new Date(nowTick.value)
+    return d.getHours() * 60 + d.getMinutes()
+}
+function timeToMin(t) {
+    if (!t) return 0
+    const [h, m] = t.split(':').map(Number)
+    return h * 60 + m
+}
+function periodState(p) {
+    const start = timeToMin(p.starts_at)
+    const end = timeToMin(p.ends_at)
+    const n = nowMinutes()
+    if (n < start - 5) return 'upcoming'
+    if (n >= start - 5 && n < start) return 'starting-soon'
+    if (n >= start && n <= end) return 'ongoing'
+    return 'past'
+}
 
 const roleLabels = {
     'super-admin':     'District Drawing Officer',
@@ -221,6 +257,88 @@ const statTiles = computed(() => {
                     </p>
                 </div>
             </div>
+
+            <!-- ════════ TODAY'S TEACHING SCHEDULE (teachers only) ════════ -->
+            <section v-if="todaysClasses && (role === 'class-teacher' || role === 'subject-teacher')"
+                class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
+                <header class="px-4 sm:px-5 py-3 border-b border-base-300 flex items-center justify-between gap-2 flex-wrap">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <div class="w-8 h-8 rounded-lg bg-sky-500/15 text-sky-600 dark:text-sky-400 grid place-items-center shrink-0">
+                            <ClockIcon class="w-4 h-4" />
+                        </div>
+                        <div class="min-w-0">
+                            <h2 class="font-bold text-sm truncate">Today's Schedule</h2>
+                            <p class="text-[11px] text-base-content/55 truncate">
+                                {{ todayMerged.length }} period{{ todayMerged.length === 1 ? '' : 's' }}
+                                <span v-if="todaysClasses.covers?.length" class="text-amber-600 dark:text-amber-400 font-bold">
+                                    · {{ todaysClasses.covers.length }} substitution cover{{ todaysClasses.covers.length === 1 ? '' : 's' }}
+                                </span>
+                            </p>
+                        </div>
+                    </div>
+                    <Link :href="route('timetable.teacher', $page.props.auth.user.id)"
+                        class="btn btn-ghost btn-xs rounded-lg gap-1">
+                        <CalendarDaysIcon class="w-3.5 h-3.5" /> My Timetable
+                    </Link>
+                </header>
+
+                <!-- Off-day -->
+                <div v-if="todaysClasses.is_off_day" class="px-5 py-8 text-center">
+                    <FaceSmileIcon class="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                    <p class="font-bold text-sm">No classes today — enjoy your day off!</p>
+                    <p class="text-xs text-base-content/55 mt-0.5">Your timetable resumes tomorrow.</p>
+                </div>
+
+                <!-- Marked absent -->
+                <div v-else-if="todaysClasses.absent" class="px-4 sm:px-5 py-4 bg-rose-500/10 border-b border-rose-500/20 flex items-start gap-3">
+                    <NoSymbolIcon class="w-5 h-5 text-rose-600 dark:text-rose-400 mt-0.5 shrink-0" />
+                    <div class="text-sm">
+                        <p class="font-bold text-rose-900 dark:text-rose-200">You're marked absent today</p>
+                        <p class="text-xs text-rose-700 dark:text-rose-300/80 mt-0.5">Your classes have been auto-suggested for substitution. Cover periods you've been assigned (if any) appear below.</p>
+                    </div>
+                </div>
+
+                <!-- Empty state (not off-day, but no periods scheduled) -->
+                <div v-if="!todaysClasses.is_off_day && !todayMerged.length" class="px-5 py-8 text-center">
+                    <CalendarDaysIcon class="w-10 h-10 text-base-content/25 mx-auto mb-2" />
+                    <p class="font-bold text-sm">No classes scheduled today</p>
+                    <p class="text-xs text-base-content/55 mt-0.5">No timetable entries for you on {{ todaysClasses.day }}. Talk to admin if this looks wrong.</p>
+                </div>
+
+                <!-- Period strip -->
+                <div v-else-if="!todaysClasses.is_off_day" class="overflow-x-auto p-3 sm:p-4">
+                    <div class="flex gap-2 min-w-min">
+                        <div v-for="(p, idx) in todayMerged" :key="idx"
+                            class="rounded-xl p-3 ring-2 transition-colors min-w-[180px] flex-shrink-0"
+                            :class="[
+                                periodState(p) === 'ongoing' ? 'ring-emerald-500/60 bg-emerald-500/10' :
+                                periodState(p) === 'starting-soon' ? 'ring-amber-500/60 bg-amber-500/10 animate-pulse' :
+                                periodState(p) === 'past' ? 'ring-base-300 bg-base-200/40 opacity-60' :
+                                p.kind === 'cover' ? 'ring-amber-500/40 bg-amber-500/5' :
+                                'ring-base-300 bg-base-100',
+                                p.is_cancelled ? 'opacity-40 line-through' : ''
+                            ]">
+                            <div class="flex items-center justify-between gap-1 mb-1.5">
+                                <span class="text-[10px] font-mono font-bold tracking-tight">{{ p.starts_at }}–{{ p.ends_at }}</span>
+                                <span v-if="periodState(p) === 'ongoing'"
+                                    class="text-[9px] uppercase font-bold tracking-wider text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 bg-emerald-500/20 rounded">NOW</span>
+                                <span v-else-if="periodState(p) === 'starting-soon'"
+                                    class="text-[9px] uppercase font-bold tracking-wider text-amber-700 dark:text-amber-300 px-1.5 py-0.5 bg-amber-500/20 rounded">SOON</span>
+                                <span v-else-if="p.kind === 'cover'"
+                                    class="text-[9px] uppercase font-bold tracking-wider text-amber-700 dark:text-amber-300 px-1.5 py-0.5 bg-amber-500/20 rounded flex items-center gap-0.5">
+                                    <ArrowsRightLeftIcon class="w-2.5 h-2.5" /> COVER
+                                </span>
+                            </div>
+                            <p class="font-bold text-sm truncate">{{ p.subject || '—' }}</p>
+                            <p class="text-[11px] text-base-content/65 truncate">{{ p.class }} · {{ p.section }}</p>
+                            <p v-if="p.kind === 'cover' && p.replaces" class="text-[10px] text-amber-700 dark:text-amber-400 mt-1 truncate">
+                                replaces {{ p.replaces }}
+                            </p>
+                            <p v-if="p.room" class="text-[10px] text-base-content/45 mt-0.5 truncate">Room {{ p.room }}</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
             <!-- ════════ SETUP CHECKLIST — compact, collapsible, hides when complete ════════ -->
             <section v-if="setupStatus && !setupStatus.is_complete"

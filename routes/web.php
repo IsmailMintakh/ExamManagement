@@ -31,7 +31,9 @@ use App\Http\Controllers\SchoolController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SectionController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\SubstitutionController;
 use App\Http\Controllers\StudentController;
+use App\Http\Controllers\TimetableController;
 use App\Http\Controllers\StudentPortalController;
 use App\Http\Controllers\StudentTransferController;
 use App\Http\Controllers\SubjectController;
@@ -109,6 +111,32 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Class Teacher hub ("My Class" — see students, marks status, results for own section)
     Route::get('my-class', [ClassTeacherController::class, 'index'])->name('class-teacher.index');
+
+    // ─── Timetable + substitution ───
+    Route::prefix('timetable')->name('timetable.')->group(function () {
+        Route::get('/', [TimetableController::class, 'index'])->name('index');
+        Route::get('setup', [TimetableController::class, 'setup'])->name('setup');
+        Route::post('setup', [TimetableController::class, 'saveSetup'])->name('setup.save');
+        Route::get('builder/{section}', [TimetableController::class, 'builder'])->name('builder');
+        Route::post('builder/{section}', [TimetableController::class, 'saveBuilder'])->name('builder.save');
+        Route::get('section/{section}', [TimetableController::class, 'sectionView'])->name('section');
+        Route::get('section/{section}/pdf', [TimetableController::class, 'sectionPdf'])->name('section.pdf');
+        Route::get('teacher/{user}', [TimetableController::class, 'teacherView'])->name('teacher');
+        Route::get('teacher/{user}/pdf', [TimetableController::class, 'teacherPdf'])->name('teacher.pdf');
+        Route::get('school/pdf', [TimetableController::class, 'schoolPdf'])->name('school.pdf');
+        Route::get('master', [TimetableController::class, 'master'])->name('master');
+        Route::get('master/pdf', [TimetableController::class, 'masterPdf'])->name('master.pdf');
+        Route::get('routine/pdf', [TimetableController::class, 'routinePdf'])->name('routine.pdf');
+
+        // Daily absence + substitutions
+        Route::get('substitutions', [SubstitutionController::class, 'index'])->name('substitutions');
+        Route::post('substitutions/absences', [SubstitutionController::class, 'toggleAbsence'])->name('substitutions.absence');
+        Route::post('substitutions/generate', [SubstitutionController::class, 'generate'])->name('substitutions.generate');
+        Route::post('substitutions/{assignment}/confirm', [SubstitutionController::class, 'confirm'])->name('substitutions.confirm');
+        Route::post('substitutions/{assignment}/reassign', [SubstitutionController::class, 'reassign'])->name('substitutions.reassign');
+        Route::post('substitutions/{assignment}/decline', [SubstitutionController::class, 'decline'])->name('substitutions.decline');
+        Route::get('substitutions/slip', [SubstitutionController::class, 'slip'])->name('substitutions.slip');
+    });
 
     // Profile
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');

@@ -11,6 +11,9 @@ use App\Models\SchoolClass;
 use App\Models\Section;
 use App\Models\Student;
 use App\Models\SubjectTeacher;
+use App\Models\SubstitutionAssignment;
+use App\Models\TeacherAbsence;
+use App\Models\TimetableEntry;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -236,6 +239,88 @@ class DashboardController extends Controller
         ]);
     }
 
+    /**
+     * "What am I teaching today?" — chronological list of today's periods for
+     * a teacher, enriched with substitution awareness:
+     *   - regular periods owned by them
+     *   - cover periods where they're the substitute today (suggested/confirmed)
+     *   - flag if they're marked absent today (their own classes won't show)
+     */
+    protected function todaysClassesFor($user): array
+    {
+        // Map ISO weekday (1=Mon..7=Sun) → our codes.
+        $map = [1 => 'mon', 2 => 'tue', 3 => 'wed', 4 => 'thu', 5 => 'fri', 6 => 'sat', 7 => null];
+        $today = now();
+        $code = $map[$today->dayOfWeekIso] ?? null;
+        if (!$code) {
+            return ['day' => 'sun', 'is_off_day' => true, 'absent' => false, 'periods' => [], 'covers' => []];
+        }
+
+        // If absent today, the user's own periods are skipped (someone else covers).
+        $isAbsent = TeacherAbsence::where('user_id', $user->id)
+            ->whereDate('absent_on', $today->toDateString())
+            ->exists();
+
+        $periods = TimetableEntry::query()
+            ->where('teacher_id', $user->id)
+            ->where('weekday', $code)
+            ->with(['timeSlot', 'subject:id,name,code', 'schoolClass:id,name', 'section:id,name'])
+            ->get()
+            ->filter(fn ($e) => $e->timeSlot && $e->timeSlot->type === 'period')
+            ->sortBy(fn ($e) => $e->timeSlot->starts_at)
+            ->map(fn ($e) => [
+                'time_slot_id' => $e->time_slot_id,
+                'slot_name' => $e->timeSlot->name,
+                'starts_at' => substr($e->timeSlot->starts_at, 0, 5),
+                'ends_at' => substr($e->timeSlot->ends_at, 0, 5),
+                'subject' => $e->subject?->name,
+                'class' => $e->schoolClass?->name,
+                'section' => $e->section?->name,
+                'room' => $e->room,
+                'is_own' => true,
+                'is_cancelled' => $isAbsent,
+            ])
+            ->values();
+
+        // Cover periods assigned to this user today (status = suggested or confirmed).
+        $covers = SubstitutionAssignment::query()
+            ->where('substitute_teacher_id', $user->id)
+            ->whereDate('date', $today->toDateString())
+            ->whereIn('status', ['suggested', 'confirmed'])
+            ->with([
+                'timetableEntry.timeSlot',
+                'timetableEntry.subject:id,name,code',
+                'timetableEntry.schoolClass:id,name',
+                'timetableEntry.section:id,name',
+                'originalTeacher:id,name',
+            ])
+            ->get()
+            ->filter(fn ($a) => $a->timetableEntry && $a->timetableEntry->timeSlot)
+            ->sortBy(fn ($a) => $a->timetableEntry->timeSlot->starts_at)
+            ->map(fn ($a) => [
+                'assignment_id' => $a->id,
+                'time_slot_id' => $a->timetableEntry->time_slot_id,
+                'slot_name' => $a->timetableEntry->timeSlot->name,
+                'starts_at' => substr($a->timetableEntry->timeSlot->starts_at, 0, 5),
+                'ends_at' => substr($a->timetableEntry->timeSlot->ends_at, 0, 5),
+                'subject' => $a->timetableEntry->subject?->name,
+                'class' => $a->timetableEntry->schoolClass?->name,
+                'section' => $a->timetableEntry->section?->name,
+                'replaces' => $a->originalTeacher?->name,
+                'status' => $a->status,
+                'is_cover' => true,
+            ])
+            ->values();
+
+        return [
+            'day' => $code,
+            'is_off_day' => false,
+            'absent' => $isAbsent,
+            'periods' => $periods,
+            'covers' => $covers,
+        ];
+    }
+
     private function classTeacherDashboard($user, ?AcademicSession $currentSession): Response
     {
         $needsAttention = $this->needsAttentionFor($user, $currentSession);
@@ -298,6 +383,7 @@ class DashboardController extends Controller
             'recentExams' => $recentExams,
             'needsAttention' => $needsAttention,
             'currentSession' => $currentSession,
+            'todaysClasses' => $this->todaysClassesFor($user),
         ]);
     }
 
@@ -391,6 +477,7 @@ class DashboardController extends Controller
             'recentExams' => $recentExams,
             'needsAttention' => $needsAttention,
             'currentSession' => $currentSession,
+            'todaysClasses' => $this->todaysClassesFor($user),
         ]);
     }
 

@@ -11,6 +11,8 @@ use App\Models\Result;
 use App\Models\Section;
 use App\Models\Student;
 use App\Models\SubjectTeacher;
+use App\Models\TimeSlot;
+use App\Models\TimetableEntry;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -293,7 +295,22 @@ class ClassTeacherController extends Controller
                 'start_date' => $e->start_date?->format('d M Y'),
             ]);
 
+        // ─── Section timetable for "My Class Timetable" panel ───
+        // Class teacher should see their entire section's weekly grid with
+        // all subject teachers visible — printable as a PDF.
+        $schoolId = $section->schoolClass->school_id;
+        $timetableSlots = TimeSlot::where('school_id', $schoolId)->ordered()->get();
+        $timetableEntries = TimetableEntry::where('section_id', $section->id)
+            ->with(['subject:id,name,code', 'teacher:id,name'])
+            ->get()
+            ->keyBy(fn ($e) => $e->weekday . '|' . $e->time_slot_id);
+
         return Inertia::render('ClassTeacher/Index', [
+            'timetable' => [
+                'has_schedule' => $timetableSlots->isNotEmpty(),
+                'slots' => $timetableSlots,
+                'entries' => $timetableEntries,
+            ],
             'sections' => $sections->map(fn ($s) => [
                 'id' => $s->id,
                 'name' => $s->name,

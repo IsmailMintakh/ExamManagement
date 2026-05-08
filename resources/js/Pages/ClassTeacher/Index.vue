@@ -24,7 +24,21 @@ const props = defineProps({
     mySubjectStatus: { type: Array, default: () => [] },
     myRecentResults: { type: Array, default: () => [] },
     availableExams: { type: Array, default: () => [] },
+    timetable: { type: Object, default: () => ({ has_schedule: false, slots: [], entries: {} }) },
 })
+
+// ─── Timetable view ───
+const TT_DAYS = [
+    { code: 'mon', label: 'Mon' }, { code: 'tue', label: 'Tue' },
+    { code: 'wed', label: 'Wed' }, { code: 'thu', label: 'Thu' },
+    { code: 'fri', label: 'Fri' }, { code: 'sat', label: 'Sat' },
+]
+function ttEntry(day, slotId) { return props.timetable.entries[`${day}|${slotId}`] }
+function ttSlotApplies(slot, day) {
+    const days = slot.weekdays || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+    return days.includes(day)
+}
+function ttIsPeriod(s) { return s.type === 'period' }
 
 function switchSection(sectionId) {
     router.get(route('class-teacher.index'), { section: sectionId }, { preserveState: false })
@@ -650,6 +664,73 @@ const resultsPreview = computed(() => props.latestResults.slice(0, RESULTS_PREVI
                             </span>
                         </li>
                     </ul>
+                </div>
+            </section>
+
+            <!-- ════════════ MY CLASS TIMETABLE ════════════ -->
+            <section class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
+                <header class="px-5 py-3 border-b border-base-300 flex items-center justify-between gap-2 flex-wrap">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <div class="w-8 h-8 rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400 grid place-items-center shrink-0">
+                            <CalendarDaysIcon class="w-4 h-4" />
+                        </div>
+                        <div class="min-w-0">
+                            <h2 class="text-sm font-bold truncate">Class Timetable</h2>
+                            <p class="text-[11px] text-base-content/55 truncate">
+                                {{ activeSection?.class_name }} · Section {{ activeSection?.name }} — weekly schedule
+                            </p>
+                        </div>
+                    </div>
+                    <div v-if="timetable.has_schedule" class="flex items-center gap-2">
+                        <a :href="route('timetable.section.pdf', activeSection.id)" target="_blank"
+                            class="btn btn-outline btn-xs rounded-lg gap-1">
+                            <PrinterIcon class="w-3.5 h-3.5" /> Print PDF
+                        </a>
+                        <Link :href="route('timetable.section', activeSection.id)" class="btn btn-ghost btn-xs rounded-lg gap-1">
+                            <ArrowRightIcon class="w-3.5 h-3.5" /> Full view
+                        </Link>
+                    </div>
+                </header>
+
+                <div v-if="!timetable.has_schedule" class="px-5 py-8 text-center">
+                    <CalendarDaysIcon class="w-10 h-10 text-base-content/25 mx-auto mb-2" />
+                    <p class="font-bold text-sm">No timetable yet</p>
+                    <p class="text-xs text-base-content/55 mt-0.5">Ask the school admin to set up the bell schedule and assign teachers.</p>
+                </div>
+
+                <div v-else class="overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead>
+                            <tr class="bg-base-200/50">
+                                <th class="text-left px-3 py-2.5 font-bold text-[10px] uppercase tracking-wider text-base-content/55 sticky left-0 bg-base-200/50 z-10 min-w-[110px]">Slot</th>
+                                <th v-for="d in TT_DAYS" :key="d.code"
+                                    class="text-center px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider text-base-content/55 min-w-[120px]">
+                                    {{ d.label }}
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-base-300">
+                            <tr v-for="slot in timetable.slots" :key="slot.id" :class="!ttIsPeriod(slot) ? 'bg-amber-500/5' : ''">
+                                <td class="px-3 py-2 sticky left-0 z-10"
+                                    :class="!ttIsPeriod(slot) ? 'bg-amber-500/10' : 'bg-base-100'">
+                                    <p class="font-bold text-xs">{{ slot.name }}</p>
+                                    <p class="text-[9px] text-base-content/55 font-mono">{{ slot.starts_at?.slice(0,5) }}–{{ slot.ends_at?.slice(0,5) }}</p>
+                                </td>
+                                <td v-for="d in TT_DAYS" :key="d.code" class="px-1.5 py-1.5 align-middle text-center">
+                                    <div v-if="!ttSlotApplies(slot, d.code)" class="text-[9px] text-base-content/30 italic">—</div>
+                                    <div v-else-if="!ttIsPeriod(slot)"
+                                        class="text-[9px] uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300">
+                                        {{ slot.type }}
+                                    </div>
+                                    <div v-else-if="ttEntry(d.code, slot.id)" class="leading-tight">
+                                        <p class="font-bold text-[11px] truncate">{{ ttEntry(d.code, slot.id).subject?.name || '—' }}</p>
+                                        <p class="text-[9px] text-base-content/55 truncate">{{ ttEntry(d.code, slot.id).teacher?.name || 'No teacher' }}</p>
+                                    </div>
+                                    <div v-else class="text-[9px] text-base-content/35">free</div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </section>
 

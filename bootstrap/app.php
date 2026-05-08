@@ -10,6 +10,15 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule): void {
+        // Pre-class reminder: every minute, find period slots starting ~2 min
+        // from now and push to the assigned teacher (or today's substitute).
+        $schedule->command('timetable:notify-upcoming --minutes=2')
+            ->everyMinute()
+            ->withoutOverlapping(2)
+            ->onOneServer()
+            ->runInBackground();
+    })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,

@@ -142,6 +142,8 @@ const menuGroups = computed(() => {
         if (hasPerm('marks.view') || hasPerm('marks.enter')) workItems.push({ label: 'Marks Entry', href: '/marks', icon: DocumentTextIcon })
         if (hasPerm('results.view')) workItems.push({ label: 'Results', href: '/results', icon: ChartBarIcon })
         if (hasPerm('reports.view')) workItems.push({ label: 'Reports', href: '/reports', icon: DocumentTextIcon })
+        // Teachers see their own read-only timetable view.
+        workItems.push({ label: 'Timetable', href: '/timetable', icon: CalendarIcon })
         if (hasPerm('questions.view')) workItems.push({ label: 'Question Bank', href: '/questions', icon: QuestionMarkCircleIcon })
         if (hasPerm('papers.view')) workItems.push({ label: 'Paper Generator', href: '/papers', icon: DocumentDuplicateIcon })
 
@@ -172,6 +174,9 @@ const menuGroups = computed(() => {
     if (hasPerm('results.review')) workflowItems.push({ label: 'Result Review', href: '/result-review', icon: CheckBadgeIcon })
     if (hasPerm('supplementary.view')) workflowItems.push({ label: 'Supplementary', href: '/supplementary', icon: ArrowPathIcon })
     if (hasPerm('scheduling.view')) workflowItems.push({ label: 'Exam Scheduling', href: '/scheduling', icon: CalendarIcon })
+    // Timetable + daily substitution. Available to admins (build the timetable)
+    // and to teachers (read-only view of their own schedule).
+    workflowItems.push({ label: 'Timetable', href: '/timetable', icon: CalendarIcon })
     if (hasPerm('reports.view')) workflowItems.push({ label: 'Reports', href: '/reports', icon: DocumentTextIcon })
     if (hasPerm('analytics.view')) workflowItems.push({ label: 'Analytics', href: '/analytics', icon: SparklesIcon })
     if (hasPerm('questions.view')) workflowItems.push({ label: 'Question Bank', href: '/questions', icon: QuestionMarkCircleIcon })
