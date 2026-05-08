@@ -45,6 +45,12 @@ watch([search, role, status], pushFilters)
 
 function clearFilters() { role.value = ''; status.value = '' }
 
+// Delete-confirmation state. These refs were missing before, so clicking
+// the trash icon raised "userToDelete is not defined" in the console and
+// the dialog never opened.
+const userToDelete = ref(null)
+const confirmDelete = ref(false)
+
 function confirmDeleteUser(user) {
     userToDelete.value = user
     confirmDelete.value = true
