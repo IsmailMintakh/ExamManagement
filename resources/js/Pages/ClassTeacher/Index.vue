@@ -47,11 +47,13 @@ function switchSection(sectionId) {
 }
 
 function statusBadge(status) {
+    // Opacity tints work in both light and dark themes — base solid colors
+    // would blow out one mode or the other.
     return {
-        submitted: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
-        draft: 'bg-amber-100 text-amber-700 ring-amber-200',
-        pending: 'bg-slate-100 text-slate-600 ring-slate-200',
-    }[status] || 'bg-slate-100 text-slate-600 ring-slate-200'
+        submitted: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-emerald-500/30',
+        draft: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 ring-amber-500/30',
+        pending: 'bg-base-content/10 text-base-content/65 ring-base-content/15',
+    }[status] || 'bg-base-content/10 text-base-content/65 ring-base-content/15'
 }
 function statusLabel(status) {
     return { submitted: 'Submitted', draft: 'In Progress', pending: 'Not Started' }[status] || 'Unknown'
@@ -89,12 +91,12 @@ function avatarColor(name) {
     return colors[Math.abs(hash) % colors.length]
 }
 function gradeColor(g) {
-    if (!g) return 'bg-slate-100 text-slate-600'
-    if (g.startsWith('A')) return 'bg-emerald-100 text-emerald-700'
-    if (g.startsWith('B')) return 'bg-sky-100 text-sky-700'
-    if (g.startsWith('C')) return 'bg-amber-100 text-amber-700'
-    if (g === 'D' || g === 'E') return 'bg-orange-100 text-orange-700'
-    return 'bg-rose-100 text-rose-700'
+    if (!g) return 'bg-base-content/10 text-base-content/65'
+    if (g.startsWith('A')) return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+    if (g.startsWith('B')) return 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
+    if (g.startsWith('C')) return 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+    if (g === 'D' || g === 'E') return 'bg-orange-500/15 text-orange-700 dark:text-orange-300'
+    return 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
 }
 
 // Progress percentage helper for the linear marks-entry bars on the
@@ -153,57 +155,64 @@ function entryPct(entered, total) {
                 </div>
             </div>
 
-            <!-- ════════════ KPI STRIP ════════════ -->
+            <!-- ════════════ KPI STRIP ════════════
+                 Card backgrounds: theme-aware bg-base-100 (white in light, dark
+                 panel in dark). Color accents come ONLY from the icon tile +
+                 numeric text — never from card background gradients which
+                 looked terrible in dark mode. -->
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                <div class="group rounded-2xl border border-base-200 bg-base-100 p-5 hover:shadow-lg hover:-translate-y-0.5 transition-all">
+                <div class="group rounded-2xl border border-base-300 bg-base-100 p-5 hover:shadow-lg hover:-translate-y-0.5 transition-all">
                     <div class="flex items-start justify-between mb-3">
                         <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-md shadow-emerald-500/20">
                             <UserGroupIcon class="w-5 h-5" />
                         </div>
-                        <span class="text-[10px] uppercase tracking-wider font-bold text-base-content/40">Students</span>
+                        <span class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Students</span>
                     </div>
                     <div class="text-3xl font-extrabold tabular-nums">{{ stats.student_count ?? 0 }}</div>
-                    <p class="text-xs text-base-content/55 mt-1">Active in this section</p>
+                    <p class="text-xs text-base-content/60 mt-1">Active in this section</p>
                 </div>
 
-                <div class="group rounded-2xl border border-base-200 bg-base-100 p-5 hover:shadow-lg hover:-translate-y-0.5 transition-all">
+                <div class="group rounded-2xl border border-base-300 bg-base-100 p-5 hover:shadow-lg hover:-translate-y-0.5 transition-all">
                     <div class="flex items-start justify-between mb-3">
                         <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-md shadow-amber-500/20">
                             <ClipboardDocumentCheckIcon class="w-5 h-5" />
                         </div>
-                        <span class="text-[10px] uppercase tracking-wider font-bold text-base-content/40">Pending</span>
+                        <span class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Pending</span>
                     </div>
-                    <div class="text-3xl font-extrabold tabular-nums text-amber-700">{{ stats.pending_marks_subjects ?? 0 }}</div>
-                    <p class="text-xs text-base-content/55 mt-1">Subject marks awaiting submission</p>
+                    <div class="text-3xl font-extrabold tabular-nums text-amber-600 dark:text-amber-400">{{ stats.pending_marks_subjects ?? 0 }}</div>
+                    <p class="text-xs text-base-content/60 mt-1">Subject marks awaiting submission</p>
                 </div>
 
-                <div class="group rounded-2xl border border-base-200 bg-base-100 p-5 hover:shadow-lg hover:-translate-y-0.5 transition-all">
+                <div class="group rounded-2xl border border-base-300 bg-base-100 p-5 hover:shadow-lg hover:-translate-y-0.5 transition-all">
                     <div class="flex items-start justify-between mb-3">
                         <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 text-white flex items-center justify-center shadow-md shadow-sky-500/20">
                             <ChartBarIcon class="w-5 h-5" />
                         </div>
-                        <span class="text-[10px] uppercase tracking-wider font-bold text-base-content/40">Pass Rate</span>
+                        <span class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Pass Rate</span>
                     </div>
-                    <div class="text-3xl font-extrabold tabular-nums text-sky-700">
+                    <div class="text-3xl font-extrabold tabular-nums text-sky-600 dark:text-sky-400">
                         {{ stats.avg_pass_rate !== null ? `${stats.avg_pass_rate}%` : '—' }}
                     </div>
-                    <p class="text-xs text-base-content/55 mt-1">Across finalized exam results</p>
+                    <p class="text-xs text-base-content/60 mt-1">Across finalized exam results</p>
                 </div>
 
-                <div class="group rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 via-yellow-50 to-base-100 p-5 hover:shadow-lg hover:-translate-y-0.5 transition-all">
+                <!-- Top performer: subtle amber tint via opacity (works in both
+                     light + dark) instead of the previous from-amber-50 wash
+                     which rendered as pale cream on dark backgrounds. -->
+                <div class="group rounded-2xl border-2 border-amber-500/40 bg-amber-500/5 p-5 hover:shadow-lg hover:-translate-y-0.5 transition-all">
                     <div class="flex items-start justify-between mb-3">
                         <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-yellow-600 text-white flex items-center justify-center shadow-md shadow-amber-500/30">
                             <TrophyIcon class="w-5 h-5" />
                         </div>
-                        <span class="text-[10px] uppercase tracking-wider font-bold text-amber-700">Top Performer</span>
+                        <span class="text-[10px] uppercase tracking-wider font-bold text-amber-600 dark:text-amber-400">Top Performer</span>
                     </div>
                     <div class="text-base font-bold leading-tight truncate" :title="stats.top_performer?.name">
                         {{ stats.top_performer?.name || '—' }}
                     </div>
-                    <p v-if="stats.top_performer" class="text-xs text-base-content/60 mt-1">
-                        <span class="font-bold text-emerald-600">{{ stats.top_performer.percentage }}%</span> overall
+                    <p v-if="stats.top_performer" class="text-xs text-base-content/65 mt-1">
+                        <span class="font-bold text-emerald-600 dark:text-emerald-400">{{ stats.top_performer.percentage }}%</span> overall
                     </p>
-                    <p v-else class="text-xs text-base-content/45 mt-1">No results yet</p>
+                    <p v-else class="text-xs text-base-content/55 mt-1">No results yet</p>
                 </div>
             </div>
 
@@ -226,70 +235,73 @@ function entryPct(entered, total) {
 
             <!-- ════════════ OVERVIEW TAB ════════════ -->
             <div v-if="tab === 'overview'" class="space-y-5">
+                <!-- Summary cards: opacity-based color washes survive dark
+                     mode without the pale-cream blowout the from-{color}-50
+                     gradients caused. -->
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                    <div class="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-base-100 p-5">
+                    <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5">
                         <div class="flex items-center gap-3">
                             <div class="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-sm">
                                 <CheckCircleIcon class="w-5 h-5" />
                             </div>
                             <div class="flex-1">
-                                <div class="text-3xl font-extrabold text-emerald-700 tabular-nums leading-none">{{ marksSummary.submitted }}</div>
-                                <p class="text-xs font-bold uppercase tracking-wider text-emerald-700/80 mt-1">Submitted</p>
+                                <div class="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums leading-none">{{ marksSummary.submitted }}</div>
+                                <p class="text-xs font-bold uppercase tracking-wider text-emerald-600/85 dark:text-emerald-400/85 mt-1">Submitted</p>
                             </div>
                         </div>
-                        <p class="text-xs text-base-content/55 mt-3">Out of {{ marksSummary.total }} subject-exam slots</p>
+                        <p class="text-xs text-base-content/65 mt-3">Out of {{ marksSummary.total }} subject-exam slots</p>
                     </div>
-                    <div class="rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-base-100 p-5">
+                    <div class="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5">
                         <div class="flex items-center gap-3">
                             <div class="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
                                 <ClockIcon class="w-5 h-5" />
                             </div>
                             <div class="flex-1">
-                                <div class="text-3xl font-extrabold text-amber-700 tabular-nums leading-none">{{ marksSummary.inProgress }}</div>
-                                <p class="text-xs font-bold uppercase tracking-wider text-amber-700/80 mt-1">In Progress</p>
+                                <div class="text-3xl font-extrabold text-amber-600 dark:text-amber-400 tabular-nums leading-none">{{ marksSummary.inProgress }}</div>
+                                <p class="text-xs font-bold uppercase tracking-wider text-amber-600/85 dark:text-amber-400/85 mt-1">In Progress</p>
                             </div>
                         </div>
-                        <p class="text-xs text-base-content/55 mt-3">Marks entered, not finalized</p>
+                        <p class="text-xs text-base-content/65 mt-3">Marks entered, not finalized</p>
                     </div>
-                    <div class="rounded-2xl border-2 border-rose-200 bg-gradient-to-br from-rose-50 to-base-100 p-5">
+                    <div class="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-5">
                         <div class="flex items-center gap-3">
                             <div class="w-10 h-10 rounded-xl bg-rose-500 text-white flex items-center justify-center shadow-sm">
                                 <XCircleIcon class="w-5 h-5" />
                             </div>
                             <div class="flex-1">
-                                <div class="text-3xl font-extrabold text-rose-700 tabular-nums leading-none">{{ marksSummary.pending }}</div>
-                                <p class="text-xs font-bold uppercase tracking-wider text-rose-700/80 mt-1">Not Started</p>
+                                <div class="text-3xl font-extrabold text-rose-600 dark:text-rose-400 tabular-nums leading-none">{{ marksSummary.pending }}</div>
+                                <p class="text-xs font-bold uppercase tracking-wider text-rose-600/85 dark:text-rose-400/85 mt-1">Not Started</p>
                             </div>
                         </div>
-                        <p class="text-xs text-base-content/55 mt-3">No marks entered yet</p>
+                        <p class="text-xs text-base-content/65 mt-3">No marks entered yet</p>
                     </div>
                 </div>
 
-                <div class="rounded-2xl border border-base-200 bg-base-100 p-6">
+                <div class="rounded-2xl border border-base-300 bg-base-100 p-6">
                     <div class="flex items-center gap-2 mb-4">
                         <SparklesIcon class="w-4 h-4 text-amber-500" />
                         <h3 class="text-sm font-bold uppercase tracking-wider">Quick actions</h3>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <button @click="tab = 'students'" class="group text-left p-4 rounded-xl border-2 border-base-200 hover:border-emerald-400 hover:bg-emerald-50/40 hover:-translate-y-0.5 transition-all">
-                            <UserGroupIcon class="w-7 h-7 text-emerald-600 mb-2.5 group-hover:scale-110 transition-transform" />
+                        <button @click="tab = 'students'" class="group text-left p-4 rounded-xl border border-base-300 hover:border-emerald-500 hover:bg-emerald-500/10 hover:-translate-y-0.5 transition-all">
+                            <UserGroupIcon class="w-7 h-7 text-emerald-600 dark:text-emerald-400 mb-2.5 group-hover:scale-110 transition-transform" />
                             <div class="text-sm font-bold">Students</div>
-                            <div class="text-[11px] text-base-content/55 mt-0.5">View &amp; manage roster</div>
+                            <div class="text-[11px] text-base-content/65 mt-0.5">View &amp; manage roster</div>
                         </button>
-                        <button @click="tab = 'marks'" class="group text-left p-4 rounded-xl border-2 border-base-200 hover:border-amber-400 hover:bg-amber-50/40 hover:-translate-y-0.5 transition-all">
-                            <ClipboardDocumentCheckIcon class="w-7 h-7 text-amber-600 mb-2.5 group-hover:scale-110 transition-transform" />
+                        <button @click="tab = 'marks'" class="group text-left p-4 rounded-xl border border-base-300 hover:border-amber-500 hover:bg-amber-500/10 hover:-translate-y-0.5 transition-all">
+                            <ClipboardDocumentCheckIcon class="w-7 h-7 text-amber-600 dark:text-amber-400 mb-2.5 group-hover:scale-110 transition-transform" />
                             <div class="text-sm font-bold">Marks Status</div>
-                            <div class="text-[11px] text-base-content/55 mt-0.5">Track submissions</div>
+                            <div class="text-[11px] text-base-content/65 mt-0.5">Track submissions</div>
                         </button>
-                        <button @click="tab = 'results'" class="group text-left p-4 rounded-xl border-2 border-base-200 hover:border-sky-400 hover:bg-sky-50/40 hover:-translate-y-0.5 transition-all">
-                            <ChartBarIcon class="w-7 h-7 text-sky-600 mb-2.5 group-hover:scale-110 transition-transform" />
+                        <button @click="tab = 'results'" class="group text-left p-4 rounded-xl border border-base-300 hover:border-sky-500 hover:bg-sky-500/10 hover:-translate-y-0.5 transition-all">
+                            <ChartBarIcon class="w-7 h-7 text-sky-600 dark:text-sky-400 mb-2.5 group-hover:scale-110 transition-transform" />
                             <div class="text-sm font-bold">Class Results</div>
-                            <div class="text-[11px] text-base-content/55 mt-0.5">Latest exam performance</div>
+                            <div class="text-[11px] text-base-content/65 mt-0.5">Latest exam performance</div>
                         </button>
-                        <Link :href="route('marks.index')" class="group text-left p-4 rounded-xl border-2 border-base-200 hover:border-violet-400 hover:bg-violet-50/40 hover:-translate-y-0.5 transition-all block">
-                            <PencilSquareIcon class="w-7 h-7 text-violet-600 mb-2.5 group-hover:scale-110 transition-transform" />
+                        <Link :href="route('marks.index')" class="group text-left p-4 rounded-xl border border-base-300 hover:border-violet-500 hover:bg-violet-500/10 hover:-translate-y-0.5 transition-all block">
+                            <PencilSquareIcon class="w-7 h-7 text-violet-600 dark:text-violet-400 mb-2.5 group-hover:scale-110 transition-transform" />
                             <div class="text-sm font-bold">Enter Marks</div>
-                            <div class="text-[11px] text-base-content/55 mt-0.5">For subjects I teach</div>
+                            <div class="text-[11px] text-base-content/65 mt-0.5">For subjects I teach</div>
                         </Link>
                     </div>
                 </div>
@@ -360,13 +372,13 @@ function entryPct(entered, total) {
 
             <!-- ════════════ MARKS STATUS TAB ════════════ -->
             <div v-if="tab === 'marks'" class="space-y-5">
-                <div class="rounded-2xl bg-gradient-to-br from-sky-50 to-base-100 border-2 border-sky-200 p-4 flex items-start gap-3">
-                    <div class="w-9 h-9 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center flex-shrink-0">
+                <div class="rounded-2xl bg-sky-500/10 border border-sky-500/30 p-4 flex items-start gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-sky-500/20 text-sky-600 dark:text-sky-400 flex items-center justify-center flex-shrink-0">
                         <InformationCircleIcon class="w-5 h-5" />
                     </div>
-                    <div class="text-sm text-sky-900">
+                    <div class="text-sm text-sky-900 dark:text-sky-200">
                         <p class="font-bold">As class teacher, you see who has submitted marks for your section.</p>
-                        <p class="text-xs text-sky-800 mt-1">Each subject has an assigned subject teacher responsible for entering marks. Follow up with them on any delays.</p>
+                        <p class="text-xs text-sky-800/85 dark:text-sky-300/85 mt-1">Each subject has an assigned subject teacher responsible for entering marks. Follow up with them on any delays.</p>
                     </div>
                 </div>
 
@@ -409,7 +421,7 @@ function entryPct(entered, total) {
                                                 </div>
                                             </div>
                                         </div>
-                                        <span v-else class="text-xs text-rose-600 font-medium inline-flex items-center gap-1">
+                                        <span v-else class="text-xs text-rose-600 dark:text-rose-400 font-medium inline-flex items-center gap-1">
                                             <ExclamationTriangleIcon class="w-3.5 h-3.5" /> No teacher assigned
                                         </span>
                                     </td>
@@ -452,13 +464,13 @@ function entryPct(entered, total) {
                  own assignments here, separate from the section-wide marks
                  status (which shows OTHER teachers' work). -->
             <div v-if="tab === 'my-subjects'" class="space-y-5">
-                <div class="rounded-2xl bg-gradient-to-br from-violet-50 to-base-100 border-2 border-violet-200 p-4 flex items-start gap-3">
-                    <div class="w-9 h-9 rounded-xl bg-violet-100 text-violet-600 flex items-center justify-center flex-shrink-0">
+                <div class="rounded-2xl bg-violet-500/10 border border-violet-500/30 p-4 flex items-start gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-violet-500/20 text-violet-600 dark:text-violet-400 flex items-center justify-center flex-shrink-0">
                         <BookOpenIcon class="w-5 h-5" />
                     </div>
-                    <div class="text-sm text-violet-900">
+                    <div class="text-sm text-violet-900 dark:text-violet-200">
                         <p class="font-bold">Subjects you personally teach</p>
-                        <p class="text-xs text-violet-800/85 mt-1">Across your class teacher section AND any other section. Use this to track your OWN marks-entry progress and your students' results.</p>
+                        <p class="text-xs text-violet-800/85 dark:text-violet-300/85 mt-1">Across your class teacher section AND any other section. Use this to track your OWN marks-entry progress and your students' results.</p>
                     </div>
                 </div>
 
@@ -478,7 +490,7 @@ function entryPct(entered, total) {
                             </span>
                         </div>
                         <!-- Class + section pill -->
-                        <div class="inline-flex items-center gap-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 rounded-md px-2 py-1">
+                        <div class="inline-flex items-center gap-1.5 text-xs font-semibold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/30 rounded-md px-2 py-1">
                             <AcademicCapIcon class="w-3.5 h-3.5" />
                             {{ a.class_name }} · Section {{ a.section_name }}
                         </div>
@@ -504,7 +516,7 @@ function entryPct(entered, total) {
                         </div>
 
                         <Link :href="route('marks.index')"
-                            class="mt-4 block text-center text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline">
+                            class="mt-4 block text-center text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:underline">
                             Enter / review marks →
                         </Link>
                     </div>
@@ -543,7 +555,7 @@ function entryPct(entered, total) {
                                         <div class="flex flex-wrap gap-1.5">
                                             <span v-for="sm in r.subject_marks" :key="sm.subject_id"
                                                 class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-mono ring-1"
-                                                :class="sm.is_passed ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-rose-50 text-rose-700 ring-rose-200'">
+                                                :class="sm.is_passed ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-emerald-500/30' : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 ring-rose-500/30'">
                                                 <span class="font-semibold not-italic">{{ sm.subject_name }}:</span>
                                                 {{ sm.obtained_marks }}/{{ sm.total_marks }}
                                             </span>
@@ -617,10 +629,10 @@ function entryPct(entered, total) {
                                         <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold" :class="gradeColor(r.grade)">{{ r.grade || '—' }}</span>
                                     </td>
                                     <td class="px-3 sm:px-6 py-3 text-right">
-                                        <span v-if="r.is_passed" class="inline-flex items-center gap-1 text-emerald-700 text-xs font-bold">
+                                        <span v-if="r.is_passed" class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-bold">
                                             <CheckCircleIcon class="w-3.5 h-3.5" /> <span class="hidden sm:inline">Passed</span>
                                         </span>
-                                        <span v-else class="inline-flex items-center gap-1 text-rose-600 text-xs font-bold">
+                                        <span v-else class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 text-xs font-bold">
                                             <XCircleIcon class="w-3.5 h-3.5" /> <span class="hidden sm:inline">Failed</span>
                                         </span>
                                     </td>
@@ -633,11 +645,11 @@ function entryPct(entered, total) {
 
             <!-- ════════════ SECTION TEAM TAB ════════════ -->
             <div v-if="tab === 'team'" class="space-y-4">
-                <div class="rounded-2xl bg-gradient-to-br from-sky-50 to-base-100 border-2 border-sky-200 p-4 flex items-start gap-3">
-                    <div class="w-9 h-9 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center flex-shrink-0">
+                <div class="rounded-2xl bg-sky-500/10 border border-sky-500/30 p-4 flex items-start gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-sky-500/20 text-sky-600 dark:text-sky-400 flex items-center justify-center flex-shrink-0">
                         <UsersIcon class="w-5 h-5" />
                     </div>
-                    <p class="text-sm text-sky-900">
+                    <p class="text-sm text-sky-900 dark:text-sky-200">
                         These are all the subject teachers who work with your section. They handle their own marks entry. Reach out to coordinate on any subject.
                     </p>
                 </div>
@@ -651,7 +663,7 @@ function entryPct(entered, total) {
                             </div>
                             <div class="flex-1 min-w-0">
                                 <h4 class="font-bold text-sm truncate">{{ t.teacher_name }}</h4>
-                                <p class="text-xs text-emerald-700 font-bold mt-0.5">{{ t.subject_name }} <span class="text-base-content/35 font-mono font-normal">({{ t.subject_code }})</span></p>
+                                <p class="text-xs text-emerald-600 dark:text-emerald-400 font-bold mt-0.5">{{ t.subject_name }} <span class="text-base-content/45 font-mono font-normal">({{ t.subject_code }})</span></p>
                                 <p class="text-[11px] text-base-content/50 mt-2 flex items-center gap-1 truncate">
                                     <EnvelopeIcon class="w-3 h-3 flex-shrink-0" /> {{ t.teacher_email }}
                                 </p>
