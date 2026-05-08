@@ -595,6 +595,134 @@
         background: oklch(var(--bc) / 0.04);
     }
 
+    /* ========== TABLE WRAPPERS ==========
+       Mobile-friendly horizontal-scroll wrapper. Wrap any wide <table> with
+       <div class="table-wrap"> to get a clean overflow-x with a fade-edge
+       indicator that subtly tells users to scroll. Used widely after the
+       v2 design pass — replaces ad-hoc `overflow-x-auto` divs scattered
+       across index pages. */
+    .table-wrap {
+        @apply relative overflow-x-auto -mx-px;
+    }
+    .table-wrap::after {
+        content: '';
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 24px;
+        background: linear-gradient(to left,
+            oklch(var(--b1)) 0%,
+            oklch(var(--b1) / 0) 100%);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity var(--duration-fast) var(--ease-out);
+    }
+    .table-wrap.has-overflow::after { opacity: 1; }
+
+    /* Standardised "data table" — same row rhythm everywhere, theme-aware. */
+    .table-data {
+        @apply w-full text-sm;
+    }
+    .table-data thead {
+        @apply text-[10px] uppercase tracking-wider font-bold;
+        background: oklch(var(--b2) / 0.4);
+        color: oklch(var(--bc) / 0.55);
+    }
+    .table-data thead th {
+        @apply text-left px-3 py-2.5;
+    }
+    .table-data tbody tr {
+        @apply border-t;
+        border-color: oklch(var(--bc) / 0.08);
+        transition: background-color var(--duration-fast) var(--ease-out);
+    }
+    .table-data tbody tr:hover {
+        background: oklch(var(--b2) / 0.3);
+    }
+    .table-data tbody td {
+        @apply px-3 py-2.5;
+    }
+
+    /* ========== SECTION (canonical card) ==========
+       The visual primitive used on the new ClassTeacher dashboard. Used
+       to replace the older ad-hoc combos of `card bg-base-100 shadow-md`
+       and `surface`. One pattern, theme-aware, predictable everywhere. */
+    .section-card {
+        @apply rounded-2xl bg-base-100 overflow-hidden;
+        border: 1px solid oklch(var(--bc) / 0.1);
+    }
+    html[data-theme="dark"] .section-card {
+        border-color: oklch(var(--bc) / 0.12);
+    }
+    .section-card-header {
+        @apply px-5 py-3 flex items-center gap-2.5;
+        border-bottom: 1px solid oklch(var(--bc) / 0.08);
+    }
+    .section-card-header h2,
+    .section-card-header h3 {
+        @apply text-sm font-bold;
+    }
+    .section-card-icon {
+        @apply w-8 h-8 rounded-lg flex items-center justify-center shrink-0;
+    }
+
+    /* ========== MOBILE TAP TARGETS ==========
+       Buttons inside tables / lists should hit the 44×44 px minimum that
+       iOS/Android recommend for thumb taps. .btn-xs is fine on desktop
+       but cramped on phones — this lifts it on small screens only. */
+    @media (max-width: 640px) {
+        .btn-xs.btn-square {
+            min-height: 36px;
+            min-width: 36px;
+        }
+        /* Stop horizontally cramped action button groups in mobile table
+           rows. The right column with [View] [✎] used to overflow on small
+           phones; this gives the icons room to breathe. */
+        td.actions-cell {
+            white-space: nowrap;
+            min-width: 96px;
+        }
+    }
+
+    /* ========== "Mobile card" table alternative ==========
+       Drop-in pattern: declare a <table class="table-data">, then on
+       mobile each <tr> becomes a card with column labels visible via
+       data-label attribute. Opt-in per page via the table-mobile-cards
+       modifier — leaves untouched tables alone. */
+    @media (max-width: 640px) {
+        .table-mobile-cards thead { display: none; }
+        .table-mobile-cards tbody, .table-mobile-cards tr,
+        .table-mobile-cards td { display: block; width: 100%; }
+        .table-mobile-cards tr {
+            background: oklch(var(--b1));
+            border: 1px solid oklch(var(--bc) / 0.08);
+            border-radius: 12px;
+            padding: 8px 12px;
+            margin-bottom: 8px;
+        }
+        .table-mobile-cards td {
+            border: none !important;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0 !important;
+        }
+        .table-mobile-cards td::before {
+            content: attr(data-label);
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: oklch(var(--bc) / 0.5);
+        }
+        .table-mobile-cards td:first-child {
+            border-bottom: 1px solid oklch(var(--bc) / 0.08) !important;
+            padding-bottom: 8px !important;
+            margin-bottom: 4px;
+        }
+    }
+
     /* ========== INFO BANNERS ========== */
     .alert-banner {
         @apply flex items-start gap-3 rounded-xl border px-4 py-3.5 text-sm;
