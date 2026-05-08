@@ -191,11 +191,49 @@ class UserController extends Controller
     {
         $this->authorize('delete', $user);
 
-        if ($user->id === request()->user()->id) {
+        $actor = request()->user();
+        if ($user->id === $actor->id) {
             return redirect()->back()->with('error', 'You cannot delete your own account.');
         }
 
-        $user->delete();
+        // Block deleting users that are still load-bearing — without this,
+        // production would silently fail (FK constraint on a hard-delete) or
+        // leave broken references (on a soft-delete) that crash the app
+        // later. Each block points the admin at what to fix first.
+        if ($user->classSections()->exists()) {
+            return redirect()->back()->withErrors(['user' =>
+                "{$user->name} is currently assigned as the class teacher of one or more sections. " .
+                "Reassign those sections before deleting this user."
+            ]);
+        }
+        if ($user->subjectTeachings()->exists()) {
+            return redirect()->back()->withErrors(['user' =>
+                "{$user->name} has subject-teaching assignments. Remove them before deleting the user."
+            ]);
+        }
+
+        try {
+            \DB::transaction(function () use ($user) {
+                // Detach role/permission rows so they don't stay bound to a
+                // ghost user. Soft-delete keeps the user row but cleanly
+                // strips access first.
+                $user->syncRoles([]);
+                $user->syncPermissions([]);
+                $user->delete();
+            });
+        } catch (\Throwable $e) {
+            \Log::error('User delete failed', [
+                'target_user_id' => $user->id,
+                'message' => $e->getMessage(),
+                'trace_top' => $e->getFile() . ':' . $e->getLine(),
+                'actor_user_id' => $actor->id,
+            ]);
+            $isAdmin = $actor->isSuperAdmin() || $actor->isSchoolAdmin();
+            $msg = $isAdmin
+                ? 'Could not delete user. Database error: ' . $e->getMessage()
+                : 'Could not delete the user — please try again. If this keeps happening, ask the administrator to check the server log.';
+            return redirect()->back()->withErrors(['user' => $msg]);
+        }
 
         return redirect()->route('users.index')->with('success', 'User deleted successfully.');
     }
