@@ -118,12 +118,22 @@ class SchoolClassController extends Controller
         } catch (\Throwable $e) {
             \Log::error('Class create failed', [
                 'message' => $e->getMessage(),
+                'trace_top' => $e->getFile() . ':' . $e->getLine(),
                 'school_id' => $validated['school_id'] ?? null,
                 'name' => $validated['name'] ?? null,
                 'user_id' => $user->id,
             ]);
-            return redirect()->back()->withInput()
-                ->withErrors(['name' => 'Could not create the class — please try again. If this keeps happening, ask the administrator to check the server log.']);
+
+            // Show the real error message to admins (they're trusted and
+            // need it to fix the problem). Generic message for everyone
+            // else. Without this, users with the right access level were
+            // stuck reading "please try again" forever on production.
+            $isAdmin = $user->isSuperAdmin() || $user->isSchoolAdmin();
+            $msg = $isAdmin
+                ? 'Could not create class. Database error: ' . $e->getMessage()
+                : 'Could not create the class — please try again. If this keeps happening, ask the administrator to check the server log.';
+
+            return redirect()->back()->withInput()->withErrors(['name' => $msg]);
         }
 
         return redirect()->route('classes.index')->with('success', 'Class created successfully.');
@@ -199,10 +209,14 @@ class SchoolClassController extends Controller
             \Log::error('Class update failed', [
                 'class_id' => $schoolClass->id,
                 'message' => $e->getMessage(),
+                'trace_top' => $e->getFile() . ':' . $e->getLine(),
                 'user_id' => $user->id,
             ]);
-            return redirect()->back()->withInput()
-                ->withErrors(['name' => 'Could not update the class — please try again. If this keeps happening, ask the administrator to check the server log.']);
+            $isAdmin = $user->isSuperAdmin() || $user->isSchoolAdmin();
+            $msg = $isAdmin
+                ? 'Could not update class. Database error: ' . $e->getMessage()
+                : 'Could not update the class — please try again. If this keeps happening, ask the administrator to check the server log.';
+            return redirect()->back()->withInput()->withErrors(['name' => $msg]);
         }
 
         return redirect()->route('classes.index')->with('success', 'Class updated successfully.');
