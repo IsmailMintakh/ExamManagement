@@ -93,24 +93,43 @@ class SchoolClassController extends Controller
         $subjectIds = $validated['subject_ids'] ?? [];
         unset($validated['subject_ids']);
 
-        // Pre-flight duplicate check — production was 500-ing on uncaught
-        // unique-key violations (school_classes has UNIQUE(school_id, slug)).
-        // Catch the collision early and surface a clean message instead of
-        // a generic 500.
+        // Pre-flight duplicate check — school_classes has UNIQUE(school_id, slug)
+        // which the model's auto-slug generator can collide with. We look at
+        // BOTH active and soft-deleted rows because MySQL's unique index
+        // doesn't ignore soft-deletes — a long-deleted "Nursery" still owns
+        // its slug slot and blocks recreates.
         $candidateSlug = !empty($validated['slug'])
             ? $validated['slug']
             : \Illuminate\Support\Str::slug($validated['name']);
-        $duplicate = SchoolClass::where('school_id', $validated['school_id'])
+
+        $existing = SchoolClass::withTrashed()
+            ->where('school_id', $validated['school_id'])
             ->where('slug', $candidateSlug)
-            ->exists();
-        if ($duplicate) {
+            ->first();
+
+        // Active duplicate → block with a clear message.
+        if ($existing && $existing->deleted_at === null) {
             return redirect()->back()->withInput()
                 ->withErrors(['name' => "A class with this name already exists in your school. Try a different name (e.g. \"{$validated['name']} - Section A\")."]);
         }
 
+        // Track whether we restore an old row vs. create new — the model's
+        // trashed() flag flips after restore() so we can't ask it later.
+        $wasRestored = false;
         try {
-            \DB::transaction(function () use ($validated, $subjectIds, &$class) {
-                $class = SchoolClass::create($validated);
+            \DB::transaction(function () use ($validated, $subjectIds, $existing, &$class, &$wasRestored) {
+                if ($existing && $existing->trashed()) {
+                    // Soft-deleted match → revive it with the new data instead
+                    // of creating a new row. Restoring keeps the original ID
+                    // (good for any old foreign keys still pointing at it)
+                    // and avoids the unique-index conflict entirely.
+                    $existing->restore();
+                    $existing->update($validated);
+                    $class = $existing;
+                    $wasRestored = true;
+                } else {
+                    $class = SchoolClass::create($validated);
+                }
                 if (!empty($subjectIds)) {
                     $class->subjects()->sync($subjectIds);
                 }
@@ -136,7 +155,13 @@ class SchoolClassController extends Controller
             return redirect()->back()->withInput()->withErrors(['name' => $msg]);
         }
 
-        return redirect()->route('classes.index')->with('success', 'Class created successfully.');
+        // Differentiate restore-from-trash from a fresh create so the user
+        // understands what happened (otherwise "created successfully" feels
+        // wrong when we actually revived an old soft-deleted row).
+        $msg = $wasRestored
+            ? 'A previously-deleted class with this name was restored with the new details.'
+            : 'Class created successfully.';
+        return redirect()->route('classes.index')->with('success', $msg);
     }
 
     public function show(SchoolClass $schoolClass): RedirectResponse
