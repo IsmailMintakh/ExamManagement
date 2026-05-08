@@ -93,10 +93,37 @@ class SchoolClassController extends Controller
         $subjectIds = $validated['subject_ids'] ?? [];
         unset($validated['subject_ids']);
 
-        $class = SchoolClass::create($validated);
+        // Pre-flight duplicate check — production was 500-ing on uncaught
+        // unique-key violations (school_classes has UNIQUE(school_id, slug)).
+        // Catch the collision early and surface a clean message instead of
+        // a generic 500.
+        $candidateSlug = !empty($validated['slug'])
+            ? $validated['slug']
+            : \Illuminate\Support\Str::slug($validated['name']);
+        $duplicate = SchoolClass::where('school_id', $validated['school_id'])
+            ->where('slug', $candidateSlug)
+            ->exists();
+        if ($duplicate) {
+            return redirect()->back()->withInput()
+                ->withErrors(['name' => "A class with this name already exists in your school. Try a different name (e.g. \"{$validated['name']} - Section A\")."]);
+        }
 
-        if (!empty($subjectIds)) {
-            $class->subjects()->sync($subjectIds);
+        try {
+            \DB::transaction(function () use ($validated, $subjectIds, &$class) {
+                $class = SchoolClass::create($validated);
+                if (!empty($subjectIds)) {
+                    $class->subjects()->sync($subjectIds);
+                }
+            });
+        } catch (\Throwable $e) {
+            \Log::error('Class create failed', [
+                'message' => $e->getMessage(),
+                'school_id' => $validated['school_id'] ?? null,
+                'name' => $validated['name'] ?? null,
+                'user_id' => $user->id,
+            ]);
+            return redirect()->back()->withInput()
+                ->withErrors(['name' => 'Could not create the class — please try again. If this keeps happening, ask the administrator to check the server log.']);
         }
 
         return redirect()->route('classes.index')->with('success', 'Class created successfully.');
@@ -150,8 +177,33 @@ class SchoolClassController extends Controller
         $subjectIds = $validated['subject_ids'] ?? [];
         unset($validated['subject_ids']);
 
-        $schoolClass->update($validated);
-        $schoolClass->subjects()->sync($subjectIds);
+        // Slug-rename collision guard. Same reasoning as ::store.
+        $newSlug = !empty($validated['slug'])
+            ? $validated['slug']
+            : \Illuminate\Support\Str::slug($validated['name']);
+        $duplicate = SchoolClass::where('school_id', $validated['school_id'])
+            ->where('slug', $newSlug)
+            ->where('id', '!=', $schoolClass->id)
+            ->exists();
+        if ($duplicate) {
+            return redirect()->back()->withInput()
+                ->withErrors(['name' => "Another class with this name already exists in this school. Pick a different name."]);
+        }
+
+        try {
+            \DB::transaction(function () use ($validated, $subjectIds, $schoolClass) {
+                $schoolClass->update($validated);
+                $schoolClass->subjects()->sync($subjectIds);
+            });
+        } catch (\Throwable $e) {
+            \Log::error('Class update failed', [
+                'class_id' => $schoolClass->id,
+                'message' => $e->getMessage(),
+                'user_id' => $user->id,
+            ]);
+            return redirect()->back()->withInput()
+                ->withErrors(['name' => 'Could not update the class — please try again. If this keeps happening, ask the administrator to check the server log.']);
+        }
 
         return redirect()->route('classes.index')->with('success', 'Class updated successfully.');
     }

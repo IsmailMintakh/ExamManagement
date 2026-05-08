@@ -941,7 +941,9 @@ class ExamSchedulingController extends Controller
             ->when(!empty($validated['school_class_id']),
                 fn ($q) => $q->where('school_class_id', $validated['school_class_id']))
             // Only include students whose class is part of this exam.
-            ->whereHas('schoolClass.examSubjects', fn ($q) => $q->where('exam_id', $exam->id))
+            // examSubjects lives on Exam, not SchoolClass — narrow by
+            // school_class_id IN (exam's class set) instead.
+            ->whereIn('school_class_id', ExamSubject::where('exam_id', $exam->id)->pluck('school_class_id'))
             ->with(['schoolClass', 'section'])
             ->orderBy('school_class_id')
             ->orderBy('section_id')
