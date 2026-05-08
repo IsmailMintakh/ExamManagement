@@ -74,7 +74,8 @@
       "Bash(grep -n \"FILESYSTEM_PUBLIC_URL_PREFIX\\\\|url\\\\\\\\b.*storage\\\\|asset.*storage\" config/filesystems.php)",
       "Bash(php -l app/Http/Controllers/SubjectController.php)",
       "Bash(php -l app/Models/User.php)",
-      "Bash(php -l app/Http/Controllers/SchoolClassController.php)"
+      "Bash(php -l app/Http/Controllers/SchoolClassController.php)",
+      "Bash(php -r 'echo '\\\\''YAML check via Symfony Yaml:'\\\\''.PHP_EOL; require '\\\\''vendor/autoload.php'\\\\''; try { $d = Symfony\\\\Component\\\\Yaml\\\\Yaml::parseFile\\('\\\\''.github/workflows/deploy.yml'\\\\''\\); echo '\\\\''Valid. Jobs: '\\\\''.implode\\('\\\\'','\\\\'', array_keys\\($d['\\\\''jobs'\\\\'']\\)\\).PHP_EOL; echo '\\\\''Steps: '\\\\''.count\\($d['\\\\''jobs'\\\\'']['\\\\''build-and-deploy'\\\\'']['\\\\''steps'\\\\'']\\).PHP_EOL; } catch \\(\\\\Throwable $e\\) { echo '\\\\''YAML INVALID: '\\\\''.$e->getMessage\\(\\); }')"
     ]
   }
 }

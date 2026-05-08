@@ -89,8 +89,16 @@ jobs:
       # ──────────────────────────────────────────────────────────
       # 5. Upload to Hostinger via FTPS
       #    SECURITY: always use FTPS (port 21 with TLS), never plain FTP
+      #
+      #    Wrapped in a retry loop because Hostinger's FTP control socket
+      #    drops idle connections aggressively, surfacing as "Timeout
+      #    (control socket)" mid-upload. Each attempt resumes from the
+      #    state file, so retries pick up where the previous run died
+      #    instead of starting from zero.
       # ──────────────────────────────────────────────────────────
-      - name: Sync files to Hostinger via FTPS
+      - name: Sync files to Hostinger via FTPS (attempt 1)
+        id: ftp_attempt_1
+        continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
@@ -105,7 +113,101 @@ jobs:
           # workflow times out and you re-run it, it resumes instead of re-uploading
           # files that already made it across. Critical for first-deploy success.
           state-name: .ftp-deploy-sync-state.json
+          # Increase per-operation timeout. The default 30s isn't enough when
+          # Hostinger's control socket pauses for a beat between transfers.
+          timeout: 120000                       # 2 minutes per op
           log-level: minimal                    # less noise in the GH Actions log
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/vendor/**
+            **/.env
+            **/.env.example
+            **/.env.local
+            **/.env.production
+            **/storage/logs/**
+            **/storage/framework/cache/data/**
+            **/storage/framework/sessions/**
+            **/storage/framework/views/**
+            **/storage/app/public/**
+            **/.github/**
+            **/tests/**
+            **/phpunit.xml
+            **/.editorconfig
+            **/.gitignore
+            **/.gitattributes
+            **/README.md
+            **/DEPLOY.md
+            **/deploy.sh
+            **/.styleci.yml
+            **/.phpunit.result.cache
+            **/database/database.sqlite
+
+      # Resume on first failure. Hostinger's FTP often drops the control
+      # socket once or twice during a fresh deploy; the state file means
+      # this picks up where attempt 1 stopped, not from scratch.
+      - name: Sync files to Hostinger via FTPS (attempt 2 — resume)
+        id: ftp_attempt_2
+        if: steps.ftp_attempt_1.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: ${{ secrets.FTP_PORT }}
+          protocol: ftps
+          server-dir: ${{ secrets.FTP_TARGET_DIR }}/
+          local-dir: ./
+          dangerous-clean-slate: false
+          state-name: .ftp-deploy-sync-state.json
+          timeout: 120000
+          log-level: minimal
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/vendor/**
+            **/.env
+            **/.env.example
+            **/.env.local
+            **/.env.production
+            **/storage/logs/**
+            **/storage/framework/cache/data/**
+            **/storage/framework/sessions/**
+            **/storage/framework/views/**
+            **/storage/app/public/**
+            **/.github/**
+            **/tests/**
+            **/phpunit.xml
+            **/.editorconfig
+            **/.gitignore
+            **/.gitattributes
+            **/README.md
+            **/DEPLOY.md
+            **/deploy.sh
+            **/.styleci.yml
+            **/.phpunit.result.cache
+            **/database/database.sqlite
+
+      # Final attempt. If this also fails the workflow halts — usually
+      # signals a credential or DNS issue, not a transient timeout.
+      - name: Sync files to Hostinger via FTPS (attempt 3 — final)
+        if: steps.ftp_attempt_2.outcome == 'failure'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: ${{ secrets.FTP_PORT }}
+          protocol: ftps
+          server-dir: ${{ secrets.FTP_TARGET_DIR }}/
+          local-dir: ./
+          dangerous-clean-slate: false
+          state-name: .ftp-deploy-sync-state.json
+          timeout: 180000                       # 3 minutes — be generous on the final shot
+          log-level: minimal
           exclude: |
             **/.git*
             **/.git*/**
