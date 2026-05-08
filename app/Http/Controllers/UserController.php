@@ -196,31 +196,41 @@ class UserController extends Controller
             return redirect()->back()->with('error', 'You cannot delete your own account.');
         }
 
-        // Block deleting users that are still load-bearing — without this,
-        // production would silently fail (FK constraint on a hard-delete) or
-        // leave broken references (on a soft-delete) that crash the app
-        // later. Each block points the admin at what to fix first.
-        if ($user->classSections()->exists()) {
-            return redirect()->back()->withErrors(['user' =>
-                "{$user->name} is currently assigned as the class teacher of one or more sections. " .
-                "Reassign those sections before deleting this user."
-            ]);
-        }
-        if ($user->subjectTeachings()->exists()) {
-            return redirect()->back()->withErrors(['user' =>
-                "{$user->name} has subject-teaching assignments. Remove them before deleting the user."
-            ]);
-        }
-
         try {
-            \DB::transaction(function () use ($user) {
-                // Detach role/permission rows so they don't stay bound to a
-                // ghost user. Soft-delete keeps the user row but cleanly
-                // strips access first.
+            $sectionsFreed = 0;
+            $subjectAssignmentsRemoved = 0;
+
+            \DB::transaction(function () use ($user, &$sectionsFreed, &$subjectAssignmentsRemoved) {
+                // Auto-detach load-bearing relationships so the soft-delete
+                // doesn't leave broken FK references behind. Earlier the
+                // controller blocked the delete when these existed, but in
+                // practice admins want the user gone — they'll reassign
+                // sections later. Strip first, delete second.
+
+                // Sections where this user is the assigned class teacher —
+                // null the FK so the section keeps existing without the user.
+                $sectionsFreed = \App\Models\Section::where('class_teacher_id', $user->id)
+                    ->update(['class_teacher_id' => null]);
+
+                // Subject-teaching pivot rows — drop them entirely; they're
+                // pure assignment records with no other meaning.
+                $subjectAssignmentsRemoved = \App\Models\SubjectTeacher::where('user_id', $user->id)
+                    ->delete();
+
+                // Strip role/permission attachments so a future restore
+                // wouldn't accidentally bring back stale access.
                 $user->syncRoles([]);
                 $user->syncPermissions([]);
+
                 $user->delete();
             });
+
+            $detail = [];
+            if ($sectionsFreed > 0) $detail[] = "{$sectionsFreed} section(s) had this user removed as class teacher";
+            if ($subjectAssignmentsRemoved > 0) $detail[] = "{$subjectAssignmentsRemoved} subject assignment(s) removed";
+            $msg = 'User deleted successfully.' . (empty($detail) ? '' : ' (' . implode(', ', $detail) . '.)');
+
+            return redirect()->route('users.index')->with('success', $msg);
         } catch (\Throwable $e) {
             \Log::error('User delete failed', [
                 'target_user_id' => $user->id,
@@ -234,7 +244,5 @@ class UserController extends Controller
                 : 'Could not delete the user — please try again. If this keeps happening, ask the administrator to check the server log.';
             return redirect()->back()->withErrors(['user' => $msg]);
         }
-
-        return redirect()->route('users.index')->with('success', 'User deleted successfully.');
     }
 }
