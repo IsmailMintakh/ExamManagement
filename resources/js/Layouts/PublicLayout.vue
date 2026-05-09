@@ -229,13 +229,18 @@ const socialLinks = computed(() => [
             >
                 <div v-if="mobileOpen" class="lg:hidden border-t border-stone-200 bg-white/95 backdrop-blur-xl">
                     <div class="px-4 py-4 space-y-0.5">
-                        <template v-for="(item, i) in navItems" :key="item.href">
+                        <!-- NOTE: No per-item slide-in animation here. The
+                             previous version used an inline `animation:`
+                             string with a stagger delay; on iOS PWA the
+                             animation occasionally never fired and the
+                             `both` fill mode locked items at opacity:0,
+                             rendering blank rows. Plain Links are reliable. -->
+                        <template v-for="item in navItems" :key="item.href">
                             <Link
                                 :href="item.href"
                                 @click="mobileOpen = false"
                                 class="block px-4 py-3 text-sm font-medium rounded-xl transition-colors"
                                 :class="isActive(item.href) ? 'text-emerald-700 bg-emerald-50' : 'text-slate-700 hover:bg-stone-50'"
-                                :style="`animation: slideIn 0.3s ease ${i * 30}ms both`"
                             >
                                 {{ item.label }}
                             </Link>

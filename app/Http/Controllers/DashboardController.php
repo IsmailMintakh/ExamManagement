@@ -478,6 +478,15 @@ class DashboardController extends Controller
             return ['day' => 'sun', 'is_off_day' => true, 'absent' => false, 'periods' => [], 'covers' => []];
         }
 
+        // Resilience: the timetable subsystem ships migrations that may not
+        // have been run on production yet. If the tables are missing, return
+        // an empty payload instead of crashing the entire dashboard.
+        if (!\Schema::hasTable('teacher_absences')
+            || !\Schema::hasTable('timetable_entries')
+            || !\Schema::hasTable('substitution_assignments')) {
+            return ['day' => $code, 'is_off_day' => false, 'absent' => false, 'periods' => [], 'covers' => []];
+        }
+
         // If absent today, the user's own periods are skipped (someone else covers).
         $isAbsent = TeacherAbsence::where('user_id', $user->id)
             ->whereDate('absent_on', $today->toDateString())
