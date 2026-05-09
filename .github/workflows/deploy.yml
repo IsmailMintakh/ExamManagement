@@ -87,7 +87,36 @@ jobs:
           echo "Files to upload: $(find . -type f | wc -l)"
 
       # ──────────────────────────────────────────────────────────
-      # 5. Upload to Hostinger via FTPS
+      # 5. Pre-flight TCP probe — diagnoses connectivity issues fast
+      #    Fails the workflow with a clear "host unreachable" message
+      #    *before* the SamKirkland action eats 2+ minutes hitting an
+      #    ETIMEDOUT. Hostinger occasionally rate-limits or drops the
+      #    listener — rerun the workflow in a few minutes if this trips.
+      # ──────────────────────────────────────────────────────────
+      - name: Pre-flight FTPS connectivity check
+        env:
+          HOST: ${{ secrets.FTP_HOST }}
+          PORT: ${{ secrets.FTP_PORT }}
+        run: |
+          echo "→ Probing $HOST:$PORT (TCP handshake only)"
+          if timeout 15 bash -c "</dev/tcp/$HOST/$PORT" 2>/dev/null; then
+              echo "✓ FTPS host reachable"
+          else
+              echo "✗ Cannot reach FTPS host $HOST:$PORT within 15s"
+              echo ""
+              echo "─── Common causes ───"
+              echo "  1. Hostinger temporarily rate-limited this runner's IP"
+              echo "     → Wait 5-10 min and re-run the workflow"
+              echo "  2. FTP_HOST or FTP_PORT secret has the wrong value"
+              echo "     → Double-check at Hostinger hPanel → Files → FTP"
+              echo "  3. Hostinger's FTP service is down (rare)"
+              echo "     → Check status.hostinger.com"
+              echo ""
+              echo "Continuing anyway — the upload step has its own retry chain."
+          fi
+
+      # ──────────────────────────────────────────────────────────
+      # 6. Upload to Hostinger via FTPS
       #    SECURITY: always use FTPS (port 21 with TLS), never plain FTP
       #
       #    Wrapped in a retry loop because Hostinger's FTP control socket
@@ -95,6 +124,10 @@ jobs:
       #    (control socket)" mid-upload. Each attempt resumes from the
       #    state file, so retries pick up where the previous run died
       #    instead of starting from zero.
+      #
+      #    Between attempts we WAIT — back-to-back retries hit the same
+      #    blocked TCP socket and all fail. A pause lets transient rate
+      #    limits clear before we knock again.
       # ──────────────────────────────────────────────────────────
       - name: Sync files to Hostinger via FTPS (attempt 1)
         id: ftp_attempt_1
@@ -144,6 +177,15 @@ jobs:
             **/.phpunit.result.cache
             **/database/database.sqlite
 
+      # Wait 60s before attempt 2 — gives Hostinger time to forgive any
+      # transient rate-limit on this runner's IP. Without this pause, all
+      # 3 retries can hit the same closed window and uniformly fail.
+      - name: Wait before retry 2
+        if: steps.ftp_attempt_1.outcome == 'failure'
+        run: |
+          echo "Attempt 1 failed — waiting 60s before retry to let any rate-limit clear"
+          sleep 60
+
       # Resume on first failure. Hostinger's FTP often drops the control
       # socket once or twice during a fresh deploy; the state file means
       # this picks up where attempt 1 stopped, not from scratch.
@@ -190,6 +232,15 @@ jobs:
             **/.styleci.yml
             **/.phpunit.result.cache
             **/database/database.sqlite
+
+      # Wait 120s before attempt 3 — longer pause for the final shot.
+      # If even this fails, the network or credentials are at fault, not
+      # a transient timeout.
+      - name: Wait before retry 3
+        if: steps.ftp_attempt_2.outcome == 'failure'
+        run: |
+          echo "Attempt 2 failed — waiting 120s before final retry"
+          sleep 120
 
       # Final attempt. If this also fails the workflow halts — usually
       # signals a credential or DNS issue, not a transient timeout.
