@@ -51,7 +51,12 @@ class SchoolClass extends Model
 
     public function subjects()
     {
-        return $this->belongsToMany(Subject::class, 'class_subjects');
+        // Explicit select on the related table prevents `is_active` /
+        // `id` ambiguity when callers chain ->where('is_active', true)
+        // or use bare select columns. Both `subjects` and `class_subjects`
+        // share an `is_active` column, and unqualified columns blow up.
+        return $this->belongsToMany(Subject::class, 'class_subjects')
+            ->select('subjects.*');
     }
 
     public function classSubjects()

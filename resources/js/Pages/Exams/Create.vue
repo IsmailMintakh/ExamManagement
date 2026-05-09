@@ -196,6 +196,14 @@ function toggleAllBulkSubjects() {
     }
 }
 
+function toggleAllBulkClasses() {
+    if (bulkSelectedClasses.value.length === availableClasses.value.length) {
+        bulkSelectedClasses.value = []
+    } else {
+        bulkSelectedClasses.value = availableClasses.value.map(c => c.id)
+    }
+}
+
 function applyBulkSubjects() {
     if (!bulkSelectedClasses.value.length || !bulkSelectedSubjects.value.length) return
     let added = 0
@@ -549,51 +557,6 @@ function submit() {
                             </div>
                         </div>
 
-                        <div class="pt-5 border-t border-base-200">
-                            <p class="section-eyebrow mb-3">Marks &amp; Position</p>
-                            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                                <div>
-                                    <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">
-                                        Total Marks *
-                                        <span v-if="totalMarksAutoSync && subjectsTotalMarksSum > 0"
-                                            class="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 normal-case tracking-normal">
-                                            · auto from subjects
-                                        </span>
-                                    </label>
-                                    <input v-model.number="form.total_marks" type="number" min="1"
-                                        @input="disableTotalMarksAutoSync"
-                                        :readonly="totalMarksAutoSync && subjectsTotalMarksSum > 0"
-                                        :class="totalMarksAutoSync && subjectsTotalMarksSum > 0 ? 'bg-base-200/50' : ''"
-                                        class="input input-bordered w-full mt-1.5 font-mono" />
-                                    <p v-if="!totalMarksAutoSync && subjectsTotalMarksSum > 0 && form.total_marks !== subjectsTotalMarksSum"
-                                        class="text-[10px] mt-1">
-                                        <button type="button" @click="reEnableTotalMarksAutoSync"
-                                            class="text-primary font-semibold hover:underline">
-                                            ↺ Sync from subjects ({{ subjectsTotalMarksSum }})
-                                        </button>
-                                    </p>
-                                </div>
-                                <div>
-                                    <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Passing %</label>
-                                    <input v-model.number="form.passing_percentage" type="number" min="0" max="100"
-                                        class="input input-bordered w-full mt-1.5 font-mono" />
-                                </div>
-                                <div>
-                                    <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Passing Marks</label>
-                                    <input v-model.number="form.passing_marks" type="number" min="0" readonly
-                                        class="input input-bordered w-full mt-1.5 font-mono bg-base-200/50" />
-                                </div>
-                                <div>
-                                    <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Position by</label>
-                                    <select v-model="form.position_calculation" class="select select-bordered w-full mt-1.5">
-                                        <option value="section">Section</option>
-                                        <option value="class">Class</option>
-                                        <option value="school">School</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-
                         <div>
                             <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Description</label>
                             <textarea v-model="form.description" rows="2" placeholder="Optional notes about this exam..."
@@ -673,7 +636,18 @@ function submit() {
 
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             <div>
-                                <label class="section-eyebrow mb-2 block">Classes</label>
+                                <div class="flex items-center justify-between mb-2">
+                                    <label class="section-eyebrow !mb-0">
+                                        Classes
+                                        <span v-if="availableClasses.length" class="text-base-content/45 normal-case font-medium">
+                                            · {{ availableClasses.length }} available
+                                        </span>
+                                    </label>
+                                    <button v-if="availableClasses.length" type="button" @click="toggleAllBulkClasses"
+                                        class="text-[10px] font-bold text-primary hover:underline">
+                                        {{ bulkSelectedClasses.length === availableClasses.length ? 'Uncheck all' : 'Check all' }}
+                                    </button>
+                                </div>
                                 <div class="max-h-44 overflow-y-auto rounded-xl border border-base-200 p-2 bg-base-200/30">
                                     <p v-if="!availableClasses.length" class="text-xs text-base-content/45 p-2">
                                         Pick at least one school in Step 2 first.
@@ -718,25 +692,16 @@ function submit() {
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-3 gap-3">
-                            <div>
-                                <label class="section-eyebrow">Total Marks</label>
-                                <input v-model.number="bulkTotalMarks" type="number" min="1"
-                                    class="input input-bordered input-sm w-full mt-1 font-mono" />
-                            </div>
-                            <div>
-                                <label class="section-eyebrow">Passing Marks</label>
-                                <input v-model.number="bulkPassingMarks" type="number" min="0"
-                                    class="input input-bordered input-sm w-full mt-1 font-mono" />
-                            </div>
-                            <div class="flex items-end">
-                                <button type="button" @click="applyBulkSubjects"
-                                    :disabled="!bulkSelectedClasses.length || !bulkSelectedSubjects.length"
-                                    class="btn btn-primary btn-sm w-full gap-1.5">
-                                    <BoltIcon class="w-4 h-4" /> Apply to {{ bulkSelectedClasses.length * bulkSelectedSubjects.length || 0 }} pairs
-                                </button>
-                            </div>
-                        </div>
+                        <p class="text-[11px] text-base-content/55 italic">
+                            Marks are set per (class, subject) row in the table below — defaults to 100 / 33 and you can adjust each one.
+                        </p>
+
+                        <button type="button" @click="applyBulkSubjects"
+                            :disabled="!bulkSelectedClasses.length || !bulkSelectedSubjects.length"
+                            class="btn btn-primary btn-sm w-full sm:w-auto gap-1.5">
+                            <BoltIcon class="w-4 h-4" />
+                            Apply to {{ bulkSelectedClasses.length * bulkSelectedSubjects.length || 0 }} (class × subject) pair{{ (bulkSelectedClasses.length * bulkSelectedSubjects.length) === 1 ? '' : 's' }}
+                        </button>
                     </div>
                 </section>
 
