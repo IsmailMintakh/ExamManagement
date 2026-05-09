@@ -73,7 +73,19 @@ const socialLinks = computed(() => [
 </script>
 
 <template>
-    <div class="min-h-screen flex flex-col bg-stone-50 text-slate-900 antialiased selection:bg-emerald-500/20 selection:text-emerald-900">
+    <!--
+        color-scheme: light  →  opts out of Android Chrome's "Force dark on web
+        contents" inversion. Without this, Chrome auto-flips bg-white to dark
+        and our white menu drawer renders as a dark inverted nightmare on
+        users who have system dark mode + force-dark flag enabled. We're a
+        light-themed public site so this is the right declaration.
+
+        forced-color-adjust: none on the public chrome (the rest of the page
+        keeps whatever colors we set, but the menu specifically refuses any
+        further auto-adjustment).
+    -->
+    <div class="min-h-screen flex flex-col bg-stone-50 text-slate-900 antialiased selection:bg-emerald-500/20 selection:text-emerald-900"
+         style="color-scheme: light;">
         <!-- Announcement / utility bar -->
         <div class="bg-slate-950 text-stone-300 text-[11px] py-2.5 hidden md:block border-b border-slate-900">
             <div class="max-w-[1400px] mx-auto px-8 flex items-center justify-between">
@@ -227,43 +239,56 @@ const socialLinks = computed(() => [
                 leave-from-class="opacity-100"
                 leave-to-class="opacity-0 -translate-y-2"
             >
-                <div v-if="mobileOpen" class="lg:hidden border-t border-stone-200 bg-white/95 backdrop-blur-xl">
-                    <div class="px-4 py-4 space-y-0.5">
-                        <!-- NOTE: No per-item slide-in animation here. The
-                             previous version used an inline `animation:`
-                             string with a stagger delay; on iOS PWA the
-                             animation occasionally never fired and the
-                             `both` fill mode locked items at opacity:0,
-                             rendering blank rows. Plain Links are reliable. -->
-                        <template v-for="item in navItems" :key="item.href">
-                            <Link
-                                :href="item.href"
-                                @click="mobileOpen = false"
-                                class="block px-4 py-3 text-sm font-medium rounded-xl transition-colors"
-                                :class="isActive(item.href) ? 'text-emerald-700 bg-emerald-50' : 'text-slate-700 hover:bg-stone-50'"
-                            >
-                                {{ item.label }}
-                            </Link>
+                <!-- ─── Mobile menu drawer ───
+                     Defensive measures (each layer matters because Android
+                     Chrome's force-dark feature can override single layers):
+                       1. color-scheme: light — opts out of force-dark
+                       2. forced-color-adjust: none — refuses any browser color
+                          inversion or accent color override
+                       3. Inline `background:` and `color:` styles — survive
+                          purge, dark mode, and theme overrides
+                       4. divide-y for visible row separators
+                       5. No animations (broken on iOS PWA before) -->
+                <div v-if="mobileOpen"
+                    class="lg:hidden border-t border-stone-200"
+                    style="background: #ffffff !important; color-scheme: light; forced-color-adjust: none;">
+                    <nav class="divide-y divide-stone-100"
+                         style="background: #ffffff !important;">
+                        <Link v-for="item in navItems" :key="item.href"
+                            :href="item.href"
+                            @click="mobileOpen = false"
+                            class="flex items-center px-5 min-h-[48px] text-[15px] font-semibold"
+                            :style="{
+                                color: isActive(item.href) ? '#047857' : '#1e293b',
+                                background: isActive(item.href) ? '#ecfdf5' : '#ffffff',
+                                forcedColorAdjust: 'none',
+                            }">
+                            {{ item.label }}
+                        </Link>
 
-                            <!-- Inject the Results sub-items right after News.
-                                 Mobile menus don't do dropdowns well, so we
-                                 render them as flat indented siblings. -->
-                            <template v-if="item.href === '/news'">
-                                <p class="px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Results</p>
-                                <Link
-                                    v-for="r in resultsMenu"
-                                    :key="r.href"
-                                    :href="r.href"
-                                    @click="mobileOpen = false"
-                                    class="block px-4 py-3 text-sm font-medium rounded-xl transition-colors ml-3"
-                                    :class="isActive(r.href) ? 'text-emerald-700 bg-emerald-50' : 'text-slate-700 hover:bg-stone-50'"
-                                >
-                                    {{ r.label }}
-                                </Link>
-                            </template>
-                        </template>
-                        <Link href="/login" class="block px-4 py-3 text-sm font-medium rounded-xl text-slate-700 hover:bg-stone-50 mt-2 border-t border-stone-100 pt-4">Admin Login</Link>
-                    </div>
+                        <!-- Results section heading -->
+                        <div class="px-5 pt-3 pb-1 text-[11px] font-bold uppercase tracking-[0.15em]"
+                             style="color: #64748b; background: #ffffff;">
+                            Results
+                        </div>
+                        <Link v-for="r in resultsMenu" :key="r.href"
+                            :href="r.href"
+                            @click="mobileOpen = false"
+                            class="flex items-center px-5 min-h-[48px] text-[15px] font-semibold"
+                            :style="{
+                                color: isActive(r.href) ? '#047857' : '#1e293b',
+                                background: isActive(r.href) ? '#ecfdf5' : '#ffffff',
+                                forcedColorAdjust: 'none',
+                            }">
+                            {{ r.label }}
+                        </Link>
+
+                        <Link href="/login"
+                            class="flex items-center px-5 min-h-[48px] text-[15px] font-semibold"
+                            style="color: #1e293b; background: #ffffff; forced-color-adjust: none;">
+                            Admin Login
+                        </Link>
+                    </nav>
                 </div>
             </Transition>
         </header>
