@@ -480,5 +480,4 @@ Route::model('transfer', StudentTransfer::class);
 // Bind scheduling params
 Route::model('room', \App\Models\ExamRoom::class);
 Route::model('invigilator', \App\Models\ExamInvigilator::class);
-
 require __DIR__.'/auth.php';
