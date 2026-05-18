@@ -72,7 +72,7 @@ class MyCoversController extends Controller
             ->values()
             ->map($shape);
 
-        return Inertia::render('MyCovers/Index', [
+        return Inertia::render('MyAdjustments/Index', [
             'todayRows' => $todayRows,
             'upcomingRows' => $upcomingRows,
             'pastRows' => $pastRows,

@@ -1,9 +1,11 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { Head, Link, router } from '@inertiajs/vue3'
+import PageHeader from '@/Components/PageHeader.vue'
+import TimetableSubnav from '@/Components/timetable/TimetableSubnav.vue'
+import { Head, router } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import {
-    ChartBarIcon, ArrowLeftIcon, UsersIcon, ScaleIcon,
+    ChartBarIcon, UsersIcon, ScaleIcon,
     ExclamationTriangleIcon, AdjustmentsHorizontalIcon,
 } from '@heroicons/vue/24/outline'
 
@@ -23,7 +25,7 @@ const toInput = ref(props.to)
 
 const TABS = [
     { key: 'load', label: 'Teacher load', icon: 'UsersIcon', sub: 'Periods/week + covers given/received' },
-    { key: 'fairness', label: 'Substitution fairness', icon: 'ScaleIcon', sub: 'Cumulative covers per teacher in date window' },
+    { key: 'fairness', label: 'Adjustment fairness', icon: 'ScaleIcon', sub: 'Cumulative adjustments per teacher in date window' },
     { key: 'coverage', label: 'Coverage gaps', icon: 'ExclamationTriangleIcon', sub: 'Sections with the most uncovered periods' },
 ]
 
@@ -71,27 +73,21 @@ function gapColor(pct) {
         { label: 'Timetable', href: route('timetable.index') },
         { label: 'Reports' },
     ]">
-        <div class="space-y-5 max-w-7xl mx-auto">
+        <div class="space-y-3 max-w-7xl mx-auto">
 
-            <!-- Header -->
-            <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-                <div>
-                    <Link :href="route('timetable.index')" class="btn btn-ghost btn-sm gap-1 mb-2 -ml-2">
-                        <ArrowLeftIcon class="w-4 h-4" /> Back
-                    </Link>
-                    <h1 class="text-2xl font-extrabold tracking-tight flex items-center gap-2">
-                        <ChartBarIcon class="w-6 h-6 text-violet-600 dark:text-violet-400" />
-                        Timetable Reports
-                    </h1>
-                    <p class="text-sm text-base-content/55 mt-1">{{ school?.name }}</p>
-                </div>
-                <select v-if="allSchools.length"
-                    @change="switchSchool($event.target.value)"
-                    :value="currentSchoolId"
-                    class="select select-bordered select-sm rounded-xl text-sm">
-                    <option v-for="s in allSchools" :key="s.id" :value="s.id">{{ s.name }}</option>
-                </select>
-            </div>
+            <PageHeader title="Timetable reports"
+                :subtitle="`Teacher load, adjustment fairness & coverage gaps · ${school?.name || ''}`"
+                :icon="ChartBarIcon" tone="violet">
+                <template #actions>
+                    <select v-if="allSchools.length"
+                        @change="switchSchool($event.target.value)" :value="currentSchoolId"
+                        class="select select-bordered select-sm rounded-lg text-sm">
+                        <option v-for="s in allSchools" :key="s.id" :value="s.id">{{ s.name }}</option>
+                    </select>
+                </template>
+            </PageHeader>
+
+            <TimetableSubnav :school-id="school?.id" />
 
             <!-- Report tabs -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -174,7 +170,7 @@ function gapColor(pct) {
             <!-- ─── FAIRNESS ─── -->
             <section v-if="activeType === 'fairness'" class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
                 <header class="px-5 py-3 border-b border-base-300 flex items-center gap-3 flex-wrap">
-                    <h2 class="text-sm font-bold">Substitution Fairness</h2>
+                    <h2 class="text-sm font-bold">Adjustment Fairness</h2>
                     <div class="flex gap-3 ml-auto text-[11px] text-base-content/55">
                         <span>{{ data.summary?.total_covers || 0 }} total covers</span>
                         <span>{{ data.summary?.distinct_substitutes || 0 }} substitutes</span>
@@ -209,7 +205,7 @@ function gapColor(pct) {
                                 <td class="px-3 py-2.5 text-xs text-base-content/55 font-mono">{{ r.last_cover_received_on || '—' }}</td>
                             </tr>
                             <tr v-if="!data.rows.length">
-                                <td colspan="6" class="text-center py-10 text-sm text-base-content/55">No substitutions in this window.</td>
+                                <td colspan="6" class="text-center py-10 text-sm text-base-content/55">No class adjustments in this window.</td>
                             </tr>
                         </tbody>
                     </table>

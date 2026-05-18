@@ -22,23 +22,38 @@ use Inertia\Response;
 
 class MarksController extends Controller
 {
+    /**
+     * The single source of truth for "may this user enter/edit marks for
+     * this (subject, section)". Admins (super / school) may always; everyone
+     * else needs an active SubjectTeacher assignment. Being a class teacher
+     * grants NO marks-entry access — they monitor read-only via /my-class.
+     */
+    protected function canEnterMarks($user, int $subjectId, int $sectionId): bool
+    {
+        if ($user->isSuperAdmin() || $user->isSchoolAdmin()) {
+            return true;
+        }
+        return SubjectTeacher::where('user_id', $user->id)
+            ->where('subject_id', $subjectId)
+            ->where('section_id', $sectionId)
+            ->where('is_active', true)
+            ->exists();
+    }
+
     public function index(Request $request): Response
     {
         $user = $request->user();
         $currentSession = AcademicSession::currentSession();
 
-        $teacherAssignments = collect();
-        if ($user->isSubjectTeacher()) {
-            $teacherAssignments = SubjectTeacher::where('user_id', $user->id)
-                ->where('is_active', true)
-                ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
-                ->get();
-        }
-
-        $classSections = collect();
-        if ($user->isClassTeacher()) {
-            $classSections = Section::where('class_teacher_id', $user->id)->active()->get();
-        }
+        // Marks entry is gated purely by SubjectTeacher assignment — being a
+        // class teacher does NOT grant entry to your section's other subjects.
+        // (A class teacher who also teaches subjects still gets those here via
+        // their own assignment rows.) Loaded by assignment, not by role flag.
+        $isAdmin = $user->isSuperAdmin() || $user->isSchoolAdmin();
+        $teacherAssignments = $isAdmin ? collect() : SubjectTeacher::where('user_id', $user->id)
+            ->where('is_active', true)
+            ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+            ->get();
 
         $examsRaw = Exam::query()
             ->where('status', 'marks_entry')
@@ -71,19 +86,19 @@ class MarksController extends Controller
             ->groupBy('section_id')
             ->pluck('cnt', 'section_id');
 
-        $exams = $examsRaw->map(function ($exam) use ($user, $teacherAssignments, $classSections, $allSections, $submissionsMap, $studentCountMap) {
+        $exams = $examsRaw->map(function ($exam) use ($isAdmin, $teacherAssignments, $allSections, $submissionsMap, $studentCountMap) {
             $assignments = [];
 
             foreach ($exam->examSubjects as $es) {
                 $sections = $allSections->get($es->school_class_id, collect());
 
                 foreach ($sections as $sec) {
-                    if ($user->isSubjectTeacher()) {
+                    // Non-admins only see (subject, section) pairs they are
+                    // assigned to teach. No class-teacher section-wide access.
+                    if (!$isAdmin) {
                         $hasAccess = $teacherAssignments->where('subject_id', $es->subject_id)
                             ->where('section_id', $sec->id)->isNotEmpty();
                         if (!$hasAccess) continue;
-                    } elseif ($user->isClassTeacher()) {
-                        if (!$classSections->contains('id', $sec->id)) continue;
                     }
 
                     $submission = $submissionsMap->get("{$exam->id}-{$es->subject_id}-{$sec->id}");
@@ -125,22 +140,11 @@ class MarksController extends Controller
         $sectionModel = Section::with(['schoolClass'])->findOrFail($section);
         $currentSession = AcademicSession::currentSession();
 
-        // Access check: super-admin and school-admin can access ALL, teachers only their own
-        if (!$user->isSuperAdmin() && !$user->isSchoolAdmin()) {
-            if ($user->isSubjectTeacher()) {
-                $hasAccess = SubjectTeacher::where('user_id', $user->id)
-                    ->where('subject_id', $subject)
-                    ->where('section_id', $section)
-                    ->where('is_active', true)
-                    ->exists();
-                if (!$hasAccess) {
-                    abort(403, 'You do not have permission to enter marks for this subject/section.');
-                }
-            } elseif ($user->isClassTeacher()) {
-                if ($sectionModel->class_teacher_id !== $user->id) {
-                    abort(403, 'You can only enter marks for your assigned section.');
-                }
-            }
+        // Marks entry is assignment-scoped. Class teachers do NOT get entry
+        // to their section's other subjects — they monitor read-only at
+        // /my-class. They keep entry only for subjects they're assigned.
+        if (!$this->canEnterMarks($user, $subject, $section)) {
+            abort(403, 'You can only enter marks for subjects assigned to you.');
         }
 
         $examSubject = ExamSubject::where('exam_id', $exam)
@@ -197,6 +201,11 @@ class MarksController extends Controller
         $data['status'] = 'draft';
         $user = $request->user();
         $currentSession = AcademicSession::currentSession();
+
+        // Assignment-scoped (this endpoint previously had NO access check).
+        if (!$this->canEnterMarks($user, (int) $data['subject_id'], (int) $data['section_id'])) {
+            abort(403, 'You can only enter marks for subjects assigned to you.');
+        }
 
         if (!$exam->isMarksEntryOpen()) {
             return redirect()->back()->with('error', 'Marks entry is not open for this exam.');
@@ -265,22 +274,9 @@ class MarksController extends Controller
 
         $section = Section::with('schoolClass')->findOrFail($data['section_id']);
 
-        // Optional access check for non-admins
-        if (!$user->isSuperAdmin() && !$user->isSchoolAdmin()) {
-            $hasAccess = false;
-            if ($user->isSubjectTeacher()) {
-                $hasAccess = SubjectTeacher::where('user_id', $user->id)
-                    ->where('subject_id', $data['subject_id'])
-                    ->where('section_id', $data['section_id'])
-                    ->where('is_active', true)
-                    ->exists();
-            }
-            if (!$hasAccess && $user->isClassTeacher() && $section->class_teacher_id === $user->id) {
-                $hasAccess = true;
-            }
-            if (!$hasAccess) {
-                return response()->json(['error' => 'Forbidden'], 403);
-            }
+        // Assignment-scoped: class teachers cannot autosave other subjects.
+        if (!$this->canEnterMarks($user, (int) $data['subject_id'], (int) $data['section_id'])) {
+            return response()->json(['error' => 'You can only enter marks for subjects assigned to you.'], 403);
         }
 
         // Skip rows that are completely blank (no marks AND not absent) — nothing to draft yet.
@@ -345,18 +341,10 @@ class MarksController extends Controller
             return redirect()->back()->with('error', 'Marks entry is not open for this exam.');
         }
 
-        // Access check
-        if (!$user->isSuperAdmin() && !$user->isSchoolAdmin()) {
-            if ($user->isSubjectTeacher()) {
-                $hasAccess = SubjectTeacher::where('user_id', $user->id)
-                    ->where('subject_id', $subject)
-                    ->where('section_id', $section)
-                    ->where('is_active', true)
-                    ->exists();
-                if (!$hasAccess) abort(403);
-            } elseif ($user->isClassTeacher()) {
-                if ($sectionModel->class_teacher_id !== $user->id) abort(403);
-            }
+        // Assignment-scoped submit. Class teachers monitor read-only and
+        // cannot submit subjects they aren't assigned to teach.
+        if (!$this->canEnterMarks($user, $subject, $section)) {
+            abort(403, 'You can only submit marks for subjects assigned to you.');
         }
 
         // Verify all students have marks entered

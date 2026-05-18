@@ -619,6 +619,7 @@ class ReportController extends Controller
                 'id' => $es->subject_id,
                 'code' => $es->subject->code ?? null,
                 'name' => $es->subject->name,
+                'total' => $es->total_marks,
             ])->values();
 
         if ($subjects->isEmpty()) {

@@ -1,7 +1,8 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { Head, Link, router } from '@inertiajs/vue3'
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import PageHeader from '@/Components/PageHeader.vue'
+import { Head, Link, router, usePage } from '@inertiajs/vue3'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import {
     UserGroupIcon, ClipboardDocumentCheckIcon, ChartBarIcon, TrophyIcon,
     AcademicCapIcon, CheckCircleIcon, XCircleIcon, ClockIcon,
@@ -217,128 +218,49 @@ const STUDENTS_PREVIEW = 8
 const RESULTS_PREVIEW = 6
 const studentsPreview = computed(() => filteredStudents.value.slice(0, STUDENTS_PREVIEW))
 const resultsPreview = computed(() => props.latestResults.slice(0, RESULTS_PREVIEW))
+
+// ─── Tabbed layout ───
+const TABS = computed(() => [
+    { key: 'overview', label: 'Overview', icon: BellAlertIcon },
+    { key: 'students', label: 'Students', icon: UserGroupIcon, count: props.students.length },
+    { key: 'marks', label: 'Marks & Results', icon: ClipboardDocumentCheckIcon },
+    { key: 'timetable', label: 'Timetable', icon: CalendarDaysIcon },
+    { key: 'reports', label: 'Reports', icon: PrinterIcon },
+    { key: 'team', label: 'Section Team', icon: UsersIcon, count: props.sectionTeam.length },
+])
+
+// Tab is driven by the ?tab= query so the sidebar can deep-link to each
+// section. Falls back to overview for unknown/missing values.
+const VALID_TABS = ['overview', 'students', 'marks', 'timetable', 'reports', 'team']
+function tabFromUrl() {
+    const q = (usePage().url.split('?')[1]) || ''
+    const t = new URLSearchParams(q).get('tab')
+    return VALID_TABS.includes(t) ? t : 'overview'
+}
+const activeTab = ref(tabFromUrl())
+watch(() => usePage().url, () => { activeTab.value = tabFromUrl() })
 </script>
 
 <template>
     <Head title="My Class" />
     <AppLayout :breadcrumbs="[{ label: 'My Class' }]">
-        <div class="space-y-5 max-w-[1500px] mx-auto">
+        <div class="space-y-4 max-w-[1500px] mx-auto">
 
-            <!-- ════════════ HERO ════════════
-                 Title + section switcher + Print Reports dropdown all in
-                 one bar so everything is reachable from the top of the
-                 page without scrolling. -->
-            <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 text-white shadow-xl">
-                <div class="absolute -top-24 -right-24 w-72 h-72 bg-amber-400/20 rounded-full blur-3xl"></div>
-                <div class="absolute -bottom-24 -left-24 w-72 h-72 bg-emerald-400/20 rounded-full blur-3xl"></div>
-                <div class="absolute inset-0 opacity-[0.04]" style="background-image: radial-gradient(white 1px, transparent 1px); background-size: 24px 24px;"></div>
-
-                <div class="relative px-6 sm:px-8 py-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                    <div class="flex items-start gap-4 min-w-0">
-                        <div class="hidden sm:flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 backdrop-blur ring-1 ring-white/20">
-                            <AcademicCapIcon class="w-6 h-6 text-amber-300" />
-                        </div>
-                        <div class="min-w-0">
-                            <p class="text-[10px] uppercase tracking-[0.25em] font-bold text-amber-300/90">Class Teacher</p>
-                            <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight leading-tight mt-1 truncate">
-                                {{ activeSection?.class_name }}
-                                <span class="text-amber-300/85">— {{ activeSection?.name }}</span>
-                            </h1>
-                            <p class="text-sm text-emerald-50/85 mt-1 truncate">
-                                {{ activeSection?.school_name }}
-                                <span v-if="currentSession" class="opacity-70">· {{ currentSession.name }}</span>
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- Hero action bar: section switcher + print menu -->
-                    <div class="flex items-center gap-2 flex-wrap">
-                        <select v-if="sections.length > 1"
-                            @change="switchSection($event.target.value)"
-                            :value="activeSection?.id"
-                            class="bg-white/10 backdrop-blur border border-white/25 text-white text-sm font-semibold rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400/60 cursor-pointer">
-                            <option v-for="s in sections" :key="s.id" :value="s.id" class="text-slate-800">
-                                {{ s.class_name }} · {{ s.name }}
-                            </option>
-                        </select>
-
-                        <!-- Print Reports dropdown -->
-                        <div ref="printMenuRef" class="relative" v-if="availableExams.length">
-                            <button @click="printMenuOpen = !printMenuOpen"
-                                class="bg-white/15 hover:bg-white/25 backdrop-blur border border-white/25 text-white text-sm font-semibold rounded-xl px-4 py-2 inline-flex items-center gap-2 transition-colors">
-                                <PrinterIcon class="w-4 h-4" />
-                                Print Reports
-                                <ChevronDownIcon class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-180': printMenuOpen }" />
-                            </button>
-
-                            <Transition
-                                enter-active-class="transition duration-150 ease-out"
-                                enter-from-class="opacity-0 -translate-y-1"
-                                enter-to-class="opacity-100 translate-y-0"
-                                leave-active-class="transition duration-100 ease-in"
-                                leave-from-class="opacity-100"
-                                leave-to-class="opacity-0 -translate-y-1"
-                            >
-                                <div v-if="printMenuOpen"
-                                    class="absolute right-0 top-full mt-2 w-72 bg-base-100 rounded-2xl shadow-xl border border-base-300 overflow-hidden z-50 text-base-content">
-                                    <div class="px-4 py-3 border-b border-base-300 bg-base-200/40">
-                                        <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55 mb-1.5">Choose exam</p>
-                                        <select v-model="selectedExamId"
-                                            class="select select-bordered select-sm w-full rounded-lg text-xs">
-                                            <option v-for="e in availableExams" :key="e.id" :value="e.id">{{ e.name }}</option>
-                                        </select>
-                                    </div>
-                                    <div class="py-1">
-                                        <a v-if="printUrls" :href="printUrls.resultSheet" target="_blank" @click="printMenuOpen = false"
-                                            class="px-4 py-2.5 flex items-center gap-3 text-sm hover:bg-sky-500/10 hover:text-sky-700 dark:hover:text-sky-300 transition-colors">
-                                            <DocumentTextIcon class="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                                            <div class="flex-1">
-                                                <div class="font-semibold">Result sheet</div>
-                                                <div class="text-[11px] text-base-content/55">Whole-class summary</div>
-                                            </div>
-                                        </a>
-                                        <a v-if="printUrls" :href="printUrls.markSheets" target="_blank" @click="printMenuOpen = false"
-                                            class="px-4 py-2.5 flex items-center gap-3 text-sm hover:bg-emerald-500/10 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors">
-                                            <DocumentDuplicateIcon class="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                                            <div class="flex-1">
-                                                <div class="font-semibold">Mark sheets</div>
-                                                <div class="text-[11px] text-base-content/55">Per-student detail sheets</div>
-                                            </div>
-                                        </a>
-                                        <a v-if="printUrls" :href="printUrls.admitCards" target="_blank" @click="printMenuOpen = false"
-                                            class="px-4 py-2.5 flex items-center gap-3 text-sm hover:bg-violet-500/10 hover:text-violet-700 dark:hover:text-violet-300 transition-colors">
-                                            <IdentificationIcon class="w-4 h-4 text-violet-600 dark:text-violet-400" />
-                                            <div class="flex-1">
-                                                <div class="font-semibold">Admit cards</div>
-                                                <div class="text-[11px] text-base-content/55">One per student</div>
-                                            </div>
-                                        </a>
-                                        <a v-if="printUrls" :href="printUrls.attendanceSheet" target="_blank" @click="printMenuOpen = false"
-                                            class="px-4 py-2.5 flex items-center gap-3 text-sm hover:bg-amber-500/10 hover:text-amber-700 dark:hover:text-amber-300 transition-colors">
-                                            <CalendarDaysIcon class="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                                            <div class="flex-1">
-                                                <div class="font-semibold">Attendance sheet</div>
-                                                <div class="text-[11px] text-base-content/55">Per-subject signing list</div>
-                                            </div>
-                                        </a>
-                                        <a v-if="printUrls" :href="printUrls.awardList" target="_blank" @click="printMenuOpen = false"
-                                            class="px-4 py-2.5 flex items-center gap-3 text-sm hover:bg-yellow-500/10 hover:text-yellow-700 dark:hover:text-yellow-300 transition-colors">
-                                            <TrophyIcon class="w-4 h-4 text-yellow-600 dark:text-yellow-400" />
-                                            <div class="flex-1">
-                                                <div class="font-semibold">Award list</div>
-                                                <div class="text-[11px] text-base-content/55">Top performers report</div>
-                                            </div>
-                                        </a>
-                                    </div>
-                                    <div class="px-4 py-2 border-t border-base-300 bg-base-200/30">
-                                        <p class="text-[10px] text-base-content/55">Each link opens a print-ready PDF in a new tab.</p>
-                                    </div>
-                                </div>
-                            </Transition>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <PageHeader
+                :title="`${activeSection?.class_name ?? 'My Class'}${activeSection?.name ? ' — ' + activeSection.name : ''}`"
+                :subtitle="`${activeSection?.school_name ?? ''}${currentSession ? ' · ' + currentSession.name : ''} · Monitoring view (read-only) — subject teachers enter the marks`"
+                :icon="AcademicCapIcon" tone="emerald">
+                <template #actions>
+                    <select v-if="sections.length > 1"
+                        @change="switchSection($event.target.value)"
+                        :value="activeSection?.id"
+                        class="select select-bordered select-sm rounded-lg text-sm">
+                        <option v-for="s in sections" :key="s.id" :value="s.id">
+                            {{ s.class_name }} · {{ s.name }}
+                        </option>
+                    </select>
+                </template>
+                </PageHeader>
 
             <!-- ════════════ KPI STRIP ════════════ -->
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -384,6 +306,22 @@ const resultsPreview = computed(() => props.latestResults.slice(0, RESULTS_PREVI
                     </div>
                 </div>
             </div>
+
+            <!-- ════════════ TABS ════════════ -->
+            <nav class="flex items-center gap-1 overflow-x-auto rounded-xl border border-base-300 bg-base-100 p-1">
+                <button v-for="t in TABS" :key="t.key" type="button" @click="activeTab = t.key"
+                    class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs font-bold transition-colors"
+                    :class="activeTab === t.key ? 'bg-primary text-primary-content' : 'text-base-content/60 hover:bg-base-200 hover:text-base-content'">
+                    <component :is="t.icon" class="h-3.5 w-3.5" />
+                    {{ t.label }}
+                    <span v-if="t.count !== undefined"
+                        class="ml-0.5 rounded-full px-1.5 text-[10px] tabular-nums font-bold"
+                        :class="activeTab === t.key ? 'bg-primary-content/20' : 'bg-base-content/10'">{{ t.count }}</span>
+                </button>
+            </nav>
+
+            <!-- ═══════ OVERVIEW TAB ═══════ -->
+            <div v-show="activeTab === 'overview'" class="space-y-4">
 
             <!-- ════════════ NEEDS ATTENTION ════════════ -->
             <div v-if="attentionItems.length" class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
@@ -501,6 +439,11 @@ const resultsPreview = computed(() => props.latestResults.slice(0, RESULTS_PREVI
                 </div>
             </section>
 
+            </div><!-- /overview -->
+
+            <!-- ═══════ STUDENTS TAB ═══════ -->
+            <div v-show="activeTab === 'students'">
+
             <!-- ════════════ STUDENTS ════════════ -->
             <section class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
                 <header class="px-5 py-3 border-b border-base-300 flex items-center gap-3">
@@ -576,6 +519,11 @@ const resultsPreview = computed(() => props.latestResults.slice(0, RESULTS_PREVI
                     </Link>
                 </footer>
             </section>
+
+            </div><!-- /students -->
+
+            <!-- ═══════ MARKS & RESULTS TAB ═══════ -->
+            <div v-show="activeTab === 'marks'" class="space-y-4">
 
             <!-- ════════════ RECENT CLASS RESULTS ════════════ -->
             <section class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
@@ -667,6 +615,11 @@ const resultsPreview = computed(() => props.latestResults.slice(0, RESULTS_PREVI
                 </div>
             </section>
 
+            </div><!-- /marks -->
+
+            <!-- ═══════ TIMETABLE TAB ═══════ -->
+            <div v-show="activeTab === 'timetable'">
+
             <!-- ════════════ MY CLASS TIMETABLE ════════════ -->
             <section class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
                 <header class="px-5 py-3 border-b border-base-300 flex items-center justify-between gap-2 flex-wrap">
@@ -734,6 +687,87 @@ const resultsPreview = computed(() => props.latestResults.slice(0, RESULTS_PREVI
                 </div>
             </section>
 
+            </div><!-- /timetable -->
+
+            <!-- ═══════ REPORTS TAB ═══════ -->
+            <div v-show="activeTab === 'reports'">
+            <section class="rounded-xl border border-base-300 bg-base-100 overflow-hidden">
+                <header class="px-4 py-2 border-b border-base-300 bg-base-200/40 flex items-center gap-2">
+                    <PrinterIcon class="w-4 h-4 text-base-content/55" />
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-base-content/55">Reports &amp; printables</h2>
+                    <span class="text-[11px] text-base-content/45">· {{ activeSection?.class_name }} · {{ activeSection?.name }}</span>
+                </header>
+
+                <div v-if="!availableExams.length" class="p-10 text-center">
+                    <ExclamationTriangleIcon class="w-9 h-9 mx-auto text-base-content/25 mb-2" />
+                    <p class="text-sm font-bold">No exams yet</p>
+                    <p class="text-xs text-base-content/55 mt-0.5">Reports become available once an exam is published for your class.</p>
+                </div>
+
+                <div v-else class="p-4 space-y-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+                        <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/55 shrink-0">Exam</label>
+                        <select v-model="selectedExamId"
+                            class="select select-bordered select-sm rounded-lg text-sm w-full sm:w-96">
+                            <option v-for="e in availableExams" :key="e.id" :value="e.id">{{ e.name }}</option>
+                        </select>
+                    </div>
+
+                    <div v-if="printUrls" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <a :href="printUrls.resultSheet" target="_blank"
+                            class="group rounded-xl border border-base-300 bg-base-100 p-3.5 flex items-center gap-3 hover:border-sky-500/40 hover:bg-sky-500/5 transition-colors">
+                            <div class="w-10 h-10 rounded-lg bg-sky-500/15 text-sky-600 dark:text-sky-400 grid place-items-center shrink-0">
+                                <DocumentTextIcon class="w-5 h-5" />
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="font-bold text-sm">Result sheet</p>
+                                <p class="text-[11px] text-base-content/55">Whole-class result summary</p>
+                            </div>
+                            <ChevronRightIcon class="w-4 h-4 text-base-content/40" />
+                        </a>
+                        <a :href="printUrls.markSheets" target="_blank"
+                            class="group rounded-xl border border-base-300 bg-base-100 p-3.5 flex items-center gap-3 hover:border-emerald-500/40 hover:bg-emerald-500/5 transition-colors">
+                            <div class="w-10 h-10 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 grid place-items-center shrink-0">
+                                <DocumentDuplicateIcon class="w-5 h-5" />
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="font-bold text-sm">Mark sheets</p>
+                                <p class="text-[11px] text-base-content/55">Per-student detailed sheets</p>
+                            </div>
+                            <ChevronRightIcon class="w-4 h-4 text-base-content/40" />
+                        </a>
+                        <a :href="printUrls.awardList" target="_blank"
+                            class="group rounded-xl border border-base-300 bg-base-100 p-3.5 flex items-center gap-3 hover:border-amber-500/40 hover:bg-amber-500/5 transition-colors">
+                            <div class="w-10 h-10 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 grid place-items-center shrink-0">
+                                <TrophyIcon class="w-5 h-5" />
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="font-bold text-sm">Award list</p>
+                                <p class="text-[11px] text-base-content/55">Top performers in your class</p>
+                            </div>
+                            <ChevronRightIcon class="w-4 h-4 text-base-content/40" />
+                        </a>
+                        <a :href="printUrls.attendanceSheet" target="_blank"
+                            class="group rounded-xl border border-base-300 bg-base-100 p-3.5 flex items-center gap-3 hover:border-violet-500/40 hover:bg-violet-500/5 transition-colors">
+                            <div class="w-10 h-10 rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400 grid place-items-center shrink-0">
+                                <CalendarDaysIcon class="w-5 h-5" />
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="font-bold text-sm">Attendance sheet</p>
+                                <p class="text-[11px] text-base-content/55">Per-subject exam signing list</p>
+                            </div>
+                            <ChevronRightIcon class="w-4 h-4 text-base-content/40" />
+                        </a>
+                    </div>
+                    <p v-else class="text-xs text-base-content/55">Select an exam above to generate its reports.</p>
+                    <p class="text-[11px] text-base-content/45">Each report opens a print-ready PDF in a new tab, scoped to your class.</p>
+                </div>
+            </section>
+            </div><!-- /reports -->
+
+            <!-- ═══════ SECTION TEAM TAB ═══════ -->
+            <div v-show="activeTab === 'team'">
+
             <!-- ════════════ SECTION TEAM ════════════ -->
             <section v-if="sectionTeam.length" class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
                 <header class="px-5 py-3 border-b border-base-300 flex items-center gap-2">
@@ -759,6 +793,7 @@ const resultsPreview = computed(() => props.latestResults.slice(0, RESULTS_PREVI
                     </div>
                 </div>
             </section>
+            </div><!-- /team -->
 
         </div>
     </AppLayout>

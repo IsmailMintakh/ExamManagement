@@ -136,21 +136,22 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('section/{section}/unlock', [TimetableController::class, 'unlockSection'])->name('section.unlock');
         Route::post('section/{target}/copy-from/{source}', [TimetableController::class, 'copyFrom'])->name('section.copy');
         Route::post('swap', [TimetableController::class, 'swap'])->name('swap');
+        Route::post('generate', [TimetableController::class, 'generate'])->name('generate');
         Route::post('setup/preset', [TimetableController::class, 'applyPreset'])->name('setup.preset');
 
-        // Daily absence + substitutions
-        Route::get('substitutions', [SubstitutionController::class, 'index'])->name('substitutions');
-        Route::post('substitutions/absences', [SubstitutionController::class, 'toggleAbsence'])->name('substitutions.absence');
-        Route::post('substitutions/generate', [SubstitutionController::class, 'generate'])->name('substitutions.generate');
-        Route::post('substitutions/{assignment}/confirm', [SubstitutionController::class, 'confirm'])->name('substitutions.confirm');
-        Route::post('substitutions/{assignment}/reassign', [SubstitutionController::class, 'reassign'])->name('substitutions.reassign');
-        Route::post('substitutions/{assignment}/decline', [SubstitutionController::class, 'decline'])->name('substitutions.decline');
-        Route::get('substitutions/slip', [SubstitutionController::class, 'slip'])->name('substitutions.slip');
+        // Daily absence + class adjustments (auto-cover)
+        Route::get('adjustments', [SubstitutionController::class, 'index'])->name('adjustments');
+        Route::post('adjustments/absences', [SubstitutionController::class, 'toggleAbsence'])->name('adjustments.absence');
+        Route::post('adjustments/generate', [SubstitutionController::class, 'generate'])->name('adjustments.generate');
+        Route::post('adjustments/{assignment}/confirm', [SubstitutionController::class, 'confirm'])->name('adjustments.confirm');
+        Route::post('adjustments/{assignment}/reassign', [SubstitutionController::class, 'reassign'])->name('adjustments.reassign');
+        Route::post('adjustments/{assignment}/decline', [SubstitutionController::class, 'decline'])->name('adjustments.decline');
+        Route::get('adjustments/slip', [SubstitutionController::class, 'slip'])->name('adjustments.slip');
     });
 
-    // Personal cover-duty inbox for any teacher.
-    Route::get('/my-covers', [\App\Http\Controllers\MyCoversController::class, 'index'])->name('my-covers');
-    Route::post('/my-covers/{assignment}/decline', [\App\Http\Controllers\MyCoversController::class, 'decline'])->name('my-covers.decline');
+    // Personal class-adjustment inbox for any teacher.
+    Route::get('/my-adjustments', [\App\Http\Controllers\MyCoversController::class, 'index'])->name('my-adjustments');
+    Route::post('/my-adjustments/{assignment}/decline', [\App\Http\Controllers\MyCoversController::class, 'decline'])->name('my-adjustments.decline');
 
     // Profile
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');

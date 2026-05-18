@@ -30,7 +30,7 @@ const allFilters = ['All', ...props.categories]
 </script>
 
 <template>
-    <Head :title="hero.meta_title || 'News & Events Test'">
+    <Head :title="hero.meta_title || 'News & Events'">
         <meta v-if="hero.meta_description" name="description" :content="hero.meta_description" />
     </Head>
     <PublicLayout>

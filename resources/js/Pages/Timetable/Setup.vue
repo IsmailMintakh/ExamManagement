@@ -1,10 +1,11 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { Head, Link, useForm, router } from '@inertiajs/vue3'
-import { ref, computed } from 'vue'
+import PageHeader from '@/Components/PageHeader.vue'
+import TimetableSubnav from '@/Components/timetable/TimetableSubnav.vue'
+import { Head, useForm, router } from '@inertiajs/vue3'
 import {
     Cog6ToothIcon, PlusIcon, TrashIcon, ClockIcon, CalendarIcon,
-    ArrowLeftIcon, BookOpenIcon, CheckIcon, SparklesIcon, SunIcon, MoonIcon,
+    BookOpenIcon, CheckIcon, SparklesIcon, SunIcon, MoonIcon,
 } from '@heroicons/vue/24/outline'
 
 // ─── Bell schedule presets ───
@@ -114,36 +115,28 @@ function typeColor(type) {
         { label: 'Timetable', href: route('timetable.index') },
         { label: 'Bell Schedule' },
     ]">
-        <div class="space-y-5 max-w-5xl mx-auto">
+        <div class="space-y-3 max-w-5xl mx-auto">
 
-            <!-- Header -->
-            <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-                <div>
-                    <Link :href="route('timetable.index', { school_id: school?.id })"
-                        class="btn btn-ghost btn-sm gap-1 mb-2 -ml-2">
-                        <ArrowLeftIcon class="w-4 h-4" /> Back
-                    </Link>
-                    <h1 class="text-2xl font-extrabold tracking-tight flex items-center gap-2">
-                        <Cog6ToothIcon class="w-6 h-6 text-violet-600 dark:text-violet-400" />
-                        Bell Schedule
-                    </h1>
-                    <p class="text-sm text-base-content/55 mt-1">
-                        Define {{ school?.name }}'s daily periods. Uncheck Friday on a row to make it a half-day slot.
-                    </p>
-                </div>
-                <button @click="submit" :disabled="form.processing"
-                    class="btn btn-primary rounded-xl gap-2">
-                    <CheckIcon class="w-4 h-4" />
-                    {{ form.processing ? 'Saving…' : 'Save schedule' }}
-                </button>
-            </div>
+            <PageHeader title="Bell schedule"
+                :subtitle="`Define ${school?.name || 'the school'}'s daily periods — uncheck Friday for half-day slots`"
+                :icon="Cog6ToothIcon" tone="violet">
+                <template #actions>
+                    <button @click="submit" :disabled="form.processing"
+                        class="btn btn-primary btn-sm rounded-lg gap-2">
+                        <CheckIcon class="w-4 h-4" />
+                        {{ form.processing ? 'Saving…' : 'Save schedule' }}
+                    </button>
+                </template>
+            </PageHeader>
+
+            <TimetableSubnav :school-id="school?.id" />
 
             <!-- Bell-schedule presets -->
-            <section class="rounded-2xl border-2 border-violet-500/30 bg-violet-500/5 p-4">
-                <div class="flex items-center gap-2 mb-3">
+            <section class="rounded-xl border border-violet-500/25 bg-violet-500/5 p-3">
+                <div class="flex items-center gap-2 mb-2">
                     <SparklesIcon class="w-4 h-4 text-violet-600 dark:text-violet-400" />
-                    <h3 class="text-sm font-bold">Quick start with a preset</h3>
-                    <span class="text-[11px] text-base-content/55">Replace your current schedule with a tested template — tweak any slot afterwards.</span>
+                    <h3 class="text-xs font-bold uppercase tracking-wider">Quick-start preset</h3>
+                    <span class="text-[11px] text-base-content/55">Replaces the schedule with a tested template — tweak afterwards.</span>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
                     <button v-for="p in PRESETS" :key="p.key"
@@ -162,17 +155,17 @@ function typeColor(type) {
             </section>
 
             <!-- Slots editor -->
-            <section class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
-                <header class="px-5 py-3 border-b border-base-300 flex items-center justify-between">
-                    <h2 class="text-sm font-bold">Periods &amp; breaks</h2>
-                    <button @click="addSlot" class="btn btn-ghost btn-sm rounded-lg gap-1.5">
-                        <PlusIcon class="w-4 h-4" /> Add slot
+            <section class="rounded-xl border border-base-300 bg-base-100 overflow-hidden">
+                <header class="px-4 py-2 border-b border-base-300 bg-base-200/40 flex items-center justify-between">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-base-content/55">Periods &amp; breaks</h2>
+                    <button @click="addSlot" class="btn btn-ghost btn-xs rounded-lg gap-1.5">
+                        <PlusIcon class="w-3.5 h-3.5" /> Add slot
                     </button>
                 </header>
 
                 <div class="divide-y divide-base-300">
                     <div v-for="(slot, i) in form.slots" :key="i"
-                        class="px-4 sm:px-5 py-4 flex flex-col gap-3 sm:flex-row sm:items-center hover:bg-base-200/30 transition-colors">
+                        class="px-4 py-2 flex flex-col gap-2 sm:flex-row sm:items-center hover:bg-base-200/30 transition-colors">
                         <!-- Order number -->
                         <div class="flex items-center gap-3 sm:w-7 shrink-0">
                             <span class="font-mono text-xs font-bold text-base-content/40 tabular-nums w-6 text-right">{{ i + 1 }}.</span>

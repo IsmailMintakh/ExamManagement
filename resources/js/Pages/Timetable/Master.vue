@@ -1,9 +1,11 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { Head, Link, router } from '@inertiajs/vue3'
+import PageHeader from '@/Components/PageHeader.vue'
+import TimetableSubnav from '@/Components/timetable/TimetableSubnav.vue'
+import { Head, router } from '@inertiajs/vue3'
 import { computed, ref } from 'vue'
 import {
-    Squares2X2Icon, ArrowLeftIcon, PrinterIcon, CalendarDaysIcon,
+    Squares2X2Icon, PrinterIcon, CalendarDaysIcon,
     AdjustmentsHorizontalIcon, EyeIcon, MagnifyingGlassIcon, ChevronDownIcon,
     XCircleIcon,
 } from '@heroicons/vue/24/outline'
@@ -188,45 +190,33 @@ function switchSchool(id) {
         { label: 'Timetable', href: route('timetable.index') },
         { label: 'Master view' },
     ]">
-        <div class="space-y-4 max-w-[1900px] mx-auto">
+        <div class="space-y-3 max-w-[1900px] mx-auto">
 
-            <!-- Header -->
-            <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
-                <div>
-                    <Link :href="route('timetable.index')" class="btn btn-ghost btn-sm gap-1 mb-2 -ml-2">
-                        <ArrowLeftIcon class="w-4 h-4" /> Back to Timetable
-                    </Link>
-                    <h1 class="text-2xl font-extrabold tracking-tight flex items-center gap-2">
-                        <Squares2X2Icon class="w-6 h-6 text-violet-600 dark:text-violet-400" />
-                        Whole-school master view
-                    </h1>
-                    <p class="text-sm text-base-content/55 mt-1">
-                        Every class &amp; section side-by-side. {{ school?.name }} ·
-                        {{ sections.length }} section{{ sections.length === 1 ? '' : 's' }} ·
-                        {{ slots.filter(s => s.type === 'period').length }} period slots
-                    </p>
-                </div>
-                <div class="flex items-center gap-2 flex-wrap">
-                    <select v-if="allSchools.length"
-                        :value="currentSchoolId"
+            <PageHeader title="Master grid"
+                :subtitle="`Every class & section side-by-side · ${school?.name || ''} · ${sections.length} section${sections.length === 1 ? '' : 's'}`"
+                :icon="Squares2X2Icon" tone="violet">
+                <template #actions>
+                    <select v-if="allSchools.length" :value="currentSchoolId"
                         @change="switchSchool($event.target.value)"
-                        class="select select-bordered select-sm rounded-xl text-sm">
+                        class="select select-bordered select-sm rounded-lg text-sm">
                         <option v-for="s in allSchools" :key="s.id" :value="s.id">{{ s.name }}</option>
                     </select>
                     <a :href="route('timetable.routine.pdf', { school_id: school?.id })" target="_blank"
-                        class="btn btn-primary btn-sm rounded-xl gap-1.5">
-                        <PrinterIcon class="w-4 h-4" /> Wall-chart (1-2 A4)
+                        class="btn btn-primary btn-sm rounded-lg gap-1.5">
+                        <PrinterIcon class="w-4 h-4" /> Wall-chart
                     </a>
                     <a :href="route('timetable.master.pdf', { school_id: school?.id })" target="_blank"
-                        class="btn btn-outline btn-sm rounded-xl gap-1.5">
-                        <PrinterIcon class="w-4 h-4" /> Day-by-day (A3)
+                        class="btn btn-outline btn-sm rounded-lg gap-1.5">
+                        <PrinterIcon class="w-4 h-4" /> A3
                     </a>
                     <a :href="route('timetable.school.pdf', { school_id: school?.id })" target="_blank"
-                        class="btn btn-ghost btn-sm rounded-xl gap-1.5">
-                        <PrinterIcon class="w-4 h-4" /> Per-section booklet
+                        class="btn btn-ghost btn-sm rounded-lg gap-1.5">
+                        <PrinterIcon class="w-4 h-4" /> Booklet
                     </a>
-                </div>
-            </div>
+                </template>
+            </PageHeader>
+
+            <TimetableSubnav :school-id="school?.id" />
 
             <!-- Day pills -->
             <div class="flex gap-1.5 overflow-x-auto pb-1">

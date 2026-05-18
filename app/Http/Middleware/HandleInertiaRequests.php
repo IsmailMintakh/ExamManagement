@@ -40,6 +40,15 @@ class HandleInertiaRequests extends Middleware
                     ] : null,
                     'roles' => $user->getRoleNames(),
                     'permissions' => $user->getAllPermissions()->pluck('name'),
+                    // True when the user has at least one active subject
+                    // assignment — drives whether "Marks Entry" is relevant.
+                    // A class teacher with no assignments won't see it.
+                    'teachesSubjects' => \App\Models\SubjectTeacher::where('user_id', $user->id)
+                        ->where('is_active', true)
+                        ->exists(),
+                    'isClassTeacher' => \App\Models\Section::where('class_teacher_id', $user->id)
+                        ->where('is_active', true)
+                        ->exists(),
                 ] : null,
                 'currentSession' => AcademicSession::currentSession(),
                 'sessions' => AcademicSession::active()->orderBy('start_date', 'desc')->get(['id', 'name', 'is_current']),

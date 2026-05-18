@@ -10,6 +10,7 @@ use App\Models\Subject;
 use App\Models\TimeSlot;
 use App\Models\TimetableEntry;
 use App\Models\User;
+use App\Services\TimetableGeneratorService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -42,9 +43,31 @@ class TimetableController extends Controller
         return AcademicSession::currentSession()?->id;
     }
 
-    /** GET /timetable — landing page: list classes, pick one to build/view. */
-    public function index(Request $request): Response
+    /**
+     * Timetable *management* (build/setup/master/reports) is admin-only.
+     * Teachers only ever see their own schedule and their class's schedule —
+     * never the school-wide management hub.
+     */
+    protected function isManager(Request $request): bool
     {
+        $u = $request->user();
+        return $u && ($u->isSuperAdmin() || $u->isSchoolAdmin());
+    }
+
+    protected function ensureManager(Request $request): void
+    {
+        abort_unless($this->isManager($request), 403, 'Timetable management is restricted to administrators.');
+    }
+
+    /** GET /timetable — landing page: list classes, pick one to build/view. */
+    public function index(Request $request)
+    {
+        // Teachers never see the management hub — send them to their own
+        // personal timetable (their classes are visible inside /my-class).
+        if (!$this->isManager($request)) {
+            return redirect()->route('timetable.teacher', $request->user()->id);
+        }
+
         $school = $this->resolveSchool($request);
         $user = $request->user();
 
@@ -119,6 +142,7 @@ class TimetableController extends Controller
     /** GET /timetable/setup — bell-schedule editor. */
     public function setup(Request $request): Response
     {
+        $this->ensureManager($request);
         $school = $this->resolveSchool($request);
         abort_if(!$school, 404);
 
@@ -133,6 +157,7 @@ class TimetableController extends Controller
     /** POST /timetable/setup — save the entire bell schedule (full replace). */
     public function saveSetup(Request $request): RedirectResponse
     {
+        $this->ensureManager($request);
         $school = $this->resolveSchool($request);
         abort_if(!$school, 404);
 
@@ -179,6 +204,7 @@ class TimetableController extends Controller
     /** GET /timetable/builder/{section} — grid editor for one section. */
     public function builder(Request $request, Section $section): Response
     {
+        $this->ensureManager($request);
         $section->load('schoolClass.school');
         $schoolId = $section->schoolClass->school_id;
         $user = $request->user();
@@ -210,6 +236,28 @@ class TimetableController extends Controller
             ->whereHas('roles', fn ($q) => $q->whereIn('name', ['class-teacher', 'subject-teacher', 'school-admin']))
             ->orderBy('name')
             ->get(['id', 'name']);
+
+        // Subject→teacher assignments for THIS section (the simple editor's
+        // primary picker — one choice sets both subject and teacher).
+        $assignments = \App\Models\SubjectTeacher::query()
+            ->where('section_id', $section->id)
+            ->where('academic_session_id', $this->sessionId())
+            ->where('is_active', true)
+            ->with(['subject:id,name,code,is_main,sort_order', 'user:id,name'])
+            ->get()
+            ->filter(fn ($a) => $a->subject && $a->user)
+            ->sortBy([
+                fn ($a) => $a->subject->is_main ? 0 : 1,
+                fn ($a) => $a->subject->sort_order ?? 0,
+                fn ($a) => $a->subject->name,
+            ])
+            ->map(fn ($a) => [
+                'subject_id' => $a->subject_id,
+                'subject_name' => $a->subject->name,
+                'subject_code' => $a->subject->code,
+                'teacher_id' => $a->user_id,
+                'teacher_name' => $a->user->name,
+            ])->values();
 
         // Other sections (for "copy from" picker) — must have entries to copy.
         $copyCandidates = Section::query()
@@ -250,12 +298,14 @@ class TimetableController extends Controller
             ]),
             'subjects' => $subjects,
             'teachers' => $teachers,
+            'assignments' => $assignments,
         ]);
     }
 
     /** POST /timetable/builder/{section} — bulk save grid. */
     public function saveBuilder(Request $request, Section $section): RedirectResponse
     {
+        $this->ensureManager($request);
         $section->load('schoolClass');
         $user = $request->user();
         if (!$user->isSuperAdmin() && $user->school_id !== $section->schoolClass->school_id) abort(403);
@@ -349,6 +399,67 @@ class TimetableController extends Controller
 
         return redirect()->route('timetable.section', $section->id)
             ->with('success', 'Timetable saved.');
+    }
+
+    /**
+     * POST /timetable/generate — auto-build timetables from the
+     * subject→teacher assignments.
+     *
+     * Body:
+     *   - section_id (optional) — only this section; otherwise the whole school
+     *   - overwrite  (optional) — rebuild sections that already have a timetable
+     *
+     * Locked sections are always left untouched. Returns to the page with a
+     * flash summary; full per-section detail is flashed as `generation`.
+     */
+    public function generate(Request $request, TimetableGeneratorService $generator): RedirectResponse
+    {
+        $user = $request->user();
+        if (!$user->isSuperAdmin() && !$user->isSchoolAdmin()) abort(403);
+
+        $validated = $request->validate([
+            'section_id' => ['nullable', 'integer', 'exists:sections,id'],
+            'overwrite' => ['nullable', 'boolean'],
+        ]);
+
+        // For a single section, the school is the section's school (avoids the
+        // super-admin "default school" pitfall). Otherwise resolve normally.
+        if (!empty($validated['section_id'])) {
+            $section = Section::with('schoolClass.school')->findOrFail($validated['section_id']);
+            $school = $section->schoolClass?->school;
+        } else {
+            $school = $this->resolveSchool($request);
+        }
+        abort_if(!$school, 404);
+        if (!$user->isSuperAdmin() && $user->school_id !== $school->id) abort(403);
+
+        $sectionIds = !empty($validated['section_id']) ? [(int) $validated['section_id']] : null;
+
+        $summary = $generator->generate(
+            $school,
+            $this->sessionId(),
+            $sectionIds,
+            (bool) ($validated['overwrite'] ?? false),
+        );
+
+        if ($summary['error']) {
+            return redirect()->back()->with('error', $summary['error']);
+        }
+
+        $msg = sprintf(
+            'Timetable generated — %d period(s) across %d section(s).%s',
+            $summary['entries_created'],
+            $summary['sections_built'],
+            $summary['sections_skipped'] > 0
+                ? ' ' . $summary['sections_skipped'] . ' section(s) skipped.'
+                : '',
+        );
+
+        $hasWarnings = collect($summary['built'])->contains(fn ($b) => !empty($b['notes']));
+
+        return redirect()->back()
+            ->with($hasWarnings ? 'warning' : 'success', $msg)
+            ->with('generation', $summary);
     }
 
     /**
@@ -685,6 +796,7 @@ class TimetableController extends Controller
      */
     public function master(Request $request): Response
     {
+        $this->ensureManager($request);
         $school = $this->resolveSchool($request);
         abort_if(!$school, 404);
         $user = $request->user();

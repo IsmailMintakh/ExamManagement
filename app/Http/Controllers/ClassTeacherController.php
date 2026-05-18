@@ -149,7 +149,11 @@ class ClassTeacherController extends Controller
         $stats = [
             'student_count' => $students->count(),
             'exam_count' => $exams->count(),
+            // Only exams ACTUALLY in marks-entry count as "awaiting marks".
+            // (Counting completed/archived exams too inflated this — e.g. 5
+            // subjects across 3 exams showed as "11 awaiting".)
             'pending_marks_subjects' => collect($marksStatus)
+                ->filter(fn ($e) => $e['status'] === 'marks_entry')
                 ->flatMap(fn ($e) => $e['subjects'])
                 ->filter(fn ($s) => $s['status'] !== 'submitted')
                 ->count(),

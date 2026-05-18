@@ -27,9 +27,11 @@ class TimetableReportController extends Controller
     /** GET /timetable/reports */
     public function index(Request $request): Response
     {
+        $user = $request->user();
+        // Reports are an admin tool — teachers monitor via /my-class.
+        abort_unless($user->isSuperAdmin() || $user->isSchoolAdmin(), 403);
         $school = $this->resolveSchool($request);
         abort_if(!$school, 404);
-        $user = $request->user();
         if (!$user->isSuperAdmin() && $user->school_id !== $school->id) abort(403);
 
         $type = $request->input('type', 'load');

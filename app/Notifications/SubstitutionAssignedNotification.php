@@ -44,16 +44,16 @@ class SubstitutionAssignedNotification extends Notification
     public function toWebPush(object $notifiable): array
     {
         $title = match ($this->action) {
-            'confirmed' => 'Cover Duty Confirmed',
-            'reassigned' => 'Cover Duty Reassigned to You',
-            default => 'Possible Cover Duty Today',
+            'confirmed' => 'Class Adjustment Confirmed',
+            'reassigned' => 'Class Adjustment Reassigned to You',
+            default => 'Possible Class Adjustment Today',
         };
         $when = Carbon::parse($this->assignment->date)->format('D, d M');
         return [
             'title' => $title,
             'body'  => "{$when} — {$this->periodLabel()}. Replaces " . ($this->assignment->originalTeacher?->name ?? 'absent teacher') . '.',
-            'tag'   => "subst-{$this->assignment->id}-{$this->action}",
-            'url'   => '/timetable/substitutions?date=' . $this->assignment->date,
+            'tag'   => "adjustment-{$this->assignment->id}-{$this->action}",
+            'url'   => '/timetable/adjustments?date=' . $this->assignment->date,
         ];
     }
 
@@ -61,18 +61,18 @@ class SubstitutionAssignedNotification extends Notification
     {
         $when = Carbon::parse($this->assignment->date)->format('l, d F Y');
         $verb = match ($this->action) {
-            'confirmed' => 'Your substitution duty has been **confirmed**',
-            'reassigned' => 'You have been **reassigned** for this substitution',
-            default => 'You have been **suggested** as a substitute',
+            'confirmed' => 'Your class adjustment has been **confirmed**',
+            'reassigned' => 'You have been **reassigned** for this class adjustment',
+            default => 'You have been **suggested** for a class adjustment',
         };
         return (new MailMessage)
-            ->subject('Substitution Duty — ' . $when)
+            ->subject('Class Adjustment — ' . $when)
             ->greeting("Hello {$notifiable->name},")
             ->line($verb . ' for the following period:')
             ->line("**Date:** {$when}")
             ->line("**Period:** {$this->periodLabel()}")
             ->line('**Replacing:** ' . ($this->assignment->originalTeacher?->name ?? 'an absent colleague'))
-            ->action('View Substitution Schedule', url('/timetable/substitutions?date=' . $this->assignment->date))
+            ->action('View Class Adjustments', url('/timetable/adjustments?date=' . $this->assignment->date))
             ->line('Please be in the assigned classroom on time.');
     }
 
@@ -80,9 +80,9 @@ class SubstitutionAssignedNotification extends Notification
     {
         return [
             'title' => match ($this->action) {
-                'confirmed' => 'Cover duty confirmed',
-                'reassigned' => 'Cover duty reassigned to you',
-                default => 'Possible cover duty',
+                'confirmed' => 'Class adjustment confirmed',
+                'reassigned' => 'Class adjustment reassigned to you',
+                default => 'Possible class adjustment',
             },
             'message' => $this->periodLabel() . ' on ' . Carbon::parse($this->assignment->date)->format('D, d M Y'),
             'icon' => 'arrows-right-left',
@@ -90,7 +90,7 @@ class SubstitutionAssignedNotification extends Notification
             'date' => $this->assignment->date,
             'status' => $this->assignment->status,
             'action_type' => $this->action,
-            'url' => '/timetable/substitutions?date=' . $this->assignment->date,
+            'url' => '/timetable/adjustments?date=' . $this->assignment->date,
         ];
     }
 }

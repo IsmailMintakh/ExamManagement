@@ -1,7 +1,9 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import PageHeader from '@/Components/PageHeader.vue'
 import EmptyState from '@/Components/EmptyState.vue'
-import { Head, Link } from '@inertiajs/vue3'
+import { Head, Link, usePage } from '@inertiajs/vue3'
+import { computed } from 'vue'
 import {
     ClipboardDocumentListIcon,
     CheckCircleIcon,
@@ -11,11 +13,16 @@ import {
     LockClosedIcon,
     UserGroupIcon,
     ChevronRightIcon,
+    DocumentTextIcon,
 } from '@heroicons/vue/24/outline'
 
 defineProps({
     exams: Array,
 })
+
+const authUser = computed(() => usePage().props.auth?.user)
+const isClassTeacher = computed(() => !!authUser.value?.isClassTeacher)
+const teachesSubjects = computed(() => !!authUser.value?.teachesSubjects)
 
 const statusConfig = {
     submitted: { label: 'Submitted', class: 'badge-success', dot: 'bg-emerald-500', icon: CheckCircleIcon },
@@ -31,12 +38,17 @@ function getStatus(status) {
 <template>
     <Head title="Marks Entry" />
     <AppLayout :breadcrumbs="[{ label: 'Marks Entry' }]">
-        <div class="space-y-5">
-            <!-- Page Header -->
-            <div>
-                <h1 class="text-2xl font-bold">Marks Entry</h1>
-                <p class="text-sm text-base-content/55 mt-0.5">Tap any subject to enter marks for that section.</p>
-            </div>
+        <div class="space-y-4 max-w-[1500px] mx-auto">
+            <PageHeader title="Marks entry"
+                subtitle="Only the subjects assigned to you. Tap a subject to enter that section's marks."
+                :icon="DocumentTextIcon" tone="primary">
+                <template #actions>
+                    <Link v-if="isClassTeacher" href="/my-class"
+                        class="btn btn-outline btn-sm rounded-lg gap-1.5">
+                        <UserGroupIcon class="w-4 h-4" /> My Class (monitor)
+                    </Link>
+                </template>
+            </PageHeader>
 
             <!-- Exam Cards -->
             <div v-if="exams?.length" class="space-y-5">
@@ -164,9 +176,15 @@ function getStatus(status) {
 
             <!-- Empty State -->
             <div v-else class="card-section">
-                <EmptyState
+                <!-- Class teacher with no subject assignments: explain the model -->
+                <EmptyState v-if="isClassTeacher && !teachesSubjects"
+                    title="No subjects assigned to you"
+                    description="Marks entry is only for subjects you are assigned to teach. As a class teacher you monitor your section's marks progress (read-only) from My Class."
+                    action-text="Go to My Class"
+                    action-href="/my-class" />
+                <EmptyState v-else
                     title="No active exams"
-                    description="There are no exams open for marks entry at this time. Exams will appear here once they are published and marks entry is opened."
+                    description="No exams are open for your assigned subjects right now. They'll appear here once published and marks entry is opened."
                 />
             </div>
         </div>

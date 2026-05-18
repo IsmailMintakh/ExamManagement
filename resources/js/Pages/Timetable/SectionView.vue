@@ -1,9 +1,10 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import PageHeader from '@/Components/PageHeader.vue'
+import TimetableSubnav from '@/Components/timetable/TimetableSubnav.vue'
 import { Head, Link } from '@inertiajs/vue3'
-import { computed } from 'vue'
 import {
-    EyeIcon, ArrowLeftIcon, PencilSquareIcon, PrinterIcon, AcademicCapIcon,
+    PencilSquareIcon, PrinterIcon, AcademicCapIcon, ClockIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -12,23 +13,31 @@ const props = defineProps({
     entries: { type: Object, default: () => ({}) },
 })
 
-const DAYS = [
-    { code: 'mon', label: 'Mon' },
-    { code: 'tue', label: 'Tue' },
-    { code: 'wed', label: 'Wed' },
-    { code: 'thu', label: 'Thu' },
-    { code: 'fri', label: 'Fri' },
-    { code: 'sat', label: 'Sat' },
-]
+const ALL_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+const DAY_LABEL = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat' }
 
-function entry(day, slotId) {
-    return props.entries[`${day}|${slotId}`]
+function isPeriod(slot) {
+    return slot.type === 'period'
 }
-function slotApplies(slot, day) {
-    const days = slot.weekdays || ['mon','tue','wed','thu','fri','sat']
-    return days.includes(day)
+
+// The routine is the same every day, so show ONE entry per slot — the first
+// weekday it runs that has an assignment.
+function slotDays(slot) {
+    const d = (slot.weekdays && slot.weekdays.length) ? slot.weekdays : ALL_DAYS
+    return ALL_DAYS.filter(x => d.includes(x))
 }
-function isPeriodSlot(s) { return s.type === 'period' }
+function routineEntry(slot) {
+    for (const day of slotDays(slot)) {
+        const e = props.entries[`${day}|${slot.id}`]
+        if (e) return e
+    }
+    return null
+}
+function daysLabel(slot) {
+    const d = slotDays(slot)
+    if (d.length === 6) return 'Daily'
+    return d.map(x => DAY_LABEL[x]).join(', ')
+}
 </script>
 
 <template>
@@ -37,66 +46,67 @@ function isPeriodSlot(s) { return s.type === 'period' }
         { label: 'Timetable', href: route('timetable.index') },
         { label: `${section.class_name} · ${section.name}` },
     ]">
-        <div class="space-y-5 max-w-[1500px] mx-auto">
+        <div class="space-y-3 max-w-3xl mx-auto">
 
-            <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-                <div>
-                    <Link :href="route('timetable.index')" class="btn btn-ghost btn-sm gap-1 mb-2 -ml-2">
-                        <ArrowLeftIcon class="w-4 h-4" /> Back
-                    </Link>
-                    <h1 class="text-2xl font-extrabold tracking-tight flex items-center gap-2">
-                        <AcademicCapIcon class="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-                        {{ section.class_name }} — Section {{ section.name }}
-                    </h1>
-                    <p class="text-sm text-base-content/55 mt-1">{{ section.school_name }}</p>
-                </div>
-                <div class="flex items-center gap-2">
+            <PageHeader :title="`${section.class_name} — Section ${section.name}`"
+                :subtitle="`${section.school_name} · Daily routine (same Mon–Sat)`"
+                :icon="AcademicCapIcon" tone="emerald">
+                <template #actions>
                     <a :href="route('timetable.section.pdf', section.id)" target="_blank"
-                        class="btn btn-outline btn-sm rounded-xl gap-1.5">
+                        class="btn btn-outline btn-sm rounded-lg gap-1.5">
                         <PrinterIcon class="w-4 h-4" /> Print PDF
                     </a>
-                    <Link :href="route('timetable.builder', section.id)" class="btn btn-primary btn-sm rounded-xl gap-1.5">
+                    <Link :href="route('timetable.builder', section.id)" class="btn btn-primary btn-sm rounded-lg gap-1.5">
                         <PencilSquareIcon class="w-4 h-4" /> Edit
                     </Link>
-                </div>
-            </div>
+                </template>
+            </PageHeader>
+
+            <TimetableSubnav />
 
             <div class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
-                        <thead>
-                            <tr class="bg-base-200/50">
-                                <th class="text-left px-3 py-3 font-bold text-[11px] uppercase tracking-wider text-base-content/55 sticky left-0 bg-base-200/50 z-10 min-w-[140px]">
-                                    Slot
-                                </th>
-                                <th v-for="d in DAYS" :key="d.code"
-                                    class="text-center px-3 py-3 font-bold text-[11px] uppercase tracking-wider text-base-content/55 min-w-[150px]">
-                                    {{ d.label }}
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-base-300">
-                            <tr v-for="slot in slots" :key="slot.id" :class="!isPeriodSlot(slot) ? 'bg-amber-500/5' : ''">
-                                <td class="px-3 py-3 sticky left-0 z-10"
-                                    :class="!isPeriodSlot(slot) ? 'bg-amber-500/10' : 'bg-base-100'">
-                                    <p class="font-bold">{{ slot.name }}</p>
-                                    <p class="text-[10px] text-base-content/55 font-mono">{{ slot.starts_at?.slice(0,5) }}–{{ slot.ends_at?.slice(0,5) }}</p>
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="bg-base-200/50 text-[11px] uppercase tracking-wider text-base-content/55">
+                            <th class="text-left px-4 py-3 font-bold">Period</th>
+                            <th class="text-left px-4 py-3 font-bold">Subject</th>
+                            <th class="text-left px-4 py-3 font-bold">Teacher</th>
+                            <th class="text-left px-4 py-3 font-bold hidden sm:table-cell">Days</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-base-300">
+                        <tr v-for="slot in slots" :key="slot.id" :class="!isPeriod(slot) ? 'bg-amber-500/5' : ''">
+                            <td class="px-4 py-3 align-top">
+                                <p class="font-bold">{{ slot.name }}</p>
+                                <p class="text-[11px] text-base-content/55 font-mono flex items-center gap-1">
+                                    <ClockIcon class="w-3 h-3" />
+                                    {{ slot.starts_at?.slice(0,5) }}–{{ slot.ends_at?.slice(0,5) }}
+                                </p>
+                            </td>
+
+                            <!-- Break / lunch -->
+                            <td v-if="!isPeriod(slot)" colspan="3"
+                                class="px-4 py-3 text-[11px] uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300">
+                                {{ slot.type }}
+                            </td>
+
+                            <template v-else>
+                                <td class="px-4 py-3 font-semibold">
+                                    {{ routineEntry(slot)?.subject?.name
+                                        || '—' }}
                                 </td>
-                                <td v-for="d in DAYS" :key="d.code" class="px-2 py-2 text-center align-middle">
-                                    <div v-if="!slotApplies(slot, d.code)" class="text-[10px] text-base-content/35 italic">—</div>
-                                    <div v-else-if="!isPeriodSlot(slot)" class="text-[10px] uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300">
-                                        {{ slot.type }}
-                                    </div>
-                                    <div v-else-if="entry(d.code, slot.id)" class="space-y-0.5">
-                                        <p class="font-bold text-[12px] truncate">{{ entry(d.code, slot.id).subject?.name || '—' }}</p>
-                                        <p class="text-[10px] text-base-content/55 truncate">{{ entry(d.code, slot.id).teacher?.name || 'No teacher' }}</p>
-                                    </div>
-                                    <div v-else class="text-[10px] text-base-content/35">free</div>
+                                <td class="px-4 py-3 text-base-content/70">
+                                    {{ routineEntry(slot)?.teacher?.name
+                                        || (routineEntry(slot) ? 'No teacher' : '') }}
+                                    <span v-if="!routineEntry(slot)" class="text-base-content/35 italic">Free period</span>
                                 </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+                                <td class="px-4 py-3 text-[11px] text-base-content/55 hidden sm:table-cell">
+                                    {{ daysLabel(slot) }}
+                                </td>
+                            </template>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </AppLayout>

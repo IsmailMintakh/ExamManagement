@@ -24,6 +24,16 @@
         .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 8px; font-weight: bold; }
         .badge-success { background: #c6f6d5; color: #22543d; }
         .footer { text-align: center; margin-top: 20px; font-size: 8px; color: #999; border-top: 1px solid #eee; padding-top: 8px; }
+
+        /* Standard summary + signature block (used on every report) */
+        .summary { margin: 6px 0 4px; font-size: 9.5px; font-weight: bold; color: #1a365d; }
+        .summary span { display: inline-block; margin-right: 22px; }
+        .summary .blank { display: inline-block; min-width: 60px; border-bottom: 1px solid #1a1a1a; }
+        .sign-block { display: table; width: 100%; margin: 14px 0 26px; }
+        .sign-cell { display: table-cell; width: 50%; vertical-align: bottom; font-size: 9px; }
+        .sign-cell.right { text-align: right; }
+        .sign-line { border-top: 1px solid #1a1a1a; padding-top: 3px; font-weight: bold;
+                     display: inline-block; min-width: 60%; margin-top: 60px; }
     </style>
 </head>
 <body>
@@ -36,18 +46,18 @@
 
         @foreach($classResults as $className => $sections)
             @foreach($sections as $sectionName => $results)
-                <div class="class-section">{{ $className }} - {{ $sectionName }}</div>
+                <div class="class-section">
+                    {{ $className }} - {{ $sectionName }}
+                    <span style="float:right;">Total Marks: {{ optional($results->first())->total_marks }}</span>
+                </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width:8%">Position</th>
-                            <th style="width:8%">Roll No</th>
-                            <th style="width:25%">Student Name</th>
-                            <th style="width:20%">Father Name</th>
-                            <th style="width:10%">Obtained</th>
-                            <th style="width:10%">Total</th>
-                            <th style="width:10%">Percentage</th>
-                            <th style="width:9%">Grade</th>
+                            <th style="width:14%">Reg No</th>
+                            <th style="width:38%">Student Name</th>
+                            <th style="width:18%">Obtained Marks</th>
+                            <th style="width:22%">Remarks</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -59,17 +69,29 @@
                                     {{ $result->position == 1 ? '🥇' : ($result->position == 2 ? '🥈' : '🥉') }}
                                 @endif
                             </td>
-                            <td>{{ $result->student->roll_no }}</td>
+                            <td>{{ $result->student->admission_no }}</td>
                             <td class="student-name">{{ $result->student->name }}</td>
-                            <td>{{ $result->student->father_name }}</td>
                             <td style="text-align:center;font-weight:bold">{{ $result->obtained_marks }}</td>
-                            <td style="text-align:center">{{ $result->total_marks }}</td>
-                            <td style="text-align:center;font-weight:bold">{{ $result->percentage }}%</td>
-                            <td style="text-align:center"><span class="badge badge-success">{{ $result->grade }}</span></td>
+                            <td></td>
                         </tr>
                         @endforeach
                     </tbody>
                 </table>
+
+                {{-- Standard summary + signature (general for all reports) --}}
+                <div class="summary">
+                    <span>Total Students: <span class="blank">&nbsp;</span></span>
+                    <span>Present: <span class="blank">&nbsp;</span></span>
+                    <span>Absent: <span class="blank">&nbsp;</span></span>
+                </div>
+                <div class="sign-block">
+                    <div class="sign-cell">
+                        <div class="sign-line">Class Teacher / Subject Teacher</div>
+                    </div>
+                    <div class="sign-cell right">
+                        <div class="sign-line">Submitted Date</div>
+                    </div>
+                </div>
             @endforeach
         @endforeach
 

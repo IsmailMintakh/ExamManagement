@@ -58,7 +58,7 @@
         /* Footer with invigilator signature */
         .foot { display: table; width: 100%; margin-top: 12px; padding-top: 8px; border-top: 1px dashed #94a3b8; }
         .foot-cell { display: table-cell; width: 50%; padding: 0 8px; vertical-align: bottom; font-size: 8.5pt; color: #475569; }
-        .foot-cell .sig-line { border-top: 1px solid #334155; margin-top: 22px; padding-top: 3px; font-weight: bold; color: #1a1a1a; }
+        .foot-cell .sig-line { border-top: 1px solid #334155; margin-top: 55px; padding-top: 3px; font-weight: bold; color: #1a1a1a; }
         .foot-cell .role { font-size: 7.5pt; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; }
         .pgnum { font-size: 7.5pt; color: #94a3b8; text-align: right; margin-top: 4px; }
     </style>
@@ -105,7 +105,7 @@
                         </div>
                     </div>
                     <div class="banner-r">
-                        Total: <strong>{{ $section->studentsList->count() }}</strong>
+                        Total Marks: <strong>{{ $subject['total'] ?? '—' }}</strong>
                     </div>
                 </div>
 
@@ -134,35 +134,37 @@
                     <thead>
                         <tr>
                             <th style="width:7%">#</th>
-                            <th style="width:9%">Roll</th>
-                            <th style="width:26%;text-align:left">Student Name</th>
-                            <th style="width:22%;text-align:left">Father Name</th>
-                            <th style="width:36%">Signature</th>
+                            <th style="width:16%">Reg No</th>
+                            <th style="width:37%;text-align:left">Student Name</th>
+                            <th style="width:20%">Obtained Marks</th>
+                            <th style="width:20%">Remarks</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach($section->studentsList as $idx => $student)
                             <tr>
                                 <td class="num">{{ $idx + 1 }}</td>
-                                <td class="roll">{{ $student->roll_no }}</td>
+                                <td class="roll">{{ $student->admission_no }}</td>
                                 <td class="name">{{ $student->name }}</td>
-                                <td class="father">{{ $student->father_name ?? '' }}</td>
-                                <td class="sig"></td>
+                                <td></td>
+                                <td></td>
                             </tr>
                         @endforeach
                     </tbody>
                 </table>
 
-                {{-- Footer signature lines --}}
+                {{-- Standard summary + signature (general for all reports) --}}
+                <div style="margin-top:10px;font-size:9.5pt;font-weight:bold;color:#064e3b;">
+                    Total Students: <span style="display:inline-block;min-width:60px;border-bottom:1px solid #1a1a1a;">&nbsp;</span>
+                    &nbsp;&nbsp;&nbsp; Present: <span style="display:inline-block;min-width:60px;border-bottom:1px solid #1a1a1a;">&nbsp;</span>
+                    &nbsp;&nbsp;&nbsp; Absent: <span style="display:inline-block;min-width:60px;border-bottom:1px solid #1a1a1a;">&nbsp;</span>
+                </div>
                 <div class="foot">
                     <div class="foot-cell">
-                        <div>Total Present: ______ &nbsp;&nbsp; Absent: ______</div>
-                        <div class="sig-line">Invigilator Signature</div>
-                        <div class="role">On-Duty Teacher</div>
+                        <div class="sig-line">Class Teacher / Subject Teacher</div>
                     </div>
                     <div class="foot-cell" style="text-align:right">
-                        <div class="sig-line" style="margin-left:30%">Exam Officer / Controller</div>
-                        <div class="role" style="margin-left:30%">Verified By</div>
+                        <div class="sig-line" style="margin-left:40%">Submitted Date</div>
                     </div>
                 </div>
                 <div class="pgnum">{{ $school->name }} · Sheet {{ $sheetIdx }} of {{ $totalSheets }}</div>

@@ -1,9 +1,9 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
-import { Head, Link } from '@inertiajs/vue3'
-import {
-    UserCircleIcon, ArrowLeftIcon, PrinterIcon,
-} from '@heroicons/vue/24/outline'
+import PageHeader from '@/Components/PageHeader.vue'
+import TimetableSubnav from '@/Components/timetable/TimetableSubnav.vue'
+import { Head } from '@inertiajs/vue3'
+import { UserCircleIcon, PrinterIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
     teacher: Object,
@@ -37,23 +37,20 @@ function isPeriodSlot(s) { return s.type === 'period' }
         { label: 'Timetable', href: route('timetable.index') },
         { label: teacher.name },
     ]">
-        <div class="space-y-5 max-w-[1500px] mx-auto">
-            <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-                <div>
-                    <Link :href="route('timetable.index')" class="btn btn-ghost btn-sm gap-1 mb-2 -ml-2">
-                        <ArrowLeftIcon class="w-4 h-4" /> Back
-                    </Link>
-                    <h1 class="text-2xl font-extrabold tracking-tight flex items-center gap-2">
-                        <UserCircleIcon class="w-6 h-6 text-sky-600 dark:text-sky-400" />
-                        {{ teacher.name }}
-                    </h1>
-                    <p class="text-sm text-base-content/55 mt-1">{{ school?.name }}</p>
-                </div>
-                <a :href="route('timetable.teacher.pdf', teacher.id)" target="_blank"
-                    class="btn btn-outline btn-sm rounded-xl gap-1.5">
-                    <PrinterIcon class="w-4 h-4" /> Print PDF
-                </a>
-            </div>
+        <div class="space-y-3 max-w-[1500px] mx-auto">
+
+            <PageHeader :title="teacher.name"
+                :subtitle="`Personal timetable · ${school?.name || ''}`"
+                :icon="UserCircleIcon" tone="sky">
+                <template #actions>
+                    <a :href="route('timetable.teacher.pdf', teacher.id)" target="_blank"
+                        class="btn btn-outline btn-sm rounded-lg gap-1.5">
+                        <PrinterIcon class="w-4 h-4" /> Print PDF
+                    </a>
+                </template>
+            </PageHeader>
+
+            <TimetableSubnav :school-id="school?.id" />
 
             <div class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
                 <div class="overflow-x-auto">

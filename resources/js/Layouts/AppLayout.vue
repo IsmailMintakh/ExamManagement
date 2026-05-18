@@ -135,31 +135,55 @@ const menuGroups = computed(() => {
     const isAdminish = hasRole('super-admin') || hasRole('school-admin')
     const isTeacher = hasRole('class-teacher') || hasRole('subject-teacher')
     if (isTeacher && !isAdminish) {
-        const workItems = []
-        workItems.push({ label: 'Dashboard', href: '/dashboard', icon: HomeIcon })
-        if (hasRole('class-teacher')) workItems.push({ label: 'My Class', href: '/my-class', icon: AcademicCapIcon })
-        if (hasPerm('exams.view')) workItems.push({ label: 'Exams', href: '/exams', icon: ClipboardDocumentListIcon })
-        if (hasPerm('marks.view') || hasPerm('marks.enter')) workItems.push({ label: 'Marks Entry', href: '/marks', icon: DocumentTextIcon })
-        if (hasPerm('results.view')) workItems.push({ label: 'Results', href: '/results', icon: ChartBarIcon })
-        if (hasPerm('reports.view')) workItems.push({ label: 'Reports', href: '/reports', icon: DocumentTextIcon })
-        // Teachers see their own read-only timetable view.
-        workItems.push({ label: 'Timetable', href: '/timetable', icon: CalendarIcon })
-        if (hasRole('class-teacher') || hasRole('subject-teacher')) {
-            workItems.push({ label: 'My Cover Duties', href: '/my-covers', icon: ArrowsRightLeftIcon })
+        // Data-driven flags (set by the backend) — more accurate than role
+        // names: a class teacher only sees "My Class" if actually assigned a
+        // section, and "Marks Entry" only if they have subject assignments.
+        const isClassTeacher = !!user.value?.isClassTeacher
+        const teachesSubjects = !!user.value?.teachesSubjects
+
+        // ── My Class (class-teacher hub) — each tab is a direct sidebar
+        //    link via ?tab= so the whole hub is reachable in one click. ──
+        const classItems = []
+        if (isClassTeacher) {
+            classItems.push(
+                { label: 'Overview', href: '/my-class?tab=overview', icon: Squares2X2Icon },
+                { label: 'Students', href: '/my-class?tab=students', icon: UserGroupIcon },
+                { label: 'Marks & Results', href: '/my-class?tab=marks', icon: ClipboardDocumentCheckIcon },
+                { label: 'Class Timetable', href: '/my-class?tab=timetable', icon: CalendarIcon },
+                { label: 'Reports', href: '/my-class?tab=reports', icon: DocumentTextIcon },
+                { label: 'Section Team', href: '/my-class?tab=team', icon: UsersIcon },
+            )
         }
-        if (hasPerm('questions.view')) workItems.push({ label: 'Question Bank', href: '/questions', icon: QuestionMarkCircleIcon })
-        if (hasPerm('papers.view')) workItems.push({ label: 'Paper Generator', href: '/papers', icon: DocumentDuplicateIcon })
 
-        const sysItems = [
-            { label: 'Notifications', href: '/notifications', icon: BellAlertIcon },
-        ]
-        if (hasPerm('settings.view')) sysItems.push({ label: 'Settings', href: '/settings', icon: Cog6ToothIcon })
-        sysItems.push({ label: 'Help & Docs', href: '/help', icon: LifebuoyIcon })
+        // ── Teaching (subject-teacher work: enter your own subjects) ──
+        const teachItems = []
+        if (teachesSubjects) {
+            teachItems.push({ label: 'Marks Entry', href: '/marks', icon: DocumentTextIcon })
+        }
+        if (hasPerm('exams.view')) teachItems.push({ label: 'Exams', href: '/exams', icon: ClipboardDocumentListIcon })
+        if (hasPerm('questions.view')) teachItems.push({ label: 'Question Bank', href: '/questions', icon: QuestionMarkCircleIcon })
+        if (hasPerm('papers.view')) teachItems.push({ label: 'Paper Generator', href: '/papers', icon: DocumentDuplicateIcon })
 
-        return [
-            { label: 'Workflow', items: workItems },
-            { label: 'System', items: sysItems },
+        // ── Schedule (personal only — no school-wide timetable hub) ──
+        const scheduleItems = [
+            { label: 'My Timetable', href: '/timetable/teacher/' + (user.value?.id ?? ''), icon: CalendarIcon },
+            { label: 'My Class Adjustments', href: '/my-adjustments', icon: ArrowsRightLeftIcon },
         ]
+
+        const teacherGroups = [
+            { label: 'Overview', items: [{ label: 'Dashboard', href: '/dashboard', icon: HomeIcon }] },
+        ]
+        if (classItems.length) teacherGroups.push({ label: 'My Class', items: classItems })
+        if (teachItems.length) teacherGroups.push({ label: 'Teaching', items: teachItems })
+        teacherGroups.push({ label: 'Schedule', items: scheduleItems })
+        teacherGroups.push({
+            label: 'System',
+            items: [
+                { label: 'Notifications', href: '/notifications', icon: BellAlertIcon },
+                { label: 'Help & Docs', href: '/help', icon: LifebuoyIcon },
+            ],
+        })
+        return teacherGroups
     }
 
     const groups = []
