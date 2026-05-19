@@ -163,21 +163,21 @@ class ReportController extends Controller
             'total' => $es->total_marks,
         ])->toArray();
 
-        // Attach per-subject marks to each result
-        $results->each(function ($result) use ($exam) {
-            $marks = Mark::where('exam_id', $exam)
-                ->where('student_id', $result->student_id)
-                ->get();
-            $subjectResults = [];
-            foreach ($marks as $mark) {
-                $subjectResults[$mark->subject_id] = [
-                    'obtained' => $mark->marks_obtained,
-                    'total' => $mark->total_marks,
-                    'is_absent' => $mark->is_absent,
-                    'failed' => $mark->marks_obtained < ($mark->examSubject?->passing_marks ?? 0) && !$mark->is_absent,
+        // Per-subject cells come from the AUTHORITATIVE result snapshot
+        // (same source as report cards / mark sheets) so grace marks and
+        // the exam's pass rules are respected — a subject passed via grace
+        // must not show red here while the student passes overall.
+        $results->each(function ($result) {
+            $map = [];
+            foreach (($result->subject_results ?? []) as $sr) {
+                $map[$sr['subject_id']] = [
+                    'obtained' => $sr['effective_marks'] ?? $sr['marks_obtained'] ?? 0,
+                    'total' => $sr['total_marks'] ?? 0,
+                    'is_absent' => $sr['is_absent'] ?? false,
+                    'failed' => !($sr['is_passed'] ?? true),
                 ];
             }
-            $result->subject_results = $subjectResults;
+            $result->subject_results = $map;
         });
 
         $pdf = Pdf::loadView('reports.result-sheet', ['exam' => $examModel, 'school' => $school, 'schoolClass' => $schoolClassModel, 'academicSession' => $academicSession, 'results' => $results, 'summary' => $summary, 'subjects' => $subjects]);
@@ -532,16 +532,16 @@ class ReportController extends Controller
                 ->orderBy('position')
                 ->get();
 
-            // Attach per-subject marks like resultSheet() does.
-            $results->each(function ($r) use ($exam) {
-                $marks = Mark::where('exam_id', $exam)->where('student_id', $r->student_id)->get();
+            // Per-subject cells from the authoritative result snapshot
+            // (grace + exam pass rules respected), same as resultSheet().
+            $results->each(function ($r) {
                 $bySubj = [];
-                foreach ($marks as $m) {
-                    $bySubj[$m->subject_id] = [
-                        'obtained' => $m->marks_obtained,
-                        'total' => $m->total_marks,
-                        'is_absent' => $m->is_absent,
-                        'failed' => $m->marks_obtained < ($m->examSubject?->passing_marks ?? 0) && !$m->is_absent,
+                foreach (($r->subject_results ?? []) as $sr) {
+                    $bySubj[$sr['subject_id']] = [
+                        'obtained' => $sr['effective_marks'] ?? $sr['marks_obtained'] ?? 0,
+                        'total' => $sr['total_marks'] ?? 0,
+                        'is_absent' => $sr['is_absent'] ?? false,
+                        'failed' => !($sr['is_passed'] ?? true),
                     ];
                 }
                 $r->subject_results = $bySubj;

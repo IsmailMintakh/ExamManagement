@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SchedulingSubnav from '@/Components/scheduling/SchedulingSubnav.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import { Head, Link, router, useForm } from '@inertiajs/vue3'
 import { computed, ref } from 'vue'
@@ -76,7 +77,8 @@ function openPdf() {
             { label: 'Invigilators' },
         ]"
     >
-        <div class="space-y-5">
+        <div class="space-y-4 max-w-5xl mx-auto">
+            <SchedulingSubnav :exam-id="exam.id" />
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                     <h1 class="text-2xl font-bold flex items-center gap-2">

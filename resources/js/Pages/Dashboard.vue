@@ -26,7 +26,7 @@ import {
     SparklesIcon, LightBulbIcon, FireIcon,
 } from '@heroicons/vue/24/outline'
 
-import HeroFeaturedCard from '@/Components/dashboard/HeroFeaturedCard.vue'
+import PageHeader from '@/Components/PageHeader.vue'
 import StatTileDelta from '@/Components/dashboard/StatTileDelta.vue'
 import ActivityFeed from '@/Components/dashboard/ActivityFeed.vue'
 import CalendarWidget from '@/Components/dashboard/CalendarWidget.vue'
@@ -40,6 +40,8 @@ const props = defineProps({
     role: { type: String, default: '' },
     currentSession: { type: Object, default: null },
     recentExams: { type: Array, default: () => [] },
+    recentStudents: { type: Array, default: () => [] },
+    sectionRoster: { type: Object, default: () => ({ rows: [], empty_sections: 0, total_sections: 0 }) },
     schoolWiseComparison: { type: Array, default: () => [] },
     classWisePerformance: { type: Array, default: () => [] },
     sections: { type: Array, default: () => [] },
@@ -277,15 +279,11 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                 </div>
             </div>
 
-            <!-- ════════ HERO ════════ -->
-            <HeroFeaturedCard
-                :user-name="userName"
-                :role="roleLabels[role] || role"
-                :session-name="currentSession?.name"
-                :today-label="todayLabel"
-                :user-photo="userPhoto"
-                :hero="hero"
-                :greeting="greeting" />
+            <!-- ════════ HEADER (compact, professional) ════════ -->
+            <PageHeader
+                :title="`${greeting}, ${userName}`"
+                :subtitle="`${roleLabels[role] || role} · ${currentSession?.name || 'No active session'} · ${todayLabel}`"
+                :icon="AcademicCapIcon" tone="primary" />
 
             <!-- ════════ INSIGHT BANNER (auto-summary) ════════ -->
             <div v-if="insight" class="rounded-2xl bg-gradient-to-r from-primary/[0.08] to-emerald-500/[0.06] border border-primary/15 px-4 py-3 flex items-center gap-3">
@@ -298,7 +296,7 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
 
             <!-- ════════ TODAY'S TEACHING SCHEDULE (teachers only) ════════ -->
             <section v-if="todaysClasses && (role === 'class-teacher' || role === 'subject-teacher')"
-                class="rounded-2xl border border-base-200 bg-base-100 overflow-hidden">
+                class="rounded-xl border border-base-300 bg-base-100 overflow-hidden shadow-sm">
                 <header class="px-4 sm:px-5 py-3 border-b border-base-200 flex items-center justify-between gap-2 flex-wrap">
                     <div class="flex items-center gap-2 min-w-0">
                         <ClockIcon class="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
@@ -379,12 +377,48 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                     :spark="tile.spark || []" />
             </section>
 
+            <!-- ════════ STUDENTS BY CLASS / SECTION — surfaced near top (actionable) ════════ -->
+            <section v-if="(role === 'super-admin' || role === 'school-admin') && sectionRoster?.rows?.length"
+                class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
+                <header class="px-4 py-3 border-b border-base-300 flex items-center justify-between gap-2 flex-wrap">
+                    <div class="flex items-center gap-2">
+                        <UserGroupIcon class="w-4 h-4 text-base-content/55" />
+                        <h2 class="text-sm font-bold">Students by class &amp; section</h2>
+                    </div>
+                    <span v-if="sectionRoster.empty_sections" class="text-[11px] text-rose-600 dark:text-rose-400 font-semibold">
+                        {{ sectionRoster.empty_sections }} of {{ sectionRoster.total_sections }} not added yet
+                    </span>
+                </header>
+                <div class="max-h-80 overflow-y-auto divide-y divide-base-200 grid grid-cols-1 sm:grid-cols-2 sm:divide-y-0">
+                    <div v-for="r in sectionRoster.rows" :key="r.id"
+                        class="flex items-center gap-3 px-4 py-2.5 border-b border-base-200 sm:[&:nth-last-child(-n+2)]:border-b-0"
+                        :class="r.count === 0 ? 'bg-rose-500/[0.04]' : ''">
+                        <div class="flex-1 min-w-0">
+                            <p class="font-semibold text-sm truncate">
+                                Class {{ r.class }} <span class="text-base-content/55">— {{ r.section }}</span>
+                            </p>
+                            <p class="text-[11px] text-base-content/55 truncate">
+                                Class Teacher: <span class="font-medium text-base-content/75">{{ r.teacher }}</span>
+                            </p>
+                        </div>
+                        <span v-if="r.count > 0"
+                            class="px-2.5 py-1 rounded-lg text-xs font-bold tabular-nums shrink-0 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                            {{ r.count }} {{ r.count === 1 ? 'student' : 'students' }}
+                        </span>
+                        <span v-else
+                            class="px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider shrink-0 bg-rose-500/15 text-rose-700 dark:text-rose-300">
+                            Not added
+                        </span>
+                    </div>
+                </div>
+            </section>
+
             <!-- ════════ MAIN GRID — 2-column on lg+ ════════ -->
             <div v-if="showCharts && totalResultsCharted > 0" class="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4">
                 <!-- LEFT (8 cols on lg) — primary charts -->
                 <div class="lg:col-span-8 space-y-3 sm:space-y-4">
                     <!-- Trend chart -->
-                    <article class="rounded-2xl bg-base-100 border border-base-200 p-4 sm:p-5">
+                    <article class="rounded-xl bg-base-100 border border-base-300 shadow-sm p-4 sm:p-5">
                         <header class="flex items-center justify-between mb-3 gap-2 flex-wrap">
                             <div>
                                 <p class="text-[10px] uppercase tracking-[0.18em] font-bold text-base-content/45">Trend</p>
@@ -396,7 +430,7 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                     </article>
 
                     <!-- Comparison bars -->
-                    <article v-if="compareBars.length" class="rounded-2xl bg-base-100 border border-base-200 p-4 sm:p-5">
+                    <article v-if="compareBars.length" class="rounded-xl bg-base-100 border border-base-300 shadow-sm p-4 sm:p-5">
                         <header class="flex items-center justify-between mb-3 gap-2 flex-wrap">
                             <div>
                                 <p class="text-[10px] uppercase tracking-[0.18em] font-bold text-base-content/45">Compare</p>
@@ -411,7 +445,7 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                 <!-- RIGHT (4 cols on lg) — feed + calendar + breakdown -->
                 <div class="lg:col-span-4 space-y-3 sm:space-y-4">
                     <!-- Pass/Fail donut + grade dist (compact) -->
-                    <article class="rounded-2xl bg-base-100 border border-base-200 p-4 sm:p-5">
+                    <article class="rounded-xl bg-base-100 border border-base-300 shadow-sm p-4 sm:p-5">
                         <header class="mb-3">
                             <p class="text-[10px] uppercase tracking-[0.18em] font-bold text-base-content/45">Breakdown</p>
                             <h3 class="text-sm font-bold mt-0.5">Pass / Fail</h3>
@@ -421,7 +455,7 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                     </article>
 
                     <!-- Grade distribution -->
-                    <article v-if="gradeRows.length" class="rounded-2xl bg-base-100 border border-base-200 p-4 sm:p-5">
+                    <article v-if="gradeRows.length" class="rounded-xl bg-base-100 border border-base-300 shadow-sm p-4 sm:p-5">
                         <header class="mb-3 flex items-center gap-2">
                             <TrophyIcon class="w-4 h-4 text-amber-500" />
                             <h3 class="text-sm font-bold">Grade Distribution</h3>
@@ -430,7 +464,7 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                     </article>
 
                     <!-- Calendar -->
-                    <article v-if="calendar?.month_label" class="rounded-2xl bg-base-100 border border-base-200 p-4 sm:p-5">
+                    <article v-if="calendar?.month_label" class="rounded-xl bg-base-100 border border-base-300 shadow-sm p-4 sm:p-5">
                         <CalendarWidget
                             :month="calendar.month"
                             :month-label="calendar.month_label"
@@ -439,7 +473,7 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                     </article>
 
                     <!-- Activity feed -->
-                    <article class="rounded-2xl bg-base-100 border border-base-200 overflow-hidden">
+                    <article class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
                         <header class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
                             <div class="flex items-center gap-2">
                                 <FireIcon class="w-4 h-4 text-rose-500" />
@@ -467,7 +501,7 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                 <div class="lg:col-span-8 space-y-3 sm:space-y-4">
                     <!-- Class teacher: my sections -->
                     <section v-if="role === 'class-teacher' && sections?.length"
-                        class="rounded-2xl bg-base-100 border border-base-200 overflow-hidden">
+                        class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
                         <header class="px-4 py-3 border-b border-base-200 flex items-center gap-2">
                             <RectangleStackIcon class="w-4 h-4 text-base-content/55" />
                             <h2 class="text-sm font-bold">My Sections</h2>
@@ -489,7 +523,7 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
 
                     <!-- Subject teacher: assignments -->
                     <section v-if="role === 'subject-teacher' && assignments?.length"
-                        class="rounded-2xl bg-base-100 border border-base-200 overflow-hidden">
+                        class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
                         <header class="px-4 py-3 border-b border-base-200 flex items-center gap-2">
                             <BookOpenIcon class="w-4 h-4 text-base-content/55" />
                             <h2 class="text-sm font-bold">My Assignments</h2>
@@ -509,7 +543,7 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                 </div>
 
                 <div class="lg:col-span-4 space-y-3 sm:space-y-4">
-                    <article v-if="calendar?.month_label" class="rounded-2xl bg-base-100 border border-base-200 p-4 sm:p-5">
+                    <article v-if="calendar?.month_label" class="rounded-xl bg-base-100 border border-base-300 shadow-sm p-4 sm:p-5">
                         <CalendarWidget
                             :month="calendar.month"
                             :month-label="calendar.month_label"
@@ -517,7 +551,7 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                             :markers="calendar.markers" />
                     </article>
 
-                    <article class="rounded-2xl bg-base-100 border border-base-200 overflow-hidden">
+                    <article class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
                         <header class="px-4 py-3 border-b border-base-200 flex items-center gap-2">
                             <FireIcon class="w-4 h-4 text-rose-500" />
                             <h3 class="text-sm font-bold">Activity</h3>
@@ -527,8 +561,11 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                 </div>
             </div>
 
+            <!-- ════════ SECONDARY PANELS — tidy 2-column grid ════════ -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 items-start">
+
             <!-- ════════ RECENT EXAMS — compact 1-line rows ════════ -->
-            <section v-if="recentExams?.length" class="rounded-2xl bg-base-100 border border-base-200 overflow-hidden">
+            <section v-if="recentExams?.length" class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
                 <header class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <ClipboardDocumentListIcon class="w-4 h-4 text-base-content/55" />
@@ -556,6 +593,44 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                     </Link>
                 </div>
             </section>
+
+            <!-- ════════ RECENTLY ADDED STUDENTS — who added them ════════ -->
+            <section v-if="(role === 'super-admin' || role === 'school-admin') && recentStudents?.length"
+                class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
+                <header class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <UserGroupIcon class="w-4 h-4 text-base-content/55" />
+                        <h2 class="text-sm font-bold">Recently added students</h2>
+                    </div>
+                    <Link href="/activity-log?subject_type=App\Models\Student"
+                        class="text-[11px] text-base-content/55 hover:text-primary font-medium">
+                        Full history →
+                    </Link>
+                </header>
+                <div class="divide-y divide-base-200">
+                    <Link v-for="s in recentStudents" :key="s.id" :href="`/students/${s.id}`"
+                        class="flex items-center gap-3 px-4 py-2.5 hover:bg-base-200/40 transition-colors">
+                        <div class="flex-1 min-w-0">
+                            <p class="font-semibold text-sm truncate">
+                                {{ s.name }}
+                                <span class="font-mono text-[11px] text-base-content/45">#{{ s.admission_no }}</span>
+                            </p>
+                            <p class="text-[11px] text-base-content/55 truncate">
+                                {{ s.class }} · added by <span class="font-semibold text-base-content/75">{{ s.added_by }}</span>
+                                <span v-if="s.when"> · {{ s.when }}</span>
+                            </p>
+                        </div>
+                        <span class="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
+                            :class="s.status === 'active' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'">
+                            {{ s.status }}
+                        </span>
+                        <ChevronRightIcon class="w-3.5 h-3.5 text-base-content/40 shrink-0" />
+                    </Link>
+                </div>
+            </section>
+
+
+            </div><!-- /secondary panels grid -->
 
             <!-- ════════ QUICK CTA STRIP (bottom, replaces big quick-action tiles) ════════ -->
             <section v-if="quickActions.length" class="flex items-center gap-2 flex-wrap pt-1 pb-1">

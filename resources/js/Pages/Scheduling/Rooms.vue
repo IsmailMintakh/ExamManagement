@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SchedulingSubnav from '@/Components/scheduling/SchedulingSubnav.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import { Head, useForm } from '@inertiajs/vue3'
 import { computed, ref } from 'vue'
@@ -62,7 +63,8 @@ function autoCapacity() {
 <template>
     <Head title="Exam Rooms" />
     <AppLayout :breadcrumbs="[{ label: 'Scheduling' }, { label: 'Exam Rooms' }]">
-        <div class="space-y-5">
+        <div class="space-y-4 max-w-5xl mx-auto">
+            <SchedulingSubnav />
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                     <h1 class="text-2xl font-bold flex items-center gap-2">

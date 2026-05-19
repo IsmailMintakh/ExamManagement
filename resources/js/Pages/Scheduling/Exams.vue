@@ -1,14 +1,13 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import PageHeader from '@/Components/PageHeader.vue'
+import SchedulingSubnav from '@/Components/scheduling/SchedulingSubnav.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import { Head, Link } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import {
-    CalendarDaysIcon, ClipboardDocumentListIcon,
-    BuildingOfficeIcon, MagnifyingGlassIcon,
-    ArrowRightIcon, CheckCircleIcon, ClockIcon,
-    DocumentTextIcon, UserGroupIcon, Cog6ToothIcon,
-    PlusCircleIcon,
+    CalendarDaysIcon, BuildingOfficeIcon, ArrowRightIcon,
+    CheckCircleIcon, ClockIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -17,213 +16,120 @@ const props = defineProps({
 })
 
 const search = ref('')
-
 const filteredExams = computed(() => {
-    if (!search.value.trim()) return props.exams || []
-    const q = search.value.toLowerCase()
+    const q = search.value.trim().toLowerCase()
+    if (!q) return props.exams || []
     return (props.exams || []).filter(e =>
         e.name?.toLowerCase().includes(q) ||
         e.exam_type?.toLowerCase().includes(q) ||
-        e.session?.toLowerCase().includes(q)
-    )
+        e.session?.toLowerCase().includes(q))
 })
 
-const statusBadge = (s) => ({
-    draft: 'badge-ghost',
-    published: 'badge-info',
-    marks_entry: 'badge-warning',
-    processing: 'badge-accent',
-    completed: 'badge-success',
-}[s] || 'badge-ghost')
+const statusChip = (s) => ({
+    draft: 'bg-base-200 text-base-content/55',
+    published: 'bg-violet-500/12 text-violet-700 dark:text-violet-300',
+    marks_entry: 'bg-amber-500/12 text-amber-700 dark:text-amber-300',
+    processing: 'bg-sky-500/12 text-sky-700 dark:text-sky-300',
+    completed: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300',
+}[s] || 'bg-base-200 text-base-content/55')
+const statusLabel = (s) => (s || '—').replace(/_/g, ' ')
 
-const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
-
-function progress(exam) {
-    if (!exam.exam_subjects_count) return 0
-    return Math.round((exam.schedules_count / exam.exam_subjects_count) * 100)
+function progress(e) {
+    if (!e.exam_subjects_count) return 0
+    return Math.round((e.schedules_count / e.exam_subjects_count) * 100)
 }
 </script>
 
 <template>
     <Head title="Exam Scheduling" />
     <AppLayout :breadcrumbs="[{ label: 'Exam Scheduling' }]">
-        <div class="space-y-6">
+        <div class="space-y-4 max-w-5xl mx-auto">
 
-            <!-- HEADER -->
-            <div class="page-header">
-                <div>
-                    <h1 class="page-title flex items-center gap-3">
-                        <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-secondary shadow-lg shadow-primary/25">
-                            <CalendarDaysIcon class="h-5 w-5 text-white" />
-                        </div>
-                        Exam Scheduling
-                    </h1>
-                    <p class="page-subtitle">Manage date sheets, seating plans, invigilators, and admit cards</p>
-                </div>
-                <div class="flex items-center gap-2">
-                    <Link :href="route('scheduling.rooms')" class="btn btn-outline btn-sm gap-1.5">
-                        <BuildingOfficeIcon class="w-4 h-4" /> Manage Rooms
-                        <span class="badge badge-sm ml-1">{{ roomsCount }}</span>
+            <PageHeader title="Exam scheduling"
+                subtitle="Pick an exam to set its date sheet, seating, invigilators &amp; admit cards"
+                :icon="CalendarDaysIcon" tone="primary">
+                <template #actions>
+                    <Link :href="route('scheduling.rooms')" class="btn btn-outline btn-sm rounded-lg gap-1.5">
+                        <BuildingOfficeIcon class="w-4 h-4" /> Rooms
+                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-base-200">{{ roomsCount }}</span>
                     </Link>
-                </div>
-            </div>
+                </template>
+            </PageHeader>
 
-            <!-- FEATURE LEGEND -->
-            <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <div class="surface p-4 flex items-center gap-3">
-                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                        <DocumentTextIcon class="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                        <p class="text-[13px] font-bold leading-tight">Date Sheet</p>
-                        <p class="mt-0.5 text-[11px] text-base-content/50">Subject-wise exam schedule</p>
-                    </div>
-                </div>
-                <div class="surface p-4 flex items-center gap-3">
-                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-secondary/10">
-                        <UserGroupIcon class="h-5 w-5 text-secondary" />
-                    </div>
-                    <div>
-                        <p class="text-[13px] font-bold leading-tight">Seating Plan</p>
-                        <p class="mt-0.5 text-[11px] text-base-content/50">Room + seat assignment</p>
-                    </div>
-                </div>
-                <div class="surface p-4 flex items-center gap-3">
-                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/10">
-                        <CheckCircleIcon class="h-5 w-5 text-accent" />
-                    </div>
-                    <div>
-                        <p class="text-[13px] font-bold leading-tight">Invigilators</p>
-                        <p class="mt-0.5 text-[11px] text-base-content/50">Duty assignments</p>
-                    </div>
-                </div>
-                <div class="surface p-4 flex items-center gap-3">
-                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-success/10">
-                        <ClipboardDocumentListIcon class="h-5 w-5 text-success" />
-                    </div>
-                    <div>
-                        <p class="text-[13px] font-bold leading-tight">Admit Cards</p>
-                        <p class="mt-0.5 text-[11px] text-base-content/50">Student entry passes</p>
-                    </div>
-                </div>
-            </div>
+            <SchedulingSubnav />
 
-            <!-- SEARCH -->
-            <div class="surface">
-                <div class="surface-body">
-                    <div class="relative">
-                        <MagnifyingGlassIcon class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/35" />
-                        <input
-                            v-model="search"
-                            type="text"
-                            placeholder="Search exams by name, type, or session..."
-                            class="input input-bordered w-full pl-9 text-sm"
-                        />
-                    </div>
-                </div>
-            </div>
+            <input v-model="search" type="text" placeholder="Search exams by name, type or session…"
+                class="input input-bordered input-sm w-full rounded-lg text-sm" />
 
-            <!-- EXAMS LIST -->
-            <div v-if="filteredExams.length" class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <Link
-                    v-for="exam in filteredExams"
-                    :key="exam.id"
+            <!-- Exam list -->
+            <div v-if="filteredExams.length" class="rounded-xl border border-base-300 bg-base-100 shadow-sm divide-y divide-base-300 overflow-hidden">
+                <Link v-for="exam in filteredExams" :key="exam.id"
                     :href="route('scheduling.index', exam.id)"
-                    class="surface group block transition-all hover:-translate-y-1 hover:shadow-elevated"
-                >
-                    <div class="surface-body space-y-4">
-                        <!-- Exam Info -->
-                        <div class="flex items-start justify-between gap-3">
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center gap-2 flex-wrap">
-                                    <h3 class="text-sm font-bold leading-tight">{{ exam.name }}</h3>
-                                    <span class="badge badge-sm capitalize" :class="statusBadge(exam.status)">{{ statusLabel(exam.status) }}</span>
-                                </div>
-                                <p class="mt-1 text-xs text-base-content/55">
-                                    {{ exam.exam_type }} &bull; {{ exam.session }}
-                                </p>
-                                <p v-if="exam.start_date" class="mt-1 text-[11px] text-base-content/45">
-                                    {{ exam.start_date }} → {{ exam.end_date }}
-                                </p>
-                            </div>
-                            <ArrowRightIcon class="h-5 w-5 shrink-0 text-base-content/30 transition-transform group-hover:translate-x-1 group-hover:text-primary" />
-                        </div>
-
-                        <!-- Progress -->
-                        <div v-if="exam.exam_subjects_count > 0">
-                            <div class="flex items-center justify-between mb-1.5 text-[11px]">
-                                <span class="text-base-content/55">Scheduling Progress</span>
-                                <span class="font-bold" :class="progress(exam) === 100 ? 'text-success' : 'text-primary'">
-                                    {{ exam.schedules_count }}/{{ exam.exam_subjects_count }} ({{ progress(exam) }}%)
-                                </span>
-                            </div>
-                            <div class="progress-bar">
-                                <div class="progress-bar-fill" :class="progress(exam) === 100 ? 'bg-success' : 'bg-primary'" :style="{ width: progress(exam) + '%' }" />
-                            </div>
-                        </div>
-                        <div v-else class="rounded-lg bg-warning/5 border border-warning/20 px-3 py-2 text-[11px] text-warning">
-                            ⚠ No exam subjects added — add subjects to the exam first
-                        </div>
-
-                        <!-- Feature Stats -->
-                        <div class="grid grid-cols-4 gap-2 pt-1 border-t border-base-200">
-                            <div class="text-center">
-                                <p class="text-lg font-extrabold text-primary leading-none">{{ exam.schedules_count }}</p>
-                                <p class="text-[9px] font-semibold uppercase tracking-wider text-base-content/40 mt-1">Scheduled</p>
-                            </div>
-                            <div class="text-center">
-                                <p class="text-lg font-extrabold text-secondary leading-none">{{ exam.seats_count }}</p>
-                                <p class="text-[9px] font-semibold uppercase tracking-wider text-base-content/40 mt-1">Seats</p>
-                            </div>
-                            <div class="text-center">
-                                <p class="text-lg font-extrabold text-accent leading-none">{{ exam.invigilators_count }}</p>
-                                <p class="text-[9px] font-semibold uppercase tracking-wider text-base-content/40 mt-1">Invigilators</p>
-                            </div>
-                            <div class="text-center">
-                                <span v-if="exam.is_fully_scheduled" class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-success/10 mx-auto">
-                                    <CheckCircleIcon class="h-4 w-4 text-success" />
-                                </span>
-                                <span v-else class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-warning/10 mx-auto">
-                                    <ClockIcon class="h-4 w-4 text-warning" />
-                                </span>
-                                <p class="text-[9px] font-semibold uppercase tracking-wider text-base-content/40 mt-1">{{ exam.is_fully_scheduled ? 'Ready' : 'Pending' }}</p>
-                            </div>
-                        </div>
+                    class="group flex items-center gap-4 px-4 py-3.5 hover:bg-base-200/40 transition-colors">
+                    <div class="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                        <CalendarDaysIcon class="w-5 h-5" />
                     </div>
+
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <p class="font-bold text-sm leading-tight">{{ exam.name }}</p>
+                            <span class="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded capitalize"
+                                :class="statusChip(exam.status)">{{ statusLabel(exam.status) }}</span>
+                        </div>
+                        <p class="text-[11px] text-base-content/55 mt-0.5">
+                            {{ exam.exam_type }} · {{ exam.session }}
+                            <span v-if="exam.start_date"> · {{ exam.start_date }} → {{ exam.end_date }}</span>
+                        </p>
+                        <!-- progress -->
+                        <div v-if="exam.exam_subjects_count > 0" class="mt-2 flex items-center gap-2">
+                            <div class="h-1.5 flex-1 max-w-[160px] rounded-full bg-base-200 overflow-hidden">
+                                <div class="h-full rounded-full transition-all"
+                                    :class="progress(exam) === 100 ? 'bg-emerald-500' : 'bg-primary'"
+                                    :style="{ width: Math.max(progress(exam), 4) + '%' }"></div>
+                            </div>
+                            <span class="text-[11px] tabular-nums font-semibold"
+                                :class="progress(exam) === 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-base-content/55'">
+                                {{ exam.schedules_count }}/{{ exam.exam_subjects_count }} scheduled
+                            </span>
+                        </div>
+                        <p v-else class="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                            ⚠ No subjects added to this exam yet
+                        </p>
+                    </div>
+
+                    <div class="hidden sm:flex items-center gap-4 text-center shrink-0">
+                        <div>
+                            <p class="text-base font-extrabold tabular-nums leading-none text-sky-600 dark:text-sky-400">{{ exam.seats_count }}</p>
+                            <p class="text-[9px] uppercase tracking-wider text-base-content/40 mt-1">Seats</p>
+                        </div>
+                        <div>
+                            <p class="text-base font-extrabold tabular-nums leading-none text-amber-600 dark:text-amber-400">{{ exam.invigilators_count }}</p>
+                            <p class="text-[9px] uppercase tracking-wider text-base-content/40 mt-1">Invig.</p>
+                        </div>
+                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full"
+                            :class="exam.is_fully_scheduled ? 'bg-emerald-500/12' : 'bg-amber-500/12'">
+                            <CheckCircleIcon v-if="exam.is_fully_scheduled" class="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                            <ClockIcon v-else class="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                        </span>
+                    </div>
+
+                    <ArrowRightIcon class="w-4 h-4 text-base-content/30 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
                 </Link>
             </div>
 
-            <!-- EMPTY STATE -->
-            <div v-else-if="search" class="surface">
-                <EmptyState
-                    title="No exams match your search"
-                    description="Try a different keyword or clear the search."
-                />
+            <div v-else-if="search" class="rounded-xl border border-base-300 bg-base-100 shadow-sm p-10 text-center">
+                <p class="text-sm text-base-content/55">No exams match “{{ search }}”.</p>
+                <button @click="search = ''" class="btn btn-ghost btn-sm mt-3 rounded-lg">Clear search</button>
             </div>
-            <div v-else class="surface">
-                <EmptyState
-                    title="No exams to schedule"
-                    description="Create an exam first, then come back here to manage its date sheet, seating, and invigilators."
-                    action-text="Create Exam"
-                    :action-href="route('exams.create')"
-                />
+            <div v-else class="rounded-xl border border-base-300 bg-base-100 shadow-sm">
+                <EmptyState title="No exams to schedule"
+                    description="Create an exam first, then schedule its date sheet, seating and invigilators."
+                    action-text="Create Exam" :action-href="route('exams.create')" />
             </div>
 
-            <!-- HELP NOTE -->
-            <div class="rounded-2xl border border-info/15 bg-info/5 p-5 flex items-start gap-3">
-                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-info/15">
-                    <PlusCircleIcon class="h-5 w-5 text-info" />
-                </div>
-                <div class="flex-1">
-                    <h3 class="text-sm font-bold">Getting Started with Exam Scheduling</h3>
-                    <ol class="mt-2 space-y-1 text-[12.5px] text-base-content/65 list-decimal ml-5">
-                        <li>First, add <Link :href="route('scheduling.rooms')" class="link link-primary font-semibold">exam rooms</Link> for your school with capacity, rows, and columns.</li>
-                        <li>Click any exam above to open its scheduling hub.</li>
-                        <li>Set the <strong>Date Sheet</strong> (which subject on which date/time), assign <strong>Seating</strong> per section, assign <strong>Invigilators</strong> per room.</li>
-                        <li>Finally, download <strong>Admit Cards</strong> for all students with QR verification.</li>
-                    </ol>
-                </div>
-            </div>
+            <p class="text-[11px] text-base-content/45 text-center pb-2">
+                Steps per exam: <strong>Date sheet</strong> → <strong>Rooms</strong> → <strong>Seating</strong> → <strong>Invigilators</strong> → <strong>Admit cards</strong>.
+            </p>
         </div>
     </AppLayout>
 </template>

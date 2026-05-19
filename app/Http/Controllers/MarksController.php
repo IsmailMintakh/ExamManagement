@@ -217,6 +217,17 @@ class MarksController extends Controller
 
         $section = Section::with('schoolClass')->findOrFail($data['section_id']);
 
+        // Marks can never exceed the subject's total — reject, don't clamp.
+        $maxMarks = (float) $examSubject->total_marks;
+        foreach ($data['marks'] as $m) {
+            if (empty($m['is_absent']) && isset($m['marks_obtained']) && $m['marks_obtained'] !== null
+                && (float) $m['marks_obtained'] > $maxMarks) {
+                return redirect()->back()->withErrors([
+                    'marks' => "Marks cannot exceed the subject total of {$maxMarks}.",
+                ]);
+            }
+        }
+
         foreach ($data['marks'] as $markData) {
             Mark::updateOrCreate(
                 [
@@ -277,6 +288,17 @@ class MarksController extends Controller
         // Assignment-scoped: class teachers cannot autosave other subjects.
         if (!$this->canEnterMarks($user, (int) $data['subject_id'], (int) $data['section_id'])) {
             return response()->json(['error' => 'You can only enter marks for subjects assigned to you.'], 403);
+        }
+
+        // Reject any mark above the subject total before autosaving.
+        $maxMarks = (float) $examSubject->total_marks;
+        foreach ($data['marks'] as $m) {
+            if (empty($m['is_absent']) && isset($m['marks_obtained']) && $m['marks_obtained'] !== null
+                && $m['marks_obtained'] !== '' && (float) $m['marks_obtained'] > $maxMarks) {
+                return response()->json([
+                    'error' => "Marks cannot exceed the subject total of {$maxMarks}.",
+                ], 422);
+            }
         }
 
         // Skip rows that are completely blank (no marks AND not absent) — nothing to draft yet.

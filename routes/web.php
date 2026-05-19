@@ -409,6 +409,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('questions-import', [QuestionController::class, 'processImport'])->name('questions.process-import');
     Route::resource('questions', QuestionController::class);
 
+    // Smart Lesson Plan (AI-assisted, PDF export)
+    Route::get('lesson-plan', [\App\Http\Controllers\LessonPlanController::class, 'index'])->name('lesson-plan.index');
+    Route::post('lesson-plan', [\App\Http\Controllers\LessonPlanController::class, 'generate'])->name('lesson-plan.generate');
+    Route::post('lesson-plan/pdf', [\App\Http\Controllers\LessonPlanController::class, 'pdf'])->name('lesson-plan.pdf');
+
     // Certificates
     Route::prefix('certificates')->name('certificates.')->group(function () {
         Route::get('/', [CertificateController::class, 'index'])->name('index');

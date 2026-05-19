@@ -46,4 +46,12 @@ return [
         'private_key' => env('VAPID_PRIVATE_KEY'),
     ],
 
+    // Anthropic Claude — powers the Smart Lesson Plan generator.
+    // Add ANTHROPIC_API_KEY to .env to enable true AI generation;
+    // without it the system falls back to a structured offline plan.
+    'anthropic' => [
+        'key'   => env('ANTHROPIC_API_KEY'),
+        'model' => env('ANTHROPIC_MODEL', 'claude-sonnet-4-6'),
+    ],
+
 ];

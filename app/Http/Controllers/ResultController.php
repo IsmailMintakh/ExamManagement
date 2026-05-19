@@ -196,6 +196,37 @@ class ResultController extends Controller
             'section_id' => ['required', 'exists:sections,id'],
         ]);
 
+        // ── Guard: every subject's marks MUST be submitted first ──
+        // Without this, an un-submitted subject silently becomes 0 for
+        // every student → wrong totals, %, grade, pass/fail and positions.
+        $examSubjects = ExamSubject::where('exam_id', $exam->id)
+            ->where('school_class_id', $validated['school_class_id'])
+            ->with('subject:id,name')
+            ->get();
+
+        if ($examSubjects->isEmpty()) {
+            return redirect()->back()->with('error', 'No subjects are set up for this class in this exam.');
+        }
+
+        $pending = [];
+        foreach ($examSubjects as $es) {
+            $submitted = MarksSubmission::where('exam_id', $exam->id)
+                ->where('subject_id', $es->subject_id)
+                ->where('section_id', $validated['section_id'])
+                ->where('status', 'submitted')
+                ->exists();
+            if (!$submitted) {
+                $pending[] = $es->subject?->name ?? ('Subject #' . $es->subject_id);
+            }
+        }
+
+        if (!empty($pending)) {
+            return redirect()->back()->with(
+                'error',
+                'Cannot generate results — marks are not submitted yet for: ' . implode(', ', $pending) . '.'
+            );
+        }
+
         try {
             $resultService->generateResults($exam, $validated['school_class_id'], $validated['section_id']);
 

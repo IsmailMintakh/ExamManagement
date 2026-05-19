@@ -100,6 +100,89 @@ class DashboardController extends Controller
     }
 
     /**
+     * Recently-added students + WHO added each one (from the activity log
+     * causer). Scoped by school for principals. Falls back to
+     * "System / import" when there's no creation activity (bulk import).
+     */
+    protected function recentStudentsFor(?int $schoolId, int $limit = 6): array
+    {
+        $students = Student::query()
+            ->when($schoolId, fn ($q) => $q->where('school_id', $schoolId))
+            ->with(['schoolClass:id,name', 'section:id,name'])
+            ->latest('id')
+            ->take($limit)
+            ->get(['id', 'name', 'admission_no', 'school_class_id', 'section_id', 'status', 'created_at']);
+
+        if ($students->isEmpty()) {
+            return [];
+        }
+
+        $creators = \Spatie\Activitylog\Models\Activity::query()
+            ->where('subject_type', Student::class)
+            ->whereIn('subject_id', $students->pluck('id'))
+            ->where('description', 'created')
+            ->with('causer:id,name')
+            ->get()
+            ->keyBy('subject_id');
+
+        return $students->map(function ($s) use ($creators) {
+            $act = $creators->get($s->id);
+            return [
+                'id' => $s->id,
+                'name' => $s->name,
+                'admission_no' => $s->admission_no,
+                'class' => trim(($s->schoolClass?->name ?? '') . ' ' . ($s->section?->name ?? '')) ?: '—',
+                'status' => $s->status,
+                'added_by' => $act?->causer?->name ?? 'System / import',
+                'when' => $s->created_at?->diffForHumans(),
+            ];
+        })->all();
+    }
+
+    /**
+     * Class/section-wise roster status: every section, its class teacher,
+     * and how many students have been added to it — so admins instantly
+     * see e.g. "Class 8-B (Liaquat): 25 students" vs "Class 7-A: not added".
+     * Scoped by school for principals.
+     */
+    protected function studentsBySection(?int $schoolId): array
+    {
+        $current = AcademicSession::currentSession();
+
+        $sections = \App\Models\Section::query()
+            ->where('is_active', true)
+            ->whereHas('schoolClass', fn ($q) => $q->when($schoolId, fn ($x) => $x->where('school_id', $schoolId)))
+            ->with(['schoolClass:id,name,sort_order', 'classTeacher:id,name'])
+            ->get();
+
+        $counts = Student::query()
+            ->where('status', 'active')
+            ->when($current, fn ($q) => $q->where('academic_session_id', $current->id))
+            ->when($schoolId, fn ($q) => $q->where('school_id', $schoolId))
+            ->selectRaw('section_id, COUNT(*) as cnt')
+            ->groupBy('section_id')
+            ->pluck('cnt', 'section_id');
+
+        $rows = $sections
+            ->sortBy(fn ($s) => sprintf('%05d-%s', $s->schoolClass?->sort_order ?? 999, $s->name))
+            ->map(fn ($s) => [
+                'id' => $s->id,
+                'class' => $s->schoolClass?->name ?? '—',
+                'section' => $s->name,
+                'teacher' => $s->classTeacher?->name ?? 'No class teacher',
+                'count' => (int) ($counts[$s->id] ?? 0),
+            ])
+            ->values()
+            ->all();
+
+        return [
+            'rows' => $rows,
+            'empty_sections' => collect($rows)->where('count', 0)->count(),
+            'total_sections' => count($rows),
+        ];
+    }
+
+    /**
      * Calendar widget data — exam dates this month + today flag. Scoped
      * by school for non-DDO. Returns a list of date marker rows.
      */
@@ -303,6 +386,8 @@ class DashboardController extends Controller
                 'pendingResults' => $pendingResults,
             ],
             'recentExams' => $recentExams,
+            'recentStudents' => $this->recentStudentsFor(null),
+            'sectionRoster' => $this->studentsBySection(null),
             'schoolWiseComparison' => $schoolWiseComparison,
             'needsAttention' => $needsAttention,
             'setupStatus' => $setupStatus,
@@ -445,6 +530,8 @@ class DashboardController extends Controller
                 'passRate' => $passRate,
             ],
             'recentExams' => $recentExams,
+            'recentStudents' => $this->recentStudentsFor($schoolId),
+            'sectionRoster' => $this->studentsBySection($schoolId),
             'classWisePerformance' => $classWisePerformance,
             'needsAttention' => $needsAttention,
             'setupStatus' => $setupStatus,

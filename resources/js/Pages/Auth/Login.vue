@@ -32,19 +32,6 @@ const submit = () => {
     })
 }
 
-function quickLogin(email) {
-    form.email = email
-    form.password = 'password'
-    submit()
-}
-
-const demoAccounts = [
-    { label: 'DDO', sub: 'District Officer', email: 'ddo@exam.com', color: 'emerald' },
-    { label: 'Principal', sub: 'School Admin', email: 'principal@gbhs-lhr.edu.pk', color: 'amber' },
-    { label: 'Class Teacher', sub: 'Section Lead', email: 'gbhs-lhr-ct-class.6-a@school.edu.pk', color: 'sky' },
-    { label: 'Subject Teacher', sub: 'Marks Entry', email: 'gbhs-lhr-st-math-6@school.edu.pk', color: 'violet' },
-]
-
 const stats = [
     { value: '72', label: 'Years of Excellence' },
     { value: '1,248', label: 'Students Enrolled' },
@@ -216,32 +203,6 @@ const stats = [
                         </template>
                     </button>
                 </form>
-
-                <!-- Quick demo logins -->
-                <div class="mt-10">
-                    <div class="relative mb-5 flex items-center">
-                        <div class="flex-1 border-t border-stone-200" />
-                        <p class="px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Demo Accounts</p>
-                        <div class="flex-1 border-t border-stone-200" />
-                    </div>
-                    <div class="grid grid-cols-2 gap-2">
-                        <button v-for="d in demoAccounts" :key="d.label" @click="quickLogin(d.email)"
-                            class="group rounded-xl border border-stone-200 hover:border-emerald-300 hover:bg-emerald-50/50 px-3 py-2.5 text-left transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
-                            <div class="flex items-center gap-1.5">
-                                <span class="w-1.5 h-1.5 rounded-full"
-                                    :class="{
-                                        'bg-emerald-500': d.color === 'emerald',
-                                        'bg-amber-500': d.color === 'amber',
-                                        'bg-sky-500': d.color === 'sky',
-                                        'bg-violet-500': d.color === 'violet',
-                                    }"></span>
-                                <p class="text-[12.5px] font-bold text-slate-900">{{ d.label }}</p>
-                            </div>
-                            <p class="text-[10px] text-slate-500 mt-0.5">{{ d.sub }}</p>
-                        </button>
-                    </div>
-                    <p class="mt-3 text-center text-[10px] text-slate-400 font-medium">All demo accounts use password: <span class="font-bold text-slate-600">password</span></p>
-                </div>
 
                 <!-- Public site link -->
                 <div class="mt-8 text-center">

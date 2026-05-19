@@ -121,10 +121,48 @@ class StudentController extends Controller
                 ->with('warning', 'Please add at least one section before adding students.');
         }
 
+        // ─── Pre-fill school / class / section from WHO is adding ───
+        // A student always belongs to the teacher's school. Class teachers
+        // default to their section; subject teachers to a section they teach.
+        // All still editable on the form (super-admins choose freely).
+        $defaultSchoolId = $user->isSuperAdmin() ? $schools->first()?->id : $user->school_id;
+        $defaultSectionId = null;
+        $defaultClassId = null;
+
+        // Role-agnostic: use the actual assignment, not the role name.
+        // 1) Section this user is the class teacher of.
+        $sec = Section::where('class_teacher_id', $user->id)
+            ->where('is_active', true)
+            ->first();
+        if ($sec) {
+            $defaultSectionId = $sec->id;
+            $defaultClassId = $sec->school_class_id;
+        }
+        // 2) Otherwise a section/class they're assigned to teach.
+        if (!$defaultSectionId) {
+            $st = \App\Models\SubjectTeacher::where('user_id', $user->id)
+                ->where('is_active', true)
+                ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+                ->first()
+                // fall back ignoring session if assignments exist for another
+                ?? \App\Models\SubjectTeacher::where('user_id', $user->id)
+                    ->where('is_active', true)->first();
+            if ($st) {
+                $defaultSectionId = $st->section_id;
+                $defaultClassId = $st->school_class_id;
+            }
+        }
+
         return Inertia::render('Students/Create', [
             'schools' => $schools,
             'classes' => $classes,
             'sections' => $sections,
+            'isSuperAdmin' => $user->isSuperAdmin(),
+            'defaults' => [
+                'school_id' => $defaultSchoolId,
+                'school_class_id' => $defaultClassId,
+                'section_id' => $defaultSectionId,
+            ],
             'currentSession' => $currentSession,
             // Initial smart defaults so a fresh form is half-filled. The frontend
             // re-fetches via the /students/smart-defaults endpoint when the user

@@ -161,6 +161,7 @@ const menuGroups = computed(() => {
             teachItems.push({ label: 'Marks Entry', href: '/marks', icon: DocumentTextIcon })
         }
         if (hasPerm('exams.view')) teachItems.push({ label: 'Exams', href: '/exams', icon: ClipboardDocumentListIcon })
+        teachItems.push({ label: 'Smart Lesson Plan', href: '/lesson-plan', icon: SparklesIcon })
         if (hasPerm('questions.view')) teachItems.push({ label: 'Question Bank', href: '/questions', icon: QuestionMarkCircleIcon })
         if (hasPerm('papers.view')) teachItems.push({ label: 'Paper Generator', href: '/papers', icon: DocumentDuplicateIcon })
 
@@ -206,6 +207,7 @@ const menuGroups = computed(() => {
     workflowItems.push({ label: 'Timetable', href: '/timetable', icon: CalendarIcon })
     if (hasPerm('reports.view')) workflowItems.push({ label: 'Reports', href: '/reports', icon: DocumentTextIcon })
     if (hasPerm('analytics.view')) workflowItems.push({ label: 'Analytics', href: '/analytics', icon: SparklesIcon })
+    workflowItems.push({ label: 'Smart Lesson Plan', href: '/lesson-plan', icon: SparklesIcon })
     if (hasPerm('questions.view')) workflowItems.push({ label: 'Question Bank', href: '/questions', icon: QuestionMarkCircleIcon })
     if (hasPerm('papers.view')) workflowItems.push({ label: 'Paper Generator', href: '/papers', icon: DocumentDuplicateIcon })
     if (hasPerm('certificates.view')) workflowItems.push({ label: 'Certificates', href: '/certificates', icon: TrophyIcon })

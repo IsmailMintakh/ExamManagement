@@ -16,6 +16,9 @@ const props = defineProps({
     schools: Array,
     classes: Array,
     sections: Array,
+    isSuperAdmin: { type: Boolean, default: false },
+    // School / class / section pre-filled from the adding teacher.
+    defaults: { type: Object, default: () => ({}) },
     currentSession: Object,
     // Initial smart defaults from the controller — { admission_no, roll_no,
     // academic_session_id }. Updated client-side via the smart-defaults
@@ -41,9 +44,9 @@ const form = useForm({
     blood_group: props.student?.blood_group || '',
     religion: props.student?.religion || '',
     cnic: props.student?.cnic || '',
-    school_id: props.student?.school_id || '',
-    school_class_id: props.student?.school_class_id || '',
-    section_id: props.student?.section_id || '',
+    school_id: props.student?.school_id || (isEdit ? '' : (props.defaults?.school_id || '')),
+    school_class_id: props.student?.school_class_id || (isEdit ? '' : (props.defaults?.school_class_id || '')),
+    section_id: props.student?.section_id || (isEdit ? '' : (props.defaults?.section_id || '')),
     academic_session_id: props.student?.academic_session_id
         || (isEdit ? '' : (props.smartDefaults?.academic_session_id || props.currentSession?.id || '')),
     photo: null,
@@ -168,14 +171,24 @@ function submit() {
                         </h3>
                     </header>
                     <div class="surface-body">
+                        <!-- Super-admin picks the school; everyone else is locked
+                             to their own school (students must match the teacher). -->
+                        <div v-if="!isSuperAdmin" class="mb-4 flex items-center gap-2 rounded-lg bg-base-200/50 px-3 py-2 text-sm">
+                            <span class="text-base-content/55">School:</span>
+                            <span class="font-semibold">{{ schools?.[0]?.name || '—' }}</span>
+                            <span class="text-[11px] text-base-content/45 ml-auto">Students are added to your school</span>
+                        </div>
                         <div class="form-grid-3">
-                            <FormSelect v-model="form.school_id" label="School" :error="form.errors.school_id" required
+                            <FormSelect v-if="isSuperAdmin" v-model="form.school_id" label="School" :error="form.errors.school_id" required
                                 :options="schools?.map(s => ({ value: s.id, label: s.name })) || []" placeholder="Select School" />
                             <FormSelect v-model="form.school_class_id" label="Class" :error="form.errors.school_class_id" required
                                 :options="classes?.filter(c => !form.school_id || c.school_id == form.school_id).map(c => ({ value: c.id, label: c.name })) || []" placeholder="Select Class" />
                             <FormSelect v-model="form.section_id" label="Section" :error="form.errors.section_id" required
                                 :options="sections?.filter(s => !form.school_class_id || s.school_class_id == form.school_class_id).map(s => ({ value: s.id, label: s.name })) || []" placeholder="Select Section" />
                         </div>
+                        <p class="text-[11px] text-base-content/45 mt-2">
+                            Pre-filled from your class/section — change Class or Section if this student belongs elsewhere.
+                        </p>
                     </div>
                 </section>
 

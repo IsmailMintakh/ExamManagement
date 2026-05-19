@@ -1,16 +1,12 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import PageHeader from '@/Components/PageHeader.vue'
+import SchedulingSubnav from '@/Components/scheduling/SchedulingSubnav.vue'
 import { Head, Link } from '@inertiajs/vue3'
 import {
-    CalendarDaysIcon,
-    BuildingOffice2Icon,
-    TableCellsIcon,
-    UserGroupIcon,
-    IdentificationIcon,
-    ChevronRightIcon,
-    ClipboardDocumentListIcon,
-    CheckCircleIcon,
-    ExclamationCircleIcon,
+    CalendarDaysIcon, BuildingOffice2Icon, TableCellsIcon,
+    UserGroupIcon, IdentificationIcon, ArrowRightIcon,
+    ClipboardDocumentListIcon, CheckCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -18,156 +14,99 @@ const props = defineProps({
     stats: Object,
 })
 
-const cards = [
-    {
-        key: 'datesheet',
-        title: 'Date Sheet',
-        icon: CalendarDaysIcon,
-        color: 'text-primary bg-primary/10',
-        desc: 'Schedule exam dates, times and durations per subject & class.',
-        statusKey: 'schedules',
-        totalKey: 'exam_subjects',
-        href: (id) => route('scheduling.datesheet', id),
-        cta: 'Manage Date Sheet',
-    },
-    {
-        key: 'rooms',
-        title: 'Exam Rooms',
-        icon: BuildingOffice2Icon,
-        color: 'text-info bg-info/10',
-        desc: 'Define exam rooms with seat layout (rows × columns).',
-        statusKey: 'rooms',
-        href: () => route('scheduling.rooms'),
-        cta: 'Manage Rooms',
-    },
-    {
-        key: 'seating',
-        title: 'Seating Plan',
-        icon: TableCellsIcon,
-        color: 'text-accent bg-accent/10',
-        desc: 'Auto-assign students to seats in rooms. Pick a section to begin.',
-        statusKey: 'seats',
-        totalKey: 'students',
-        href: (id) => route('sections.index') + '?exam=' + id,
-        cta: 'Open Sections',
-    },
-    {
-        key: 'invigilators',
-        title: 'Invigilators',
-        icon: UserGroupIcon,
-        color: 'text-warning bg-warning/10',
-        desc: 'Assign teachers to rooms for each scheduled session.',
-        statusKey: 'invigilators',
-        href: (id) => route('scheduling.invigilators', id),
-        cta: 'Manage Duties',
-    },
-    {
-        key: 'admit',
-        title: 'Admit Cards',
-        icon: IdentificationIcon,
-        color: 'text-success bg-success/10',
-        desc: 'Generate and download bulk admit cards with QR verification.',
-        href: (id) => route('scheduling.admit-cards', id),
-        cta: 'Generate Cards',
-    },
+const steps = [
+    { key: 'datesheet', n: 1, title: 'Date sheet', icon: CalendarDaysIcon,
+      tone: 'text-primary bg-primary/10', desc: 'When each subject is examined — date, time & duration.',
+      doneKey: 'schedules', totalKey: 'exam_subjects', href: (id) => route('scheduling.datesheet', id), cta: 'Set date sheet' },
+    { key: 'rooms', n: 2, title: 'Exam rooms', icon: BuildingOffice2Icon,
+      tone: 'text-sky-600 dark:text-sky-400 bg-sky-500/10', desc: 'Define rooms with a seat layout (rows × columns).',
+      countKey: 'rooms', href: () => route('scheduling.rooms'), cta: 'Manage rooms' },
+    { key: 'seating', n: 3, title: 'Seating plan', icon: TableCellsIcon,
+      tone: 'text-violet-600 dark:text-violet-400 bg-violet-500/10', desc: 'Auto-assign students to seats. Pick a section to begin.',
+      doneKey: 'seats', totalKey: 'students', href: (id) => route('sections.index') + '?exam=' + id, cta: 'Open sections' },
+    { key: 'invigilators', n: 4, title: 'Invigilators', icon: UserGroupIcon,
+      tone: 'text-amber-600 dark:text-amber-400 bg-amber-500/10', desc: 'Assign teachers to rooms for each session.',
+      countKey: 'invigilators', href: (id) => route('scheduling.invigilators', id), cta: 'Assign duties' },
+    { key: 'admit', n: 5, title: 'Admit cards', icon: IdentificationIcon,
+      tone: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10', desc: 'Generate bulk admit cards with QR verification.',
+      href: (id) => route('scheduling.admit-cards', id), cta: 'Generate cards' },
 ]
 
-function pct(card) {
-    const total = card.totalKey ? props.stats?.[card.totalKey] || 0 : 0
-    const done = props.stats?.[card.statusKey] || 0
+function pct(s) {
+    const total = s.totalKey ? props.stats?.[s.totalKey] || 0 : 0
     if (!total) return 0
-    return Math.min(100, Math.round((done / total) * 100))
+    return Math.min(100, Math.round(((props.stats?.[s.doneKey] || 0) / total) * 100))
 }
+
+const statCells = [
+    { label: 'Subjects', key: 'exam_subjects' },
+    { label: 'Scheduled', key: 'schedules' },
+    { label: 'Rooms', key: 'rooms' },
+    { label: 'Students', key: 'students' },
+    { label: 'Seats', key: 'seats' },
+    { label: 'Invigilators', key: 'invigilators' },
+]
 </script>
 
 <template>
     <Head :title="`Scheduling — ${exam.name}`" />
-    <AppLayout
-        :breadcrumbs="[
-            { label: 'Exams', href: route('exams.index') },
-            { label: exam.name, href: route('exams.show', exam.id) },
-            { label: 'Scheduling' },
-        ]"
-    >
-        <div class="space-y-6">
-            <!-- Header -->
-            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                    <h1 class="text-2xl font-bold flex items-center gap-2">
-                        <ClipboardDocumentListIcon class="h-6 w-6 text-primary" />
-                        Exam Scheduling
-                    </h1>
-                    <p class="mt-1 text-sm text-base-content/60">
-                        Run the complete scheduling workflow for
-                        <span class="font-semibold text-base-content">{{ exam.name }}</span>.
-                    </p>
-                </div>
-                <div class="rounded-xl border border-base-200 bg-base-100 px-4 py-2 text-xs">
-                    <p class="text-2xs uppercase tracking-wider text-base-content/40">Exam Window</p>
-                    <p class="font-semibold">
-                        {{ exam.start_date || '—' }} to {{ exam.end_date || '—' }}
-                    </p>
-                </div>
-            </div>
+    <AppLayout :breadcrumbs="[
+        { label: 'Exam Scheduling', href: route('scheduling.exams') },
+        { label: exam.name },
+    ]">
+        <div class="space-y-4 max-w-5xl mx-auto">
+
+            <PageHeader :title="exam.name"
+                :subtitle="`Scheduling workflow · ${exam.start_date || '—'} → ${exam.end_date || '—'}`"
+                :icon="ClipboardDocumentListIcon" tone="primary" />
+
+            <SchedulingSubnav :exam-id="exam.id" />
 
             <!-- Stat strip -->
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                <div v-for="item in [
-                    { label: 'Subjects', value: stats.exam_subjects, color: 'text-base-content' },
-                    { label: 'Schedules', value: stats.schedules, color: 'text-primary' },
-                    { label: 'Rooms', value: stats.rooms, color: 'text-info' },
-                    { label: 'Students', value: stats.students, color: 'text-accent' },
-                    { label: 'Seats Assigned', value: stats.seats, color: 'text-success' },
-                    { label: 'Invigilators', value: stats.invigilators, color: 'text-warning' },
-                ]" :key="item.label" class="rounded-xl border border-base-200 bg-base-100 p-3 text-center">
-                    <p class="text-2xs uppercase tracking-wider text-base-content/40">{{ item.label }}</p>
-                    <p class="mt-1 text-xl font-bold" :class="item.color">{{ item.value }}</p>
+            <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                <div v-for="c in statCells" :key="c.label"
+                    class="rounded-xl border border-base-300 bg-base-100 shadow-sm px-3 py-2 text-center">
+                    <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/45">{{ c.label }}</p>
+                    <p class="text-lg font-extrabold tabular-nums mt-0.5">{{ stats?.[c.key] ?? 0 }}</p>
                 </div>
             </div>
 
-            <!-- Feature cards -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div
-                    v-for="card in cards"
-                    :key="card.key"
-                    class="card bg-base-100 shadow-sm border border-base-200 hover:border-primary/40 hover:shadow-md transition-all"
-                >
-                    <div class="card-body p-5">
-                        <div class="flex items-start justify-between">
-                            <div class="flex h-10 w-10 items-center justify-center rounded-xl" :class="card.color">
-                                <component :is="card.icon" class="h-5 w-5" />
-                            </div>
-                            <span
-                                v-if="card.totalKey"
-                                class="badge badge-sm"
-                                :class="pct(card) === 100 ? 'badge-success' : pct(card) > 0 ? 'badge-warning' : 'badge-ghost'"
-                            >
-                                <CheckCircleIcon v-if="pct(card) === 100" class="h-3 w-3 mr-1" />
-                                <ExclamationCircleIcon v-else class="h-3 w-3 mr-1" />
-                                {{ stats[card.statusKey] || 0 }} / {{ stats[card.totalKey] || 0 }}
-                            </span>
-                            <span
-                                v-else-if="card.statusKey"
-                                class="badge badge-sm badge-ghost"
-                            >
-                                {{ stats[card.statusKey] || 0 }} total
-                            </span>
+            <!-- Workflow steps -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div v-for="s in steps" :key="s.key"
+                    class="rounded-xl border border-base-300 bg-base-100 shadow-sm p-4 flex flex-col">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" :class="s.tone">
+                            <component :is="s.icon" class="w-5 h-5" />
                         </div>
-
-                        <h3 class="mt-3 text-base font-bold">{{ card.title }}</h3>
-                        <p class="text-xs text-base-content/60 leading-relaxed">{{ card.desc }}</p>
-
-                        <div v-if="card.totalKey" class="mt-3 h-1.5 w-full rounded-full bg-base-200 overflow-hidden">
-                            <div class="h-full bg-primary" :style="{ width: pct(card) + '%' }" />
+                        <div class="flex-1 min-w-0">
+                            <p class="text-[10px] font-bold uppercase tracking-wider text-base-content/40">Step {{ s.n }}</p>
+                            <h3 class="font-bold text-sm leading-tight">{{ s.title }}</h3>
                         </div>
-
-                        <div class="card-actions mt-4">
-                            <Link :href="card.href(exam.id)" class="btn btn-primary btn-sm w-full gap-1.5">
-                                {{ card.cta }}
-                                <ChevronRightIcon class="h-4 w-4" />
-                            </Link>
-                        </div>
+                        <span v-if="s.totalKey"
+                            class="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                            :class="pct(s) === 100 ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                : pct(s) > 0 ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                : 'bg-base-200 text-base-content/55'">
+                            <CheckCircleIcon v-if="pct(s) === 100" class="w-3 h-3 inline -mt-0.5" />
+                            {{ stats?.[s.doneKey] || 0 }}/{{ stats?.[s.totalKey] || 0 }}
+                        </span>
+                        <span v-else-if="s.countKey" class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-base-200 text-base-content/55 shrink-0">
+                            {{ stats?.[s.countKey] || 0 }}
+                        </span>
                     </div>
+
+                    <p class="text-xs text-base-content/55 mt-2.5 flex-1">{{ s.desc }}</p>
+
+                    <div v-if="s.totalKey" class="mt-3 h-1.5 rounded-full bg-base-200 overflow-hidden">
+                        <div class="h-full rounded-full transition-all"
+                            :class="pct(s) === 100 ? 'bg-emerald-500' : 'bg-primary'"
+                            :style="{ width: pct(s) + '%' }"></div>
+                    </div>
+
+                    <Link :href="s.href(exam.id)" class="btn btn-primary btn-sm rounded-lg w-full gap-1.5 mt-3">
+                        {{ s.cta }} <ArrowRightIcon class="w-3.5 h-3.5" />
+                    </Link>
                 </div>
             </div>
         </div>

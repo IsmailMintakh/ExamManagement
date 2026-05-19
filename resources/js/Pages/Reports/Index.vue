@@ -1,17 +1,15 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import PageHeader from '@/Components/PageHeader.vue'
 import FormSelect from '@/Components/FormSelect.vue'
 import { Head, Link } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import {
     TrophyIcon, DocumentTextIcon, ClipboardDocumentListIcon,
     ChartBarIcon, ArrowDownTrayIcon, ExclamationTriangleIcon,
-    MagnifyingGlassIcon, DocumentChartBarIcon, TableCellsIcon,
-    UserGroupIcon, IdentificationIcon, PrinterIcon, EyeIcon,
-    AcademicCapIcon, BookOpenIcon, ListBulletIcon,
-    DocumentDuplicateIcon, SparklesIcon, Squares2X2Icon,
-    ArrowTopRightOnSquareIcon, CheckCircleIcon, ClockIcon,
-    PencilSquareIcon,
+    TableCellsIcon, UserGroupIcon, IdentificationIcon, PrinterIcon,
+    AcademicCapIcon, DocumentDuplicateIcon, SparklesIcon, Squares2X2Icon,
+    ArrowTopRightOnSquareIcon, PencilSquareIcon, DocumentChartBarIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -22,481 +20,207 @@ const props = defineProps({
     teachers: { type: Array, default: () => [] },
 })
 
-const search = ref('')
-const activeCategory = ref('all')
-
-// Report catalog — each report is a defined item with metadata
-const reports = computed(() => [
-    {
-        id: 'award-list',
-        title: 'Award / Merit List',
-        description: 'Top-performing students ranked by percentage. Perfect for ceremony announcements.',
-        category: 'students',
-        categoryLabel: 'Student Reports',
-        icon: TrophyIcon,
-        color: 'warning',
-        format: 'PDF',
-        inputs: [{ key: 'exam', label: 'Exam', type: 'exam', required: true }],
-        route: 'reports.award-list',
-        routeFormat: (values) => [values.exam],
-    },
-    {
-        id: 'result-sheet',
-        title: 'Class Result Sheet',
-        description: 'Complete class-wise result sheet with all marks, grades, and ranks in tabular format.',
-        category: 'classes',
-        categoryLabel: 'Class Reports',
-        icon: TableCellsIcon,
-        color: 'primary',
-        format: 'PDF',
-        inputs: [
-            { key: 'exam', label: 'Exam', type: 'exam', required: true },
-            { key: 'class', label: 'Class', type: 'class', required: true },
-        ],
-        route: 'reports.result-sheet',
-        routeFormat: (values) => ({ exam: values.exam, schoolClass: values.class }),
-    },
-    {
-        id: 'attendance-sheet',
-        title: 'Exam Attendance Sheet',
-        description: 'Per-subject sign-in sheet — students sign next to their roll/name as they enter the exam room. One page per subject per section.',
-        category: 'classes',
-        categoryLabel: 'Class Reports',
-        icon: PencilSquareIcon,
-        color: 'accent',
-        format: 'PDF',
-        inputs: [
-            { key: 'exam', label: 'Exam', type: 'exam', required: true },
-            { key: 'class', label: 'Class', type: 'class', required: true },
-        ],
-        route: 'reports.attendance-sheet',
-        routeFormat: (values) => ({ exam: values.exam, schoolClass: values.class }),
-    },
-    {
-        id: 'report-card',
-        title: 'Student Report Card',
-        description: 'Individual, government-format report card for each student with full marks breakdown.',
-        category: 'students',
-        categoryLabel: 'Student Reports',
-        icon: IdentificationIcon,
-        color: 'success',
-        format: 'PDF',
-        inputs: [],
-        howTo: [
-            'Go to Results → View any exam',
-            'Open the section result sheet',
-            'Click a student\'s name to download their report card',
-        ],
-    },
-    {
-        id: 'export-results',
-        title: 'Results Export',
-        description: 'Download complete exam results as CSV for Excel analysis, backup, or external use.',
-        category: 'exports',
-        categoryLabel: 'Data Exports',
-        icon: DocumentDuplicateIcon,
-        color: 'info',
-        format: 'CSV',
-        inputs: [{ key: 'exam', label: 'Exam', type: 'exam', required: true }],
-        route: 'reports.export',
-        routeFormat: (values) => ({ type: 'results', exam: values.exam }),
-    },
-    {
-        id: 'export-marks',
-        title: 'Raw Marks Export',
-        description: 'Export all entered marks per subject per student. Useful for audit trails.',
-        category: 'exports',
-        categoryLabel: 'Data Exports',
-        icon: Squares2X2Icon,
-        color: 'secondary',
-        format: 'CSV',
-        inputs: [{ key: 'exam', label: 'Exam', type: 'exam', required: true }],
-        route: 'reports.export',
-        routeFormat: (values) => ({ type: 'marks', exam: values.exam }),
-    },
-    {
-        id: 'export-award',
-        title: 'Merit List Export',
-        description: 'Download the merit list in spreadsheet format for announcements or certificates.',
-        category: 'exports',
-        categoryLabel: 'Data Exports',
-        icon: SparklesIcon,
-        color: 'accent',
-        format: 'CSV',
-        inputs: [{ key: 'exam', label: 'Exam', type: 'exam', required: true }],
-        route: 'reports.export',
-        routeFormat: (values) => ({ type: 'award-list', exam: values.exam }),
-    },
-    // ─── Analytics & insight reports ───
-    {
-        id: 'exam-analytics',
-        title: 'Exam Analytics Dashboard',
-        description: 'Drill into one exam — pass rate by class & subject, school comparison (DDO), grade distribution, top performers.',
-        category: 'analytics',
-        categoryLabel: 'Analytics',
-        icon: ChartBarIcon,
-        color: 'primary',
-        format: 'WEB',
-        inputs: [{ key: 'exam', label: 'Exam', type: 'exam', required: true }],
-        route: 'reports.exam-analytics',
-        routeFormat: (values) => [values.exam],
-        target: '_self',
-    },
-    {
-        id: 'progress-booklet',
-        title: 'Student Progress Booklet',
-        description: 'Multi-page PDF for one student: profile, all-exam results, subject-wise trend. Hand at PTM.',
-        category: 'students',
-        categoryLabel: 'Student Reports',
-        icon: DocumentTextIcon,
-        color: 'success',
-        format: 'PDF',
-        inputs: [{ key: 'student', label: 'Student', type: 'student', required: true }],
-        route: 'reports.progress-booklet',
-        routeFormat: (values) => [values.student],
-    },
-    {
-        id: 'progress-booklet-bulk',
-        title: 'Section Progress Booklets (bulk)',
-        description: 'One PDF with a progress page per student in the section — perfect for the whole-class PTM run.',
-        category: 'classes',
-        categoryLabel: 'Class Reports',
-        icon: DocumentDuplicateIcon,
-        color: 'success',
-        format: 'PDF',
-        inputs: [{ key: 'section', label: 'Section', type: 'section', required: true }],
-        route: 'reports.progress-booklet-bulk',
-        routeFormat: (values) => [values.section],
-    },
-    {
-        id: 'teacher-report-card',
-        title: "Teacher's Report Card",
-        description: 'A single teacher across all sections + subjects: marks-entry status, pass rate, average. Year-end review staple.',
-        category: 'analytics',
-        categoryLabel: 'Analytics',
-        icon: AcademicCapIcon,
-        color: 'info',
-        format: 'WEB',
-        inputs: [{ key: 'user', label: 'Teacher', type: 'teacher', required: true }],
-        route: 'reports.teacher-report-card',
-        routeFormat: (values) => [values.user],
-        target: '_self',
-    },
-])
-
-const categories = [
-    { key: 'all', label: 'All Reports', icon: Squares2X2Icon, count: computed(() => reports.value.length) },
-    { key: 'analytics', label: 'Analytics', icon: ChartBarIcon, count: computed(() => reports.value.filter(r => r.category === 'analytics').length) },
-    { key: 'students', label: 'Student Reports', icon: UserGroupIcon, count: computed(() => reports.value.filter(r => r.category === 'students').length) },
-    { key: 'classes', label: 'Class Reports', icon: AcademicCapIcon, count: computed(() => reports.value.filter(r => r.category === 'classes').length) },
-    { key: 'exports', label: 'Data Exports', icon: ArrowDownTrayIcon, count: computed(() => reports.value.filter(r => r.category === 'exports').length) },
+// ─── Report catalog (unchanged data; only the UX around it changes) ───
+const reports = [
+    { id: 'award-list', title: 'Award / Merit List', group: 'Student', icon: TrophyIcon, format: 'PDF',
+      description: 'Top students ranked by percentage — for ceremony announcements.',
+      route: 'reports.award-list', extra: [], routeFormat: (v) => [v.exam] },
+    { id: 'report-card', title: 'Student Report Card', group: 'Student', icon: IdentificationIcon, format: 'PDF',
+      description: 'Government-format card for one student. Open it from a section result sheet.',
+      goTo: 'results.index', goToLabel: 'Open Results' },
+    { id: 'progress-booklet', title: 'Student Progress Booklet', group: 'Student', icon: DocumentTextIcon, format: 'PDF',
+      description: 'Multi-page PDF for one student: profile, all exams, subject trend.',
+      route: 'reports.progress-booklet', extra: [{ key: 'student', label: 'Student', type: 'student' }],
+      routeFormat: (v) => [v.student], examOptional: true },
+    { id: 'result-sheet', title: 'Class Result Sheet', group: 'Class', icon: TableCellsIcon, format: 'PDF',
+      description: 'Full class result with all marks, grades and ranks.',
+      route: 'reports.result-sheet', extra: [{ key: 'class', label: 'Class', type: 'class' }],
+      routeFormat: (v) => ({ exam: v.exam, schoolClass: v.class }) },
+    { id: 'attendance-sheet', title: 'Exam Attendance Sheet', group: 'Class', icon: PencilSquareIcon, format: 'PDF',
+      description: 'Per-subject sign-in sheet — one page per subject per section.',
+      route: 'reports.attendance-sheet', extra: [{ key: 'class', label: 'Class', type: 'class' }],
+      routeFormat: (v) => ({ exam: v.exam, schoolClass: v.class }) },
+    { id: 'progress-booklet-bulk', title: 'Section Progress Booklets', group: 'Class', icon: DocumentDuplicateIcon, format: 'PDF',
+      description: 'One PDF with a progress page per student — whole-class PTM run.',
+      route: 'reports.progress-booklet-bulk', extra: [{ key: 'section', label: 'Section', type: 'section' }],
+      routeFormat: (v) => [v.section], examOptional: true },
+    { id: 'exam-analytics', title: 'Exam Analytics', group: 'Analytics', icon: ChartBarIcon, format: 'WEB',
+      description: 'Pass rate by class & subject, grade distribution, top performers.',
+      route: 'reports.exam-analytics', extra: [], routeFormat: (v) => [v.exam], self: true },
+    { id: 'teacher-report-card', title: "Teacher's Report Card", group: 'Analytics', icon: AcademicCapIcon, format: 'WEB',
+      description: 'One teacher across all sections: marks status, pass rate, average.',
+      route: 'reports.teacher-report-card', extra: [{ key: 'user', label: 'Teacher', type: 'teacher' }],
+      routeFormat: (v) => [v.user], self: true, examOptional: true },
+    { id: 'export-results', title: 'Results Export (CSV)', group: 'Export', icon: DocumentDuplicateIcon, format: 'CSV',
+      description: 'All exam results as CSV for Excel / backup.',
+      route: 'reports.export', extra: [], routeFormat: (v) => ({ type: 'results', exam: v.exam }) },
+    { id: 'export-marks', title: 'Raw Marks Export (CSV)', group: 'Export', icon: Squares2X2Icon, format: 'CSV',
+      description: 'Every entered mark per subject per student — audit trail.',
+      route: 'reports.export', extra: [], routeFormat: (v) => ({ type: 'marks', exam: v.exam }) },
+    { id: 'export-award', title: 'Merit List Export (CSV)', group: 'Export', icon: SparklesIcon, format: 'CSV',
+      description: 'Merit list as a spreadsheet for announcements.',
+      route: 'reports.export', extra: [], routeFormat: (v) => ({ type: 'award-list', exam: v.exam }) },
 ]
 
-const filteredReports = computed(() => {
-    let items = reports.value
-    if (activeCategory.value !== 'all') {
-        items = items.filter(r => r.category === activeCategory.value)
-    }
-    if (search.value.trim()) {
-        const q = search.value.toLowerCase()
-        items = items.filter(r => r.title.toLowerCase().includes(q) || r.description.toLowerCase().includes(q))
-    }
-    return items
+const GROUPS = ['Student', 'Class', 'Analytics', 'Export']
+const GROUP_META = {
+    Student:   { icon: UserGroupIcon,             dot: 'bg-emerald-500', chip: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', label: 'Student reports' },
+    Class:     { icon: AcademicCapIcon,           dot: 'bg-sky-500',     chip: 'bg-sky-500/10 text-sky-600 dark:text-sky-400',         label: 'Class reports' },
+    Analytics: { icon: ChartBarIcon,              dot: 'bg-violet-500',  chip: 'bg-violet-500/10 text-violet-600 dark:text-violet-400', label: 'Analytics' },
+    Export:    { icon: ArrowDownTrayIcon,         dot: 'bg-amber-500',   chip: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',   label: 'Data exports' },
+}
+
+// ─── Shared context: pick the exam ONCE ───
+const examId = ref(props.exams?.length === 1 ? props.exams[0].id : null)
+const extra = ref({})       // per-report extra picks (class/section/student/teacher)
+function extraVal(id) {
+    if (!extra.value[id]) extra.value[id] = {}
+    return extra.value[id]
+}
+
+const selectedExam = computed(() => props.exams?.find(e => e.id === examId.value) || null)
+
+function optionsFor(type) {
+    const src = type === 'class' ? props.classes
+        : type === 'section' ? props.sections
+        : type === 'student' ? props.students
+        : type === 'teacher' ? props.teachers : []
+    return (src || []).map(o => ({ value: o.id, label: o.name }))
+}
+
+function needsExam(r) {
+    return !r.goTo && !r.examOptional
+}
+function ready(r) {
+    if (r.goTo) return true
+    if (needsExam(r) && !examId.value) return false
+    return (r.extra || []).every(e => extraVal(r.id)[e.key])
+}
+function run(r) {
+    if (r.goTo) return
+    const values = { exam: examId.value, ...extraVal(r.id) }
+    const url = route(r.route, r.routeFormat(values))
+    r.self ? (window.location.href = url) : window.open(url, '_blank')
+}
+
+const search = ref('')
+const visible = computed(() => {
+    const q = search.value.trim().toLowerCase()
+    if (!q) return reports
+    return reports.filter(r => r.title.toLowerCase().includes(q) || r.description.toLowerCase().includes(q))
 })
-
-// Per-report input state
-const reportInputs = ref({})
-function getInputs(reportId) {
-    if (!reportInputs.value[reportId]) reportInputs.value[reportId] = {}
-    return reportInputs.value[reportId]
+function groupReports(g) {
+    return visible.value.filter(r => r.group === g)
 }
-function canGenerate(report) {
-    const vals = getInputs(report.id)
-    return report.inputs.every(inp => !inp.required || vals[inp.key])
-}
-
-function generate(report) {
-    if (!report.route) return
-    const values = getInputs(report.id)
-    const params = report.routeFormat(values)
-    const url = route(report.route, params)
-    // Web pages (analytics dashboards) navigate in-place; PDFs open in new tab.
-    if (report.target === '_self') {
-        window.location.href = url
-    } else {
-        window.open(url, '_blank')
-    }
-}
-
-// Stats
-const totalExams = computed(() => props.exams?.length || 0)
-const completedExams = computed(() => props.exams?.filter(e => e.status === 'completed').length || 0)
 </script>
 
 <template>
-    <Head title="Reports & Exports" />
+    <Head title="Reports" />
     <AppLayout :breadcrumbs="[{ label: 'Reports' }]">
-        <div class="space-y-6">
+        <div class="space-y-4 max-w-5xl mx-auto">
 
-            <!-- ============ HEADER ============ -->
-            <div class="page-header">
-                <div>
-                    <h1 class="page-title flex items-center gap-2.5">
-                        <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-secondary shadow-lg shadow-primary/25">
-                            <DocumentChartBarIcon class="h-5 w-5 text-white" />
-                        </div>
-                        Reports & Exports
-                    </h1>
-                    <p class="page-subtitle">Generate official PDF reports and data exports for any exam</p>
-                </div>
-                <div class="hidden sm:flex items-center gap-2">
-                    <Link :href="route('exams.index')" class="btn btn-ghost btn-sm gap-1.5">
-                        <ClipboardDocumentListIcon class="w-4 h-4" /> Back to Exams
-                    </Link>
-                </div>
-            </div>
+            <PageHeader title="Reports &amp; exports"
+                subtitle="Pick an exam once, then generate any report with one click"
+                :icon="DocumentChartBarIcon" tone="primary" />
 
-            <!-- ============ NO EXAMS WARNING ============ -->
-            <div v-if="!exams?.length" class="alert-banner alert-banner-warning">
-                <ExclamationTriangleIcon class="w-5 h-5 shrink-0 text-warning" />
+            <!-- No exams -->
+            <div v-if="!exams?.length"
+                class="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 flex items-center gap-4">
+                <ExclamationTriangleIcon class="w-8 h-8 text-amber-500 shrink-0" />
                 <div class="flex-1">
-                    <p class="font-semibold">No exams with results found</p>
-                    <p class="mt-0.5 text-xs text-base-content/60">Generate results for an exam before creating reports. Reports require completed or in-progress exams.</p>
+                    <p class="font-bold text-sm">No exams with results yet</p>
+                    <p class="text-xs text-base-content/60">Reports need an exam with marks/results first.</p>
                 </div>
-                <Link :href="route('results.index')" class="btn btn-warning btn-sm">Go to Results</Link>
+                <Link :href="route('results.index')" class="btn btn-warning btn-sm rounded-lg">Go to Results</Link>
             </div>
 
-            <!-- ============ QUICK STATS ============ -->
-            <div v-if="exams?.length" class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-                <div class="stat-card">
-                    <div class="flex items-center gap-3">
-                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                            <DocumentTextIcon class="h-5 w-5 text-primary" />
+            <template v-else>
+                <!-- ═══ Toolbar — exam (shared) + search, one refined bar ═══ -->
+                <div class="rounded-xl border border-base-300 bg-base-100 shadow-sm p-4">
+                    <div class="flex flex-col lg:flex-row lg:items-end gap-4">
+                        <div class="flex-1 min-w-0">
+                            <label class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-base-content/55 mb-1.5">
+                                <span class="w-4 h-4 rounded-full bg-primary text-primary-content grid place-items-center text-[10px] font-bold">1</span>
+                                Exam
+                            </label>
+                            <FormSelect v-model="examId"
+                                :options="exams.map(e => ({ value: e.id, label: e.name }))"
+                                placeholder="Select an exam…" size="sm" />
                         </div>
-                        <div>
-                            <p class="text-[11px] font-bold uppercase tracking-wider text-base-content/45">Reports Available</p>
-                            <p class="mt-0.5 text-2xl font-extrabold text-primary">{{ reports.length }}</p>
+                        <div class="lg:w-72">
+                            <label class="block text-[11px] font-bold uppercase tracking-wider text-base-content/55 mb-1.5">Search</label>
+                            <input v-model="search" type="text" placeholder="Filter reports…"
+                                class="input input-bordered input-sm w-full rounded-lg text-sm" />
                         </div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="flex items-center gap-3">
-                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary/10">
-                            <ClipboardDocumentListIcon class="h-5 w-5 text-secondary" />
-                        </div>
-                        <div>
-                            <p class="text-[11px] font-bold uppercase tracking-wider text-base-content/45">Total Exams</p>
-                            <p class="mt-0.5 text-2xl font-extrabold text-secondary">{{ totalExams }}</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="flex items-center gap-3">
-                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-success/10">
-                            <CheckCircleIcon class="h-5 w-5 text-success" />
-                        </div>
-                        <div>
-                            <p class="text-[11px] font-bold uppercase tracking-wider text-base-content/45">Completed</p>
-                            <p class="mt-0.5 text-2xl font-extrabold text-success">{{ completedExams }}</p>
+                        <div class="pb-1.5">
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap"
+                                :class="selectedExam
+                                    ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
+                                    : 'bg-base-200 text-base-content/55'">
+                                <span class="w-1.5 h-1.5 rounded-full" :class="selectedExam ? 'bg-emerald-500' : 'bg-base-content/30'"></span>
+                                {{ selectedExam ? 'Ready' : 'Pick an exam' }}
+                            </span>
                         </div>
                     </div>
                 </div>
-                <div class="stat-card">
-                    <div class="flex items-center gap-3">
-                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10">
-                            <AcademicCapIcon class="h-5 w-5 text-accent" />
-                        </div>
-                        <div>
-                            <p class="text-[11px] font-bold uppercase tracking-wider text-base-content/45">Classes</p>
-                            <p class="mt-0.5 text-2xl font-extrabold text-accent">{{ classes?.length || 0 }}</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
 
-            <!-- ============ FILTER BAR ============ -->
-            <div v-if="exams?.length" class="surface">
-                <div class="surface-body">
-                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-                        <!-- Category tabs -->
-                        <div class="flex flex-wrap items-center gap-1.5 rounded-xl bg-base-200/50 p-1">
-                            <button
-                                v-for="cat in categories"
-                                :key="cat.key"
-                                @click="activeCategory = cat.key"
-                                class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold"
-                                :class="activeCategory === cat.key
-                                    ? 'bg-base-100 shadow-sm text-primary'
-                                    : 'text-base-content/55 hover:text-base-content'"
-                                style="transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);"
-                            >
-                                <component :is="cat.icon" class="w-3.5 h-3.5" />
-                                {{ cat.label }}
-                                <span class="ml-0.5 rounded-md bg-base-200/70 px-1.5 py-0.5 text-[10px] font-bold">
-                                    {{ cat.count.value }}
-                                </span>
+                <!-- ═══ Report groups ═══ -->
+                <div v-for="g in GROUPS" :key="g" v-show="groupReports(g).length"
+                    class="rounded-xl border border-base-300 bg-base-100 shadow-sm overflow-hidden">
+                    <header class="flex items-center gap-2 px-4 py-2.5 border-b border-base-300 bg-base-200/30">
+                        <span class="w-1.5 h-1.5 rounded-full" :class="GROUP_META[g].dot"></span>
+                        <h2 class="text-[11px] font-bold uppercase tracking-wider text-base-content/60">{{ GROUP_META[g].label }}</h2>
+                        <span class="text-[11px] text-base-content/40 tabular-nums">{{ groupReports(g).length }}</span>
+                    </header>
+                    <div class="divide-y divide-base-300">
+                        <div v-for="r in groupReports(g)" :key="r.id"
+                            class="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5 hover:bg-base-200/30 transition-colors">
+                            <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" :class="GROUP_META[g].chip">
+                                <component :is="r.icon" class="w-5 h-5" />
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <p class="font-bold text-sm leading-tight">{{ r.title }}</p>
+                                    <span class="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                                        :class="r.format === 'PDF' ? 'bg-rose-500/12 text-rose-600 dark:text-rose-400'
+                                            : r.format === 'CSV' ? 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400'
+                                            : 'bg-sky-500/12 text-sky-600 dark:text-sky-400'">{{ r.format }}</span>
+                                </div>
+                                <p class="text-[12px] text-base-content/55 mt-0.5">{{ r.description }}</p>
+                            </div>
+
+                            <!-- extra input (only when the report needs more than the exam) -->
+                            <div v-if="r.extra && r.extra.length" class="w-full sm:w-48 shrink-0">
+                                <FormSelect v-for="e in r.extra" :key="e.key"
+                                    v-model="extraVal(r.id)[e.key]"
+                                    :options="optionsFor(e.type)"
+                                    :placeholder="e.label" size="sm" />
+                            </div>
+
+                            <!-- action -->
+                            <Link v-if="r.goTo" :href="route(r.goTo)"
+                                class="btn btn-outline btn-sm rounded-lg gap-1.5 shrink-0 w-full sm:w-auto sm:min-w-[8.5rem]">
+                                {{ r.goToLabel }} <ArrowTopRightOnSquareIcon class="w-3.5 h-3.5" />
+                            </Link>
+                            <button v-else @click="run(r)" :disabled="!ready(r)"
+                                class="btn btn-primary btn-sm rounded-lg gap-1.5 shrink-0 w-full sm:w-auto sm:min-w-[8.5rem] disabled:opacity-45 disabled:cursor-not-allowed"
+                                :title="!ready(r) ? (needsExam(r) && !examId ? 'Choose an exam first' : 'Fill the field first') : ''">
+                                <component :is="r.format === 'CSV' ? ArrowDownTrayIcon : PrinterIcon" class="w-4 h-4" />
+                                {{ r.format === 'WEB' ? 'Open' : r.format === 'CSV' ? 'Download' : 'Generate' }}
                             </button>
                         </div>
-                        <!-- Search -->
-                        <div class="relative flex-1">
-                            <MagnifyingGlassIcon class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/35" />
-                            <input
-                                v-model="search"
-                                type="text"
-                                placeholder="Search reports..."
-                                class="input input-bordered w-full pl-9 text-sm"
-                            />
-                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- ============ REPORTS GRID ============ -->
-            <div v-if="exams?.length && filteredReports.length" class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-                <article
-                    v-for="(report, idx) in filteredReports"
-                    :key="report.id"
-                    class="surface group relative overflow-hidden"
-                    :style="`animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: ${idx * 40}ms;`"
-                >
-                    <!-- Format badge -->
-                    <div class="absolute right-4 top-4 z-10">
-                        <span class="badge badge-sm font-bold" :class="report.format === 'PDF' ? 'badge-error' : 'badge-success'">
-                            {{ report.format }}
-                        </span>
-                    </div>
-
-                    <div class="surface-body space-y-4">
-                        <!-- Icon + title -->
-                        <div class="flex items-start gap-4">
-                            <div
-                                class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl transition-transform group-hover:scale-110"
-                                :class="{
-                                    'bg-warning/10': report.color === 'warning',
-                                    'bg-primary/10': report.color === 'primary',
-                                    'bg-secondary/10': report.color === 'secondary',
-                                    'bg-accent/10': report.color === 'accent',
-                                    'bg-success/10': report.color === 'success',
-                                    'bg-info/10': report.color === 'info',
-                                }"
-                            >
-                                <component
-                                    :is="report.icon"
-                                    class="h-6 w-6"
-                                    :class="{
-                                        'text-warning': report.color === 'warning',
-                                        'text-primary': report.color === 'primary',
-                                        'text-secondary': report.color === 'secondary',
-                                        'text-accent': report.color === 'accent',
-                                        'text-success': report.color === 'success',
-                                        'text-info': report.color === 'info',
-                                    }"
-                                />
-                            </div>
-                            <div class="flex-1 min-w-0 pt-1">
-                                <p class="text-[10px] font-bold uppercase tracking-widest text-base-content/45">{{ report.categoryLabel }}</p>
-                                <h3 class="mt-0.5 text-[15px] font-bold leading-tight">{{ report.title }}</h3>
-                            </div>
-                        </div>
-
-                        <p class="text-[13px] leading-relaxed text-base-content/60">{{ report.description }}</p>
-
-                        <!-- Inputs or how-to -->
-                        <div v-if="report.inputs.length" class="space-y-2.5">
-                            <div v-for="inp in report.inputs" :key="inp.key">
-                                <FormSelect
-                                    v-model="getInputs(report.id)[inp.key]"
-                                    :label="inp.label"
-                                    :options="(
-                                        inp.type === 'exam' ? exams :
-                                        inp.type === 'class' ? classes :
-                                        inp.type === 'section' ? sections :
-                                        inp.type === 'student' ? students :
-                                        inp.type === 'teacher' ? teachers :
-                                        []
-                                    )?.map(o => ({ value: o.id, label: o.name })) || []"
-                                    :placeholder="`Select ${inp.label.toLowerCase()}`"
-                                    :required="inp.required"
-                                    size="sm"
-                                />
-                            </div>
-                        </div>
-
-                        <!-- How to for Report Card -->
-                        <div v-else-if="report.howTo" class="rounded-xl border border-base-200 bg-base-200/30 p-3.5">
-                            <p class="mb-2 text-[11px] font-bold uppercase tracking-wider text-base-content/50">How to generate:</p>
-                            <ol class="space-y-1.5">
-                                <li v-for="(step, i) in report.howTo" :key="i" class="flex gap-2 text-xs text-base-content/65">
-                                    <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[9px] font-bold text-primary">{{ i + 1 }}</span>
-                                    <span>{{ step }}</span>
-                                </li>
-                            </ol>
-                        </div>
-
-                        <!-- Action -->
-                        <div v-if="report.inputs.length" class="pt-1">
-                            <button
-                                @click="generate(report)"
-                                :disabled="!canGenerate(report)"
-                                class="btn btn-primary btn-sm w-full gap-1.5"
-                            >
-                                <component :is="report.format === 'PDF' ? PrinterIcon : ArrowDownTrayIcon" class="w-4 h-4" />
-                                {{ report.format === 'PDF' ? 'Generate PDF' : 'Download CSV' }}
-                                <ArrowTopRightOnSquareIcon class="w-3 h-3 opacity-60" />
-                            </button>
-                        </div>
-                        <Link
-                            v-else
-                            :href="route('results.index')"
-                            class="btn btn-outline btn-sm w-full gap-1.5"
-                        >
-                            <EyeIcon class="w-4 h-4" /> Go to Results
-                        </Link>
-                    </div>
-                </article>
-            </div>
-
-            <!-- ============ EMPTY SEARCH ============ -->
-            <div v-else-if="exams?.length && !filteredReports.length" class="surface">
-                <div class="empty-state">
-                    <div class="empty-state-icon">
-                        <MagnifyingGlassIcon class="h-7 w-7 text-base-content/30" />
-                    </div>
-                    <h3 class="text-base font-bold">No reports match your search</h3>
-                    <p class="mt-1.5 text-sm text-base-content/55">Try adjusting your filters or search query.</p>
-                    <button @click="search = ''; activeCategory = 'all'" class="btn btn-ghost btn-sm mt-4">Clear filters</button>
+                <div v-if="!visible.length" class="rounded-xl border border-base-300 bg-base-100 shadow-sm p-10 text-center">
+                    <p class="text-sm text-base-content/55">No reports match “{{ search }}”.</p>
+                    <button @click="search = ''" class="btn btn-ghost btn-sm mt-3 rounded-lg">Clear search</button>
                 </div>
-            </div>
 
-            <!-- ============ HELP / TIPS ============ -->
-            <div v-if="exams?.length" class="rounded-2xl border border-info/15 bg-gradient-to-br from-info/5 to-primary/5 p-5">
-                <div class="flex items-start gap-4">
-                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-info/15">
-                        <SparklesIcon class="h-5 w-5 text-info" />
-                    </div>
-                    <div class="flex-1">
-                        <h3 class="text-sm font-bold">Report Generation Tips</h3>
-                        <div class="mt-2 grid grid-cols-1 gap-2 text-[12.5px] text-base-content/65 md:grid-cols-2">
-                            <div class="flex items-start gap-2">
-                                <span class="text-success">✓</span>
-                                <span>PDFs open in a new tab — print or download from your browser.</span>
-                            </div>
-                            <div class="flex items-start gap-2">
-                                <span class="text-success">✓</span>
-                                <span>CSV exports open directly in Excel, Numbers, or Google Sheets.</span>
-                            </div>
-                            <div class="flex items-start gap-2">
-                                <span class="text-success">✓</span>
-                                <span>Generate reports only after results are finalized for accuracy.</span>
-                            </div>
-                            <div class="flex items-start gap-2">
-                                <span class="text-success">✓</span>
-                                <span>Custom letterhead templates available under Master Data.</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+                <p class="text-[11px] text-base-content/40 text-center pb-2">
+                    PDFs open in a new tab to print or save · CSV opens in Excel · generate after results are finalized for accuracy.
+                </p>
+            </template>
         </div>
     </AppLayout>
 </template>
