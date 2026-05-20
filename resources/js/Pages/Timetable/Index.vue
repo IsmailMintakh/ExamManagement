@@ -8,6 +8,7 @@ import {
     CalendarIcon, ExclamationTriangleIcon, BoltIcon, PrinterIcon,
     EyeIcon, PencilSquareIcon, Cog6ToothIcon,
 } from '@heroicons/vue/24/outline'
+import { confirmAction } from '@/lib/swal'
 
 const props = defineProps({
     school: Object,
@@ -55,15 +56,21 @@ const statChips = computed(() => [
 // ─── Auto-generate ───
 const generating = ref(false)
 const overwrite = ref(false)
-function autoGenerate() {
+async function autoGenerate() {
     const hasExisting = totalSectionsWithSchedule.value > 0
-    let msg = 'Auto-generate timetables for every unlocked section from the subject–teacher assignments?'
+    let text = 'Auto-generate timetables for every unlocked section from the subject–teacher assignments?'
     if (hasExisting && !overwrite.value) {
-        msg += `\n\n${totalSectionsWithSchedule.value} section(s) already have a timetable and will be SKIPPED (tick "Overwrite" to rebuild them).`
+        text += ` ${totalSectionsWithSchedule.value} section(s) already have a timetable and will be SKIPPED (tick "Overwrite" to rebuild them).`
     } else if (overwrite.value) {
-        msg += '\n\nOVERWRITE is on — sections that already have a timetable will be wiped and rebuilt. Locked sections are never touched.'
+        text += ' OVERWRITE is on — sections that already have a timetable will be wiped and rebuilt. Locked sections are never touched.'
     }
-    if (!confirm(msg)) return
+    const ok = await confirmAction({
+        title: 'Auto-generate timetables?',
+        text,
+        confirmText: overwrite.value ? 'Yes, overwrite & rebuild' : 'Yes, generate',
+        danger: overwrite.value,
+    })
+    if (!ok) return
     router.post(route('timetable.generate', { school_id: props.school?.id }),
         { overwrite: overwrite.value },
         { preserveScroll: true, onStart: () => { generating.value = true }, onFinish: () => { generating.value = false } },

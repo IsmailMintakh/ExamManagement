@@ -82,7 +82,10 @@ class LessonPlanController extends Controller
             'topic' => ['required', 'string', 'max:200'],
             'subject' => ['nullable', 'string', 'max:120'],
             'class' => ['nullable', 'string', 'max:120'],
+            'section' => ['nullable', 'string', 'max:60'],
             'duration' => ['nullable', 'integer'],
+            'students_count' => ['nullable', 'integer', 'min:0'],
+            'lesson_date' => ['nullable', 'date'],
         ]);
 
         $plan = json_decode($v['plan'], true);
@@ -99,6 +102,9 @@ class LessonPlanController extends Controller
             'plan' => $plan,
             'school' => $request->user()->school,
             'teacher' => $request->user(),
+            'section' => $v['section'] ?? '',
+            'studentsCount' => $v['students_count'] ?? null,
+            'lessonDate' => $v['lesson_date'] ? \Carbon\Carbon::parse($v['lesson_date']) : now(),
             'generatedAt' => now(),
         ])->setPaper('a4', 'portrait');
 

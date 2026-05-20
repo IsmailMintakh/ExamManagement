@@ -4,6 +4,7 @@ import EmptyState from '@/Components/EmptyState.vue'
 import Pagination from '@/Components/Pagination.vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import { ref, watch } from 'vue'
+import { confirmDelete } from '@/lib/swal'
 import {
     PlusIcon, UserGroupIcon, PencilSquareIcon, TrashIcon,
     StarIcon, MagnifyingGlassIcon, AcademicCapIcon,
@@ -28,8 +29,8 @@ watch([search, department], () => {
     }, 300)
 })
 
-function destroy(id) {
-    if (!confirm('Remove this faculty member?')) return
+async function destroy(id) {
+    if (!await confirmDelete({ title: 'Remove this faculty member?', confirmText: 'Yes, remove' })) return
     router.delete(route('website.faculty.destroy', id), { preserveScroll: true })
 }
 

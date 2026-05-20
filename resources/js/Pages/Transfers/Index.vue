@@ -17,6 +17,7 @@ import {
     CheckIcon,
 } from '@heroicons/vue/24/outline'
 import { formatDate, formatStatus } from '@/Utils/format'
+import { confirmAction } from '@/lib/swal'
 
 const props = defineProps({
     transfers: { type: Object, required: true },
@@ -52,13 +53,19 @@ function canReject(t) {
     return props.isSuperAdmin || Number(t.to_school_id) === Number(props.currentSchoolId)
 }
 
-function approve(t) {
-    if (!confirm('Approve this transfer?')) return
+async function approve(t) {
+    if (!await confirmAction({ title: 'Approve this transfer?', confirmText: 'Yes, approve', icon: 'question' })) return
     router.post(route('transfers.approve', t.id), {}, { preserveScroll: true })
 }
 
-function complete(t) {
-    if (!confirm('Complete this transfer? The student will be moved to the new school/class/section.')) return
+async function complete(t) {
+    const ok = await confirmAction({
+        title: 'Complete this transfer?',
+        text: 'The student will be moved to the new school/class/section.',
+        confirmText: 'Yes, complete',
+        icon: 'question',
+    })
+    if (!ok) return
     router.post(route('transfers.complete', t.id), {}, { preserveScroll: true })
 }
 

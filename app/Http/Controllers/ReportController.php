@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AcademicSession;
 use App\Models\Exam;
+use App\Models\ExamSubject;
 use App\Models\Mark;
 use App\Models\Result;
 use App\Models\ResultCardTemplate;

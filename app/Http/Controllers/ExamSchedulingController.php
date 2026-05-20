@@ -139,6 +139,23 @@ class ExamSchedulingController extends Controller
             ->orderBy('subject_id')
             ->get();
 
+        // ── Hide (subject, class) pairs not in the class curriculum ──
+        // Same logic as Exam Show: an exam can carry orphan rows like
+        // "English → Nursery" which the class isn't actually taught.
+        // Filter them out so each class shows only its real subjects.
+        $classIds = $examSubjects->pluck('school_class_id')->unique();
+        $curriculum = \DB::table('class_subjects')
+            ->where('is_active', true)
+            ->whereIn('school_class_id', $classIds)
+            ->get(['school_class_id', 'subject_id'])
+            ->map(fn ($r) => $r->school_class_id.':'.$r->subject_id)
+            ->flip()
+            ->toArray();
+
+        $examSubjects = $examSubjects
+            ->filter(fn ($es) => isset($curriculum[$es->school_class_id.':'.$es->subject_id]))
+            ->values();
+
         $schedules = ExamSchedule::where('exam_id', $exam->id)
             ->get()
             ->keyBy(fn ($s) => $s->subject_id . '-' . $s->school_class_id);

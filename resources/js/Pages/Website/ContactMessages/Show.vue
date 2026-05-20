@@ -6,6 +6,7 @@ import {
     ArchiveBoxIcon, TrashIcon, ArrowUturnLeftIcon, CheckBadgeIcon,
     UserCircleIcon,
 } from '@heroicons/vue/24/outline'
+import { confirmDelete } from '@/lib/swal'
 
 const props = defineProps({
     message: { type: Object, required: true },
@@ -27,8 +28,8 @@ function markReplied() {
     router.put(route('website.contact-messages.update', props.message.id),
         { replied_at: new Date().toISOString() }, { preserveScroll: true })
 }
-function destroy() {
-    if (!confirm('Permanently delete this message?')) return
+async function destroy() {
+    if (!await confirmDelete({ title: 'Delete this message?', text: 'This will permanently remove it.' })) return
     router.delete(route('website.contact-messages.destroy', props.message.id))
 }
 

@@ -9,6 +9,7 @@ import {
     ArchiveBoxIcon, TrashIcon, ArrowUturnLeftIcon, InboxIcon, ChevronRightIcon,
 } from '@heroicons/vue/24/outline'
 import { formatRelative } from '@/Utils/format'
+import { confirmDelete } from '@/lib/swal'
 
 const props = defineProps({
     messages: { type: Object, default: () => ({ data: [] }) },
@@ -49,9 +50,15 @@ function selectAll() {
     }
 }
 
-function bulk(action) {
+async function bulk(action) {
     if (!selected.value.size) return
-    if (action === 'delete' && !confirm(`Delete ${selected.value.size} message(s)? This cannot be undone.`)) return
+    if (action === 'delete') {
+        const ok = await confirmDelete({
+            title: `Delete ${selected.value.size} message(s)?`,
+            text: 'This cannot be undone.',
+        })
+        if (!ok) return
+    }
     router.post(route('website.contact-messages.bulk'),
         { action, ids: [...selected.value] },
         { preserveScroll: true, onSuccess: () => { selected.value = new Set() } })

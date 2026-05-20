@@ -9,6 +9,7 @@ import {
     StarIcon, EyeIcon, EyeSlashIcon, MagnifyingGlassIcon, PhotoIcon,
 } from '@heroicons/vue/24/outline'
 import { formatDate } from '@/Utils/format'
+import { confirmDelete } from '@/lib/swal'
 
 const props = defineProps({
     articles:   { type: Object, default: () => ({ data: [] }) },
@@ -29,8 +30,8 @@ watch([search, category], () => {
     }, 300)
 })
 
-function destroy(id) {
-    if (!confirm('Delete this article?')) return
+async function destroy(id) {
+    if (!await confirmDelete({ title: 'Delete this article?' })) return
     router.delete(route('website.news.destroy', id), { preserveScroll: true })
 }
 

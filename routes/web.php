@@ -194,6 +194,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('exams', ExamController::class);
     Route::post('exams/{exam}/publish', [ExamController::class, 'publish'])->name('exams.publish');
     Route::post('exams/{exam}/lock', [ExamController::class, 'lock'])->name('exams.lock');
+    Route::post('exams/{exam}/cleanup-orphan-subjects', [ExamController::class, 'cleanupOrphanSubjects'])->name('exams.cleanup-orphans');
 
     // Marks Entry
     Route::get('marks', [MarksController::class, 'index'])->name('marks.index');
@@ -255,6 +256,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('users', UserController::class);
 
     // Teacher Assignments
+    Route::post('teacher-assignments/bulk', [TeacherAssignmentController::class, 'bulkStore'])->name('teacher-assignments.bulk');
+    Route::get('teacher-assignments/current/{user}', [TeacherAssignmentController::class, 'current'])->name('teacher-assignments.current');
     Route::resource('teacher-assignments', TeacherAssignmentController::class)->only(['index', 'store', 'destroy']);
 
     // Grading Scales

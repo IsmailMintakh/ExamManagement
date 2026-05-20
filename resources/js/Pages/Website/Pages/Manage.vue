@@ -12,6 +12,7 @@ import {
     TrashIcon, EyeIcon, EyeSlashIcon, Squares2X2Icon, EyeIcon as EyePreview,
     SparklesIcon,
 } from '@heroicons/vue/24/outline'
+import { confirmDelete } from '@/lib/swal'
 
 const props = defineProps({
     page:   { type: Object, required: true },
@@ -89,8 +90,8 @@ function toggleActive(block) {
         { preserveScroll: true, preserveState: true })
 }
 
-function destroy(block) {
-    if (!confirm('Remove this block? This cannot be undone.')) return
+async function destroy(block) {
+    if (!await confirmDelete({ title: 'Remove this block?', text: 'This cannot be undone.' })) return
     router.delete(route('website.page-blocks.destroy', block.id), { preserveScroll: true })
 }
 

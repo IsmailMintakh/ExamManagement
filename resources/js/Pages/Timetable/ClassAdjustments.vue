@@ -10,6 +10,7 @@ import {
     UserMinusIcon, UserPlusIcon, ClockIcon, PencilSquareIcon,
     QuestionMarkCircleIcon,
 } from '@heroicons/vue/24/outline'
+import { confirmAction } from '@/lib/swal'
 
 const props = defineProps({
     date: String,
@@ -64,8 +65,13 @@ function submitAbsence() {
 }
 
 // Quick mark-present (toggle off without modal)
-function markPresent(teacher) {
-    if (!confirm(`Mark ${teacher.name} as present? Any suggested covers for them today will be cleared.`)) return
+async function markPresent(teacher) {
+    const ok = await confirmAction({
+        title: `Mark ${teacher.name} as present?`,
+        text: 'Any suggested covers for them today will be cleared.',
+        confirmText: 'Yes, mark present',
+    })
+    if (!ok) return
     router.post(route('timetable.adjustments.absence'), {
         user_id: teacher.id,
         date: props.date,

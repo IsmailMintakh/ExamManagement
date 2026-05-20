@@ -6,8 +6,8 @@ import FormSelect from '@/Components/FormSelect.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import { Head, router, useForm } from '@inertiajs/vue3'
-import { ref } from 'vue'
-import { PlusIcon, TrashIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { ref, computed, watch } from 'vue'
+import { PlusIcon, TrashIcon, XMarkIcon, BoltIcon, CheckCircleIcon } from '@heroicons/vue/24/outline'
 import { useDebouncedSearch } from '@/Composables/useDebouncedSearch'
 
 const props = defineProps({
@@ -60,6 +60,87 @@ function submitForm() {
         }
     })
 }
+
+// ─────────────────── BULK ASSIGN ───────────────────
+const bulkOpen = ref(false)
+const bulkTeacherId = ref('')
+const bulkLoading = ref(false)
+const bulkSaving = ref(false)
+// Picked set keyed by `${section_id}:${subject_id}`.
+const bulkPicked = ref(new Set())
+const bulkOriginal = ref(0)
+
+const sectionMap = computed(() => {
+    const m = {}
+    for (const s of (props.sections || [])) m[s.id] = s
+    return m
+})
+const bulkCount = computed(() => bulkPicked.value.size)
+
+function openBulk() { bulkOpen.value = true; bulkTeacherId.value = ''; bulkPicked.value = new Set() }
+function closeBulk() { bulkOpen.value = false }
+
+watch(bulkTeacherId, async (id) => {
+    bulkPicked.value = new Set()
+    bulkOriginal.value = 0
+    if (!id) return
+    bulkLoading.value = true
+    try {
+        const res = await fetch(route('teacher-assignments.current', id), { credentials: 'same-origin' })
+        const data = await res.json()
+        const set = new Set()
+        for (const a of (data.assignments || [])) set.add(`${a.section_id}:${a.subject_id}`)
+        bulkPicked.value = set
+        bulkOriginal.value = set.size
+    } catch (e) {
+        // ignore — leave empty
+    } finally {
+        bulkLoading.value = false
+    }
+})
+
+function togglePick(sectionId, subjectId) {
+    const k = `${sectionId}:${subjectId}`
+    const next = new Set(bulkPicked.value)
+    next.has(k) ? next.delete(k) : next.add(k)
+    bulkPicked.value = next
+}
+function isPicked(sectionId, subjectId) {
+    return bulkPicked.value.has(`${sectionId}:${subjectId}`)
+}
+function pickAllInSection(sectionId) {
+    const next = new Set(bulkPicked.value)
+    for (const s of props.subjects || []) next.add(`${sectionId}:${s.id}`)
+    bulkPicked.value = next
+}
+function clearAllInSection(sectionId) {
+    const next = new Set(bulkPicked.value)
+    for (const s of props.subjects || []) next.delete(`${sectionId}:${s.id}`)
+    bulkPicked.value = next
+}
+
+function saveBulk() {
+    if (!bulkTeacherId.value || !props.currentSession?.id) return
+    const assignments = [...bulkPicked.value].map(k => {
+        const [secId, subId] = k.split(':').map(Number)
+        return {
+            subject_id: subId,
+            section_id: secId,
+            school_class_id: sectionMap.value[secId]?.school_class_id,
+        }
+    }).filter(a => a.school_class_id)
+
+    bulkSaving.value = true
+    router.post(route('teacher-assignments.bulk'), {
+        user_id: bulkTeacherId.value,
+        academic_session_id: props.currentSession.id,
+        assignments,
+    }, {
+        preserveScroll: true,
+        onSuccess: () => { bulkOpen.value = false },
+        onFinish: () => { bulkSaving.value = false },
+    })
+}
 </script>
 
 <template>
@@ -74,11 +155,16 @@ function submitForm() {
                         <span v-if="search">matching "{{ search }}"</span>
                     </p>
                 </div>
-                <button @click="showForm = !showForm" class="btn btn-primary btn-sm gap-1.5">
-                    <PlusIcon v-if="!showForm" class="w-4 h-4" />
-                    <XMarkIcon v-else class="w-4 h-4" />
-                    {{ showForm ? 'Cancel' : 'Add Assignment' }}
-                </button>
+                <div class="flex items-center gap-2">
+                    <button @click="openBulk" class="btn btn-sm rounded-lg gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white border-0">
+                        <BoltIcon class="w-4 h-4" /> Bulk Assign
+                    </button>
+                    <button @click="showForm = !showForm" class="btn btn-primary btn-sm gap-1.5">
+                        <PlusIcon v-if="!showForm" class="w-4 h-4" />
+                        <XMarkIcon v-else class="w-4 h-4" />
+                        {{ showForm ? 'Cancel' : 'Add one' }}
+                    </button>
+                </div>
             </div>
 
             <!-- Inline Add Form -->
@@ -173,6 +259,88 @@ function submitForm() {
                     <Pagination :links="assignments.links" />
                 </footer>
             </section>
+        </div>
+
+        <!-- ═══ BULK ASSIGN modal ═══ -->
+        <div v-if="bulkOpen" class="modal modal-open" @keydown.esc="closeBulk">
+            <div class="modal-box max-w-5xl">
+                <div class="flex items-center gap-2 mb-3">
+                    <div class="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 grid place-items-center">
+                        <BoltIcon class="w-4 h-4" />
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-base font-bold">Bulk assign — one teacher, many subjects/sections</h3>
+                        <p class="text-[11px] text-base-content/55">Pick a teacher, tick every subject they teach in each section, save once. Re-running replaces their previous list.</p>
+                    </div>
+                    <button @click="closeBulk" class="btn btn-ghost btn-sm btn-square"><XMarkIcon class="w-4 h-4" /></button>
+                </div>
+
+                <!-- Teacher picker -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                    <div class="sm:col-span-2">
+                        <FormSelect v-model="bulkTeacherId" label="Teacher"
+                            :options="teachers?.map(t => ({ value: t.id, label: t.name })) || []"
+                            placeholder="Select a teacher to begin" />
+                    </div>
+                    <div class="flex items-end">
+                        <p class="text-[11px] text-base-content/55">
+                            <span v-if="bulkLoading">Loading current assignments…</span>
+                            <span v-else-if="bulkTeacherId">
+                                <CheckCircleIcon class="w-3.5 h-3.5 inline text-emerald-500" />
+                                {{ bulkOriginal }} existing · <strong>{{ bulkCount }}</strong> selected
+                            </span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Matrix: per class → per section → subject checkboxes -->
+                <div v-if="bulkTeacherId && !bulkLoading"
+                    class="max-h-[55vh] overflow-y-auto rounded-lg border border-base-300 divide-y divide-base-300">
+                    <div v-for="cls in classes" :key="cls.id" class="p-3">
+                        <p class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-2">{{ cls.name }}</p>
+                        <div v-if="!cls.sections?.length" class="text-[11px] text-base-content/45 italic">No sections.</div>
+                        <div v-else class="space-y-2">
+                            <div v-for="sec in cls.sections" :key="sec.id"
+                                class="rounded-lg border border-base-300 bg-base-200/30 p-2.5">
+                                <div class="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+                                    <p class="text-sm font-bold">Section {{ sec.name }}</p>
+                                    <div class="flex items-center gap-1">
+                                        <button @click="pickAllInSection(sec.id)" type="button"
+                                            class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline">All</button>
+                                        <span class="text-base-content/30">·</span>
+                                        <button @click="clearAllInSection(sec.id)" type="button"
+                                            class="text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline">None</button>
+                                    </div>
+                                </div>
+                                <div class="flex flex-wrap gap-1.5">
+                                    <button v-for="s in subjects" :key="s.id" type="button"
+                                        @click="togglePick(sec.id, s.id)"
+                                        class="inline-flex items-center gap-1 text-[11px] font-semibold rounded-md px-2 py-1 ring-1 transition-colors"
+                                        :class="isPicked(sec.id, s.id)
+                                            ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-emerald-500/40'
+                                            : 'bg-base-100 text-base-content/65 ring-base-300 hover:bg-base-200'">
+                                        <CheckCircleIcon v-if="isPicked(sec.id, s.id)" class="w-3 h-3" />
+                                        {{ s.name }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div v-else-if="!bulkTeacherId" class="rounded-lg border border-base-300 bg-base-200/30 p-6 text-center text-sm text-base-content/55">
+                    Choose a teacher above to start ticking subjects per section.
+                </div>
+
+                <div class="modal-action">
+                    <button @click="closeBulk" class="btn btn-ghost btn-sm">Cancel</button>
+                    <button @click="saveBulk" :disabled="!bulkTeacherId || bulkSaving"
+                        class="btn btn-primary btn-sm gap-1.5">
+                        <span v-if="bulkSaving" class="loading loading-spinner loading-xs"></span>
+                        Save {{ bulkCount }} assignment{{ bulkCount === 1 ? '' : 's' }}
+                    </button>
+                </div>
+            </div>
+            <div class="modal-backdrop" @click="closeBulk"></div>
         </div>
 
         <ConfirmDialog

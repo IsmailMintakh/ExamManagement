@@ -9,6 +9,7 @@ import {
     BoltIcon, LockClosedIcon, LockOpenIcon, ClockIcon, TrashIcon,
     InformationCircleIcon,
 } from '@heroicons/vue/24/outline'
+import { confirmAction } from '@/lib/swal'
 
 const props = defineProps({
     section: Object,
@@ -73,8 +74,14 @@ const filledCount = computed(() =>
 
 // ─── Auto-fill (whole section) ───
 const generating = ref(false)
-function autoFill() {
-    if (!confirm('Auto-fill this section from its subject–teacher assignments? This replaces the current routine (you can fine-tune after).')) return
+async function autoFill() {
+    const ok = await confirmAction({
+        title: 'Auto-fill this section?',
+        text: 'Builds from subject–teacher assignments and replaces the current routine. You can fine-tune after.',
+        confirmText: 'Yes, auto-fill',
+        danger: true,
+    })
+    if (!ok) return
     router.post(route('timetable.generate'),
         { section_id: props.section.id, overwrite: true },
         {
@@ -86,12 +93,18 @@ function autoFill() {
 }
 
 // ─── Lock / unlock ───
-function lockSection() {
-    if (!confirm('Lock this section\'s timetable? Edits will be blocked until unlocked.')) return
+async function lockSection() {
+    const ok = await confirmAction({
+        title: "Lock this section's timetable?",
+        text: 'Edits will be blocked until unlocked.',
+        confirmText: 'Yes, lock',
+    })
+    if (!ok) return
     router.post(route('timetable.section.lock', props.section.id), {}, { preserveScroll: true })
 }
-function unlockSection() {
-    if (!confirm('Unlock to allow edits?')) return
+async function unlockSection() {
+    const ok = await confirmAction({ title: 'Unlock to allow edits?', confirmText: 'Yes, unlock' })
+    if (!ok) return
     router.post(route('timetable.section.unlock', props.section.id), {}, { preserveScroll: true })
 }
 

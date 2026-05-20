@@ -95,6 +95,97 @@ class TeacherAssignmentController extends Controller
         return redirect()->back()->with('success', 'Teacher assigned successfully.');
     }
 
+    /**
+     * Bulk assign / re-sync: pick a teacher once, post every (subject,
+     * class, section) tuple they teach, save in one shot. Removes any
+     * existing assignments for that teacher in the same session that are
+     * NOT in the submitted list, so the form acts as "this is the full
+     * picture for this teacher this session".
+     */
+    public function bulkStore(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        abort_unless($user->isSuperAdmin() || $user->isSchoolAdmin(), 403);
+
+        $data = $request->validate([
+            'user_id' => ['required', 'exists:users,id'],
+            'academic_session_id' => ['required', 'exists:academic_sessions,id'],
+            'assignments' => ['present', 'array'],
+            'assignments.*.subject_id' => ['required', 'exists:subjects,id'],
+            'assignments.*.school_class_id' => ['required', 'exists:school_classes,id'],
+            'assignments.*.section_id' => ['required', 'exists:sections,id'],
+        ]);
+
+        // School-scope guard for principals.
+        if (!$user->isSuperAdmin()) {
+            $target = User::find($data['user_id']);
+            abort_unless($target && $target->school_id === $user->school_id, 403,
+                'You can only manage teachers in your school.');
+        }
+
+        // Build a unique key set for the submitted assignments.
+        $wanted = collect($data['assignments'])
+            ->map(fn ($a) => $a['subject_id'].':'.$a['school_class_id'].':'.$a['section_id'])
+            ->unique()->values();
+
+        \DB::transaction(function () use ($data, $wanted) {
+            // Delete existing assignments for this teacher+session that are
+            // no longer in the wanted set.
+            $existing = SubjectTeacher::where('user_id', $data['user_id'])
+                ->where('academic_session_id', $data['academic_session_id'])->get();
+
+            foreach ($existing as $row) {
+                $key = $row->subject_id.':'.$row->school_class_id.':'.$row->section_id;
+                if (!$wanted->contains($key)) {
+                    $row->delete();
+                }
+            }
+
+            // Insert any new tuples (firstOrCreate keeps it idempotent).
+            foreach ($data['assignments'] as $a) {
+                SubjectTeacher::firstOrCreate(
+                    [
+                        'user_id' => $data['user_id'],
+                        'subject_id' => $a['subject_id'],
+                        'school_class_id' => $a['school_class_id'],
+                        'section_id' => $a['section_id'],
+                        'academic_session_id' => $data['academic_session_id'],
+                    ],
+                    ['is_active' => true],
+                );
+            }
+        });
+
+        return redirect()->back()->with('success',
+            'Saved '.$wanted->count().' assignment(s) for this teacher.');
+    }
+
+    /** Current (subject, class, section) tuples for a teacher in the current session. */
+    public function current(Request $request, int $user): \Illuminate\Http\JsonResponse
+    {
+        $actor = $request->user();
+        abort_unless($actor->isSuperAdmin() || $actor->isSchoolAdmin(), 403);
+
+        if (!$actor->isSuperAdmin()) {
+            $target = User::find($user);
+            abort_unless($target && $target->school_id === $actor->school_id, 403);
+        }
+
+        $sessionId = AcademicSession::currentSession()?->id;
+
+        $rows = SubjectTeacher::where('user_id', $user)
+            ->when($sessionId, fn ($q) => $q->where('academic_session_id', $sessionId))
+            ->where('is_active', true)
+            ->get(['subject_id', 'school_class_id', 'section_id'])
+            ->map(fn ($r) => [
+                'subject_id' => $r->subject_id,
+                'school_class_id' => $r->school_class_id,
+                'section_id' => $r->section_id,
+            ]);
+
+        return response()->json(['assignments' => $rows]);
+    }
+
     public function destroy(int $id): RedirectResponse
     {
         $assignment = SubjectTeacher::findOrFail($id);

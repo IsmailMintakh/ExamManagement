@@ -2,7 +2,8 @@
 import AppLayout from '@/Layouts/AppLayout.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
 import { Head, Link, router, usePage } from '@inertiajs/vue3'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
 import {
     CalendarIcon, ClockIcon, PencilSquareIcon,
     PlayIcon, LockClosedIcon, LockOpenIcon,
@@ -12,6 +13,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { usePermissions } from '@/Composables/usePermissions'
 import { formatDate, formatNumber, formatStatus } from '@/Utils/format'
+import { confirmDelete } from '@/lib/swal'
 
 const { can } = usePermissions()
 
@@ -20,7 +22,18 @@ const props = defineProps({
     examSubjects: Array,
     schools: Array,
     timeline: Array,
+    orphanCount: { type: Number, default: 0 },
 })
+
+async function cleanupOrphans() {
+    const ok = await confirmDelete({
+        title: `Remove ${props.orphanCount} subject(s)?`,
+        text: "These aren't in the class curriculum. Rows that already have marks entered won't be touched.",
+        confirmText: 'Yes, remove',
+    })
+    if (!ok) return
+    router.post(route('exams.cleanup-orphans', props.exam.id), {}, { preserveScroll: true })
+}
 
 const page = usePage()
 const roles = page.props.auth?.user?.roles || []
@@ -59,6 +72,39 @@ function toggleLock() {
         onFinish: () => { processing.value = false; confirmLock.value = false },
     })
 }
+
+// ─── Group exam subjects BY CLASS so "English" doesn't repeat in a flat list ───
+const classFilter = ref('all')
+const subjectSearch = ref('')
+
+const groupedByClass = computed(() => {
+    const groups = new Map()
+    for (const es of (props.examSubjects || [])) {
+        const cid = es.school_class?.id ?? es.school_class_id ?? 0
+        const cname = es.school_class?.name ?? '—'
+        const sort = es.school_class?.sort_order ?? 9999
+        if (!groups.has(cid)) groups.set(cid, { id: cid, name: cname, sort, items: [] })
+        groups.get(cid).items.push(es)
+    }
+    // sort each group's subjects by name
+    for (const g of groups.values()) g.items.sort((a, b) => (a.subject?.name || '').localeCompare(b.subject?.name || ''))
+    // Sort groups by grade order (sort_order from school_classes).
+    return [...groups.values()].sort((a, b) => (a.sort - b.sort) || a.name.localeCompare(b.name, undefined, { numeric: true }))
+})
+
+const filteredGrouped = computed(() => {
+    const q = subjectSearch.value.trim().toLowerCase()
+    return groupedByClass.value
+        .filter(g => classFilter.value === 'all' || g.id === classFilter.value)
+        .map(g => ({
+            ...g,
+            items: q ? g.items.filter(i => (i.subject?.name || '').toLowerCase().includes(q)) : g.items,
+        }))
+        .filter(g => g.items.length)
+})
+
+const uniqueSubjectsCount = computed(() =>
+    new Set((props.examSubjects || []).map(es => es.subject?.id ?? es.subject_id)).size)
 </script>
 
 <template>
@@ -233,37 +279,93 @@ function toggleLock() {
                         </div>
                     </div>
 
-                    <!-- Exam Subjects -->
+                    <!-- Exam Subjects — grouped by class; only curriculum subjects are shown -->
                     <div class="card-section">
-                        <div class="card-header">
-                            <h3>Exam Subjects <span class="badge badge-sm badge-ghost ml-1">{{ examSubjects?.length || 0 }}</span></h3>
+                        <div class="card-header flex flex-wrap items-center gap-2">
+                            <h3 class="flex items-center gap-2">
+                                Subjects by class
+                                <span class="text-[11px] font-normal text-base-content/55">
+                                    {{ examSubjects?.length || 0 }} curriculum entries · {{ groupedByClass.length }} classes · {{ uniqueSubjectsCount }} unique subjects
+                                </span>
+                            </h3>
                         </div>
-                        <div v-if="examSubjects?.length" class="table-sticky-wrap" style="--table-max-h: 50vh;">
-                            <table class="table">
-                                <thead>
-                                    <tr>
-                                        <th>Subject</th>
-                                        <th>Class</th>
-                                        <th class="text-center">Total</th>
-                                        <th class="text-center">Pass</th>
-                                        <th>Date</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr v-for="es in examSubjects" :key="es.id">
-                                        <td class="font-bold text-sm">{{ es.subject?.name }}</td>
-                                        <td class="text-[13px] text-base-content/75">{{ es.school_class?.name }}</td>
-                                        <td class="text-center">
-                                            <span class="badge badge-sm badge-outline font-mono tabular-nums">{{ formatNumber(es.total_marks, { decimals: 0 }) }}</span>
-                                        </td>
-                                        <td class="text-center">
-                                            <span class="badge badge-sm badge-ghost font-mono tabular-nums">{{ formatNumber(es.passing_marks, { decimals: 0 }) }}</span>
-                                        </td>
-                                        <td class="text-[12px] text-base-content/65 whitespace-nowrap tabular-nums">{{ formatDate(es.exam_date) || '—' }}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+
+                        <!-- Orphan banner — subjects added to a class that doesn't study them -->
+                        <div v-if="orphanCount > 0"
+                            class="mx-4 mt-3 mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 flex items-start gap-3">
+                            <ExclamationTriangleIcon class="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-bold text-amber-900 dark:text-amber-200">
+                                    {{ orphanCount }} subject(s) hidden — not in the class curriculum
+                                </p>
+                                <p class="text-[11px] text-amber-800 dark:text-amber-300/85 mt-0.5">
+                                    These were added to a class that doesn't study them (e.g. Computer added to Nursery). They're hidden here and from marks entry.
+                                    Rows with marks already entered will be left alone.
+                                </p>
+                            </div>
+                            <button v-if="can('exams.edit')" @click="cleanupOrphans"
+                                class="btn btn-sm btn-warning rounded-lg shrink-0 whitespace-nowrap">
+                                Clean up
+                            </button>
                         </div>
+
+                        <template v-if="examSubjects?.length">
+                            <!-- Toolbar: class filter pills + search -->
+                            <div class="px-4 py-2 border-b border-base-300 bg-base-200/30 space-y-2">
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <button @click="classFilter = 'all'" type="button"
+                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors"
+                                        :class="classFilter === 'all' ? 'bg-primary text-primary-content' : 'bg-base-200 text-base-content/65 hover:bg-base-300'">
+                                        All <span class="opacity-70 tabular-nums">{{ examSubjects.length }}</span>
+                                    </button>
+                                    <button v-for="g in groupedByClass" :key="g.id"
+                                        @click="classFilter = g.id" type="button"
+                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors"
+                                        :class="classFilter === g.id ? 'bg-primary text-primary-content' : 'bg-base-200 text-base-content/65 hover:bg-base-300'">
+                                        {{ g.name }} <span class="opacity-70 tabular-nums">{{ g.items.length }}</span>
+                                    </button>
+                                </div>
+                                <div class="relative">
+                                    <MagnifyingGlassIcon class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-base-content/40 pointer-events-none" />
+                                    <input v-model="subjectSearch" type="text" placeholder="Search a subject across classes…"
+                                        class="input input-bordered input-sm w-full pl-8 rounded-lg text-xs" />
+                                </div>
+                            </div>
+
+                            <!-- Grouped class panels -->
+                            <div class="max-h-[60vh] overflow-y-auto divide-y divide-base-300">
+                                <div v-for="g in filteredGrouped" :key="g.id" class="p-3">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="text-[11px] font-bold uppercase tracking-wider text-base-content/55">{{ g.name }}</span>
+                                        <span class="text-[10px] text-base-content/40">· {{ g.items.length }} subject{{ g.items.length === 1 ? '' : 's' }}</span>
+                                    </div>
+                                    <div class="overflow-x-auto rounded-lg border border-base-300">
+                                        <table class="w-full text-[13px]">
+                                            <thead class="bg-base-200/40 text-[10px] uppercase tracking-wider text-base-content/55">
+                                                <tr>
+                                                    <th class="text-left px-3 py-1.5 font-bold">Subject</th>
+                                                    <th class="text-center px-2 py-1.5 font-bold w-16">Total</th>
+                                                    <th class="text-center px-2 py-1.5 font-bold w-16">Pass</th>
+                                                    <th class="text-left px-3 py-1.5 font-bold">Date</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-base-300">
+                                                <tr v-for="es in g.items" :key="es.id" class="hover:bg-base-200/30">
+                                                    <td class="px-3 py-1.5 font-semibold">{{ es.subject?.name }}</td>
+                                                    <td class="px-2 py-1.5 text-center font-mono tabular-nums">{{ formatNumber(es.total_marks, { decimals: 0 }) }}</td>
+                                                    <td class="px-2 py-1.5 text-center font-mono tabular-nums text-base-content/65">{{ formatNumber(es.passing_marks, { decimals: 0 }) }}</td>
+                                                    <td class="px-3 py-1.5 text-xs text-base-content/65 whitespace-nowrap">{{ formatDate(es.exam_date) || '—' }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div v-if="!filteredGrouped.length" class="p-8 text-center text-sm text-base-content/45">
+                                    No subjects match. <button @click="subjectSearch = ''; classFilter = 'all'" class="link link-primary">Clear filter</button>
+                                </div>
+                            </div>
+                        </template>
+
                         <div v-else class="p-8 text-center text-sm text-base-content/45">
                             No subjects added to this exam yet.
                             <Link v-if="exam.status === 'draft'" :href="route('exams.edit', exam.id)" class="link link-primary ml-1">Add subjects</Link>

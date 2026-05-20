@@ -7,6 +7,7 @@ import {
     Cog6ToothIcon, PlusIcon, TrashIcon, ClockIcon, CalendarIcon,
     BookOpenIcon, CheckIcon, SparklesIcon, SunIcon, MoonIcon,
 } from '@heroicons/vue/24/outline'
+import { confirmAction } from '@/lib/swal'
 
 // ─── Bell schedule presets ───
 const PRESETS = [
@@ -14,8 +15,14 @@ const PRESETS = [
     { key: 'summer', label: 'Summer', sub: '07:30–12:50, 8 periods', icon: 'SunIcon' },
     { key: 'ramadan', label: 'Ramadan', sub: '08:00–11:45, 6 short periods', icon: 'MoonIcon' },
 ]
-function applyPreset(key) {
-    if (!confirm(`Apply the "${key}" preset? This will REPLACE your current bell schedule. You can tweak any slot afterwards.`)) return
+async function applyPreset(key) {
+    const ok = await confirmAction({
+        title: `Apply the "${key}" preset?`,
+        text: 'This will REPLACE your current bell schedule. You can tweak any slot afterwards.',
+        confirmText: 'Yes, apply preset',
+        danger: true,
+    })
+    if (!ok) return
     router.post(route('timetable.setup.preset'), { preset: key }, { preserveScroll: true })
 }
 

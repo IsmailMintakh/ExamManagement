@@ -212,11 +212,73 @@ class ExamController extends Controller
         ]);
         $exam->loadCount(['marks', 'results']);
 
+        // ── Show ONLY (subject, class) pairs that exist in the class curriculum ──
+        // The old form allowed adding any subject to any class, so an exam can
+        // hold pairs like "English → Nursery" that aren't actually taught.
+        // Those are surfaced as "not in curriculum" and hidden from the view.
+        $classIds = $exam->examSubjects->pluck('school_class_id')->unique();
+        $curriculum = \DB::table('class_subjects')
+            ->where('is_active', true)
+            ->whereIn('school_class_id', $classIds)
+            ->get(['school_class_id', 'subject_id'])
+            ->map(fn ($r) => $r->school_class_id.':'.$r->subject_id)
+            ->flip()
+            ->toArray();
+
+        $validExamSubjects = $exam->examSubjects
+            ->filter(fn ($es) => isset($curriculum[$es->school_class_id.':'.$es->subject_id]))
+            ->values();
+
+        $orphanCount = $exam->examSubjects->count() - $validExamSubjects->count();
+
         return Inertia::render('Exams/Show', [
             'exam' => $exam,
-            'examSubjects' => $exam->examSubjects,
+            'examSubjects' => $validExamSubjects,
             'schools' => $exam->schools,
+            'orphanCount' => $orphanCount,
         ]);
+    }
+
+    /**
+     * Remove ExamSubject rows whose (subject, class) pair is not in the class
+     * curriculum (class_subjects). Cleanly trims phantom subjects from an exam.
+     */
+    public function cleanupOrphanSubjects(Exam $exam): RedirectResponse
+    {
+        $this->authorize('update', $exam);
+
+        $classIds = ExamSubject::where('exam_id', $exam->id)
+            ->pluck('school_class_id')->unique();
+
+        $curriculum = \DB::table('class_subjects')
+            ->where('is_active', true)
+            ->whereIn('school_class_id', $classIds)
+            ->get(['school_class_id', 'subject_id'])
+            ->map(fn ($r) => $r->school_class_id.':'.$r->subject_id)
+            ->flip()->toArray();
+
+        $removed = 0;
+        \DB::transaction(function () use ($exam, $curriculum, &$removed) {
+            $rows = ExamSubject::where('exam_id', $exam->id)->get();
+            foreach ($rows as $r) {
+                if (!isset($curriculum[$r->school_class_id.':'.$r->subject_id])) {
+                    // Don't touch a row that already has marks recorded.
+                    $hasMarks = \App\Models\Mark::where('exam_id', $exam->id)
+                        ->where('subject_id', $r->subject_id)
+                        ->where('school_class_id', $r->school_class_id)
+                        ->exists();
+                    if (!$hasMarks) {
+                        $r->delete();
+                        $removed++;
+                    }
+                }
+            }
+        });
+
+        return redirect()->back()->with(
+            'success',
+            "Removed {$removed} subject(s) that weren't in the class curriculum."
+        );
     }
 
     public function edit(Exam $exam): Response

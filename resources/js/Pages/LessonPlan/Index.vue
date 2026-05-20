@@ -28,6 +28,10 @@ const form = useForm({
     level: props.input?.level || 'mixed-ability',
     language: props.input?.language || 'en',
     notes: props.input?.notes || '',
+    // Official Gilgit-Baltistan SMART LESSON PLAN meta — shown in the PDF.
+    section: props.input?.section || '',
+    students_count: props.input?.students_count || '',
+    lesson_date: props.input?.lesson_date || new Date().toISOString().slice(0, 10),
 })
 
 const LANGUAGES = [
@@ -101,6 +105,15 @@ const LEVELS = [
                     <FormSelect v-model="form.level" label="Learner level"
                         :options="LEVELS" />
                 </div>
+                <!-- Official SMART LESSON PLAN meta (used in the PDF) -->
+                <div class="rounded-lg border border-base-300 bg-base-200/30 p-3 space-y-2">
+                    <p class="text-[11px] font-bold uppercase tracking-wider text-base-content/55">For the printed lesson plan (Gilgit-Baltistan format)</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <FormInput v-model="form.section" label="Section" placeholder="e.g. A" />
+                        <FormInput v-model="form.lesson_date" type="date" label="Lesson date" />
+                        <FormInput v-model="form.students_count" type="number" label="No. of students" placeholder="e.g. 28" />
+                    </div>
+                </div>
                 <div>
                     <label class="text-[12px] font-semibold text-base-content/75 mb-1.5 block">
                         Write something about the topic <span class="text-base-content/45">(optional) · موضوع کے بارے میں نوٹ</span>
@@ -150,6 +163,9 @@ const LEVELS = [
                             <input type="hidden" name="subject" :value="plan.subject" />
                             <input type="hidden" name="class" :value="plan.class" />
                             <input type="hidden" name="duration" :value="plan.duration_minutes" />
+                            <input type="hidden" name="section" :value="form.section" />
+                            <input type="hidden" name="students_count" :value="form.students_count" />
+                            <input type="hidden" name="lesson_date" :value="form.lesson_date" />
                             <button type="submit" class="btn btn-outline btn-xs rounded-lg gap-1.5">
                                 <PrinterIcon class="w-3.5 h-3.5" /> PDF
                             </button>

@@ -16,6 +16,7 @@ import { usePermissions } from '@/Composables/usePermissions'
 import { useFilterPresets } from '@/Composables/useFilterPresets'
 import { formatStatus } from '@/Utils/format'
 import { BookmarkIcon } from '@heroicons/vue/24/outline'
+import { confirmDelete as swalConfirmDelete } from '@/lib/swal'
 
 const { can } = usePermissions()
 
@@ -116,8 +117,8 @@ function applyPreset(id) {
     status.value = f.status || ''
 }
 
-function deletePreset(id) {
-    if (window.confirm('Delete this preset?')) presets.remove(id)
+async function deletePreset(id) {
+    if (await swalConfirmDelete({ title: 'Delete this preset?', confirmText: 'Yes, delete' })) presets.remove(id)
 }
 const confirmDelete = ref(false)
 const studentToDelete = ref(null)

@@ -3,6 +3,7 @@ import AppLayout from '@/Layouts/AppLayout.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import { ref } from 'vue'
+import { confirmDelete } from '@/lib/swal'
 import {
     PlusIcon, PencilSquareIcon, TrashIcon, PhotoIcon,
     ArrowsUpDownIcon, EyeIcon, EyeSlashIcon, Bars3Icon,
@@ -28,8 +29,8 @@ function onDrop(targetIdx) {
     }, { preserveScroll: true, preserveState: true })
 }
 
-function destroy(id) {
-    if (!confirm('Delete this slide? This cannot be undone.')) return
+async function destroy(id) {
+    if (!await confirmDelete({ title: 'Delete this slide?', text: 'This cannot be undone.' })) return
     router.delete(route('website.hero-slides.destroy', id), { preserveScroll: true })
 }
 </script>

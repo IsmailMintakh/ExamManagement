@@ -6,6 +6,7 @@ import {
     ArrowsRightLeftIcon, ClockIcon, CalendarDaysIcon, CheckCircleIcon,
     XCircleIcon, FaceSmileIcon, ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
+import { confirmAction } from '@/lib/swal'
 
 const props = defineProps({
     todayRows: { type: Array, default: () => [] },
@@ -14,8 +15,15 @@ const props = defineProps({
     totals: { type: Object, default: () => ({}) },
 })
 
-function declineCover(row) {
-    if (!confirm('Decline this class adjustment? Admin will be notified and they will reassign it.')) return
+async function declineCover(row) {
+    const ok = await confirmAction({
+        title: 'Decline this class adjustment?',
+        text: 'Admin will be notified and they will reassign it.',
+        confirmText: 'Yes, decline',
+        icon: 'warning',
+        danger: true,
+    })
+    if (!ok) return
     router.post(route('my-adjustments.decline', row.id), {}, { preserveScroll: true })
 }
 

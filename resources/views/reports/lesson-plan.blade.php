@@ -1,160 +1,156 @@
 @php
-    $logo = $school && !empty($school->logo) && file_exists(public_path('storage/'.$school->logo))
-        ? public_path('storage/'.$school->logo) : null;
+    // Map our generated plan to the three official sections.
+    $outcomes   = $plan['objectives'] ?? [];
+    $content    = $plan['content'] ?? [];
+    $homework   = $plan['homework'] ?? '';
+
+    // "Content Knowledge" = topic summary + key points + (example/real-life if any) + teacher notes.
+    $contentBlocks = [];
+    if (!empty($content['summary']))                       $contentBlocks[] = $content['summary'];
+    if (!empty($content['key_points']) && is_array($content['key_points'])) {
+        foreach ($content['key_points'] as $k) $contentBlocks[] = '• '.$k;
+    }
+    if (!empty($content['example']))                       $contentBlocks[] = 'Example: '.$content['example'];
+    if (!empty($content['real_life']))                     $contentBlocks[] = 'Real-life link: '.$content['real_life'];
+    if (!empty($content['misconception']))                 $contentBlocks[] = 'Common misconception: '.$content['misconception'];
+    if (!empty($content['teacher_notes']))                 $contentBlocks[] = 'Note: '.$content['teacher_notes'];
+
+    $dateStr = ($lessonDate ?? $generatedAt)->format('d-m-Y');
 @endphp
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Lesson Plan — {{ $plan['topic'] }}</title>
+<title>Smart Lesson Plan — {{ $plan['topic'] ?? '' }}</title>
 <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:'DejaVu Sans', Arial, sans-serif; font-size:10.5px; color:#1a1a1a; }
-    .page { padding:14mm; }
-    .hdr { text-align:center; border-bottom:3px double #4c1d95; padding-bottom:8px; margin-bottom:12px; }
-    .sch { font-size:17px; font-weight:bold; color:#4c1d95; text-transform:uppercase; }
-    .doc { font-size:12px; font-weight:bold; color:#2d3748; margin-top:4px;
-           background:#ede9fe; display:inline-block; padding:3px 16px; border-radius:3px; }
-    .meta { width:100%; border-collapse:collapse; margin-bottom:12px; font-size:10px; }
-    .meta td { border:1px solid #cbd5e1; padding:5px 8px; }
-    .meta .lbl { background:#f5f3ff; font-weight:bold; width:18%; color:#4c1d95; text-transform:uppercase; font-size:8.5px; }
-    h2 { font-size:11.5px; color:#4c1d95; border-bottom:1px solid #ddd6fe; padding-bottom:3px;
-         margin:14px 0 6px; text-transform:uppercase; letter-spacing:.3px; }
-    ul { margin:0 0 4px 18px; } li { margin-bottom:3px; line-height:1.45; }
-    p { line-height:1.5; margin-bottom:4px; }
-    table.flow { width:100%; border-collapse:collapse; margin-top:4px; font-size:9.5px; }
-    table.flow th { background:#4c1d95; color:#fff; padding:5px 6px; text-align:left; font-size:8.5px; text-transform:uppercase; }
-    table.flow td { border:1px solid #c7c7d9; padding:5px 6px; vertical-align:top; }
-    table.flow td.m { text-align:center; font-weight:bold; width:8%; }
-    .two { width:100%; } .two td { width:50%; vertical-align:top; padding-right:10px; }
-    .box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:4px; padding:6px 9px; font-family:'DejaVu Sans Mono', monospace; font-size:9.5px; }
-    .foot { margin-top:26px; width:100%; }
-    .foot td { width:50%; padding-top:34px; font-size:9px; }
-    .sig { border-top:1px solid #1a1a1a; padding-top:3px; font-weight:bold; display:inline-block; min-width:62%; }
-    .tag { font-size:8px; color:#888; text-align:right; margin-top:18px; border-top:1px solid #eee; padding-top:6px; }
+    @page { size: A4 portrait; margin: 12mm 14mm 14mm 14mm; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 11pt; color: #000; }
+
+    /* Header */
+    .dept { text-align: center; font-size: 12pt; font-weight: bold; letter-spacing: 0.3px; }
+    .sub-dept { text-align: center; font-size: 9.5pt; color: #333; margin-top: 1px; }
+    .title-wrap { text-align: center; margin-top: 6px; margin-bottom: 8px; }
+    .title { display: inline-block; font-size: 13.5pt; font-weight: bold;
+             text-decoration: underline; letter-spacing: 0.6px; }
+
+    /* Meta table */
+    table.meta { width: 100%; border-collapse: collapse; margin-top: 4px; margin-bottom: 8px; }
+    table.meta td { border: 1px solid #000; padding: 5px 8px; font-size: 10.5pt; vertical-align: middle; }
+    table.meta td.label { font-weight: bold; width: 22%; background: #f3f3f3; }
+    table.meta td.val   { width: 28%; min-height: 16px; }
+    table.meta td.topic { width: 78%; }
+
+    /* Section heading */
+    .sec { margin-top: 12px; }
+    .sec-h { font-weight: bold; font-size: 11.5pt; margin-bottom: 4px; }
+
+    /* Body content boxes (ruled like the printed format) */
+    .body-box { border: 1px solid #000; padding: 8px 10px; min-height: 36mm;
+                line-height: 1.9; background-image: linear-gradient(to bottom, transparent 95%, #cfcfcf 95%);
+                background-size: 100% 22px; background-position: 0 18px; }
+    .outcomes-box { min-height: 38mm; }
+    .content-box  { min-height: 70mm; }
+    .homework-box { min-height: 32mm; }
+
+    .outcomes { list-style: none; padding-left: 0; }
+    .outcomes li { padding: 2px 0; }
+    .outcomes .rn { display: inline-block; width: 18px; font-weight: bold; }
+
+    .content-line { padding: 1px 0; line-height: 1.7; }
+
+    /* Footer signature */
+    .foot { margin-top: 14px; width: 100%; }
+    .foot td { width: 50%; padding-top: 26px; font-size: 10pt; }
+    .sig { border-top: 1px solid #000; display: inline-block; min-width: 60%; padding-top: 3px; font-weight: bold; }
+    .tag { margin-top: 8px; font-size: 8pt; color: #888; text-align: right;
+           border-top: 1px solid #ddd; padding-top: 4px; }
 </style>
 </head>
 <body>
-<div class="page">
-    <div class="hdr">
-        <div class="sch">{{ $school->name ?? 'School' }}</div>
-        <div class="doc">LESSON PLAN</div>
-    </div>
 
+    <div class="dept">Schools Education Department Gilgit-Baltistan</div>
+    <div class="sub-dept">{{ $school->name ?? '' }}</div>
+    <div class="title-wrap"><span class="title">SMART LESSON PLAN</span></div>
+
+    {{-- Meta table — Class/Section, Subject/Date, Teacher/No of Students, Topic --}}
     <table class="meta">
         <tr>
-            <td class="lbl">Topic</td><td><strong>{{ $plan['topic'] }}</strong></td>
-            <td class="lbl">Subject</td><td>{{ $plan['subject'] }}</td>
+            <td class="label">Class:</td>
+            <td class="val">{{ $plan['class'] ?? '' }}</td>
+            <td class="label">Section:</td>
+            <td class="val">{{ $section ?? '' }}</td>
         </tr>
         <tr>
-            <td class="lbl">Class</td><td>{{ $plan['class'] }}</td>
-            <td class="lbl">Duration</td><td>{{ $plan['duration_minutes'] }} minutes</td>
+            <td class="label">Subject:</td>
+            <td class="val">{{ $plan['subject'] ?? '' }}</td>
+            <td class="label">Date:</td>
+            <td class="val">{{ $dateStr }}</td>
         </tr>
         <tr>
-            <td class="lbl">Teacher</td><td>{{ $teacher->name ?? '—' }}</td>
-            <td class="lbl">Date</td><td>{{ $generatedAt->format('d M Y') }}</td>
+            <td class="label">Teacher Name:</td>
+            <td class="val">{{ $teacher->name ?? '' }}</td>
+            <td class="label">No of Students:</td>
+            <td class="val">{{ $studentsCount ?? '' }}</td>
+        </tr>
+        <tr>
+            <td class="label">Topic:</td>
+            <td class="topic" colspan="3"><strong>{{ $plan['topic'] ?? '' }}</strong></td>
         </tr>
     </table>
 
-    <h2>Learning Objectives</h2>
-    <ul>@foreach($plan['objectives'] ?? [] as $o)<li>{{ $o }}</li>@endforeach</ul>
+    {{-- 1. Student Learning Outcomes (i, ii, iii, iv) --}}
+    <div class="sec">
+        <div class="sec-h">1. Student Learning Outcomes &nbsp;<span style="font-weight:normal;font-size:9.5pt;">(Focus on subject and topics)</span></div>
+        <div class="body-box outcomes-box">
+            @php
+                $rn = ['i', 'ii', 'iii', 'iv', 'v', 'vi'];
+                $outcomes = array_slice($outcomes, 0, 6);
+            @endphp
+            <ol class="outcomes">
+                @foreach ($outcomes as $i => $o)
+                    <li><span class="rn">{{ $rn[$i] ?? ($i+1) }}.</span> {{ $o }}</li>
+                @endforeach
+                @for ($i = count($outcomes); $i < 4; $i++)
+                    <li><span class="rn">{{ $rn[$i] }}.</span></li>
+                @endfor
+            </ol>
+        </div>
+    </div>
 
-    @if(!empty($plan['content']['teacher_notes']))
-        <h2>Teacher's Notes</h2>
-        <p>{{ $plan['content']['teacher_notes'] }}</p>
-    @endif
-
-    @if(!empty($plan['content']))
-        <h2>Topic Content</h2>
-        @if(!empty($plan['content']['summary']))<p>{{ $plan['content']['summary'] }}</p>@endif
-        @if(!empty($plan['content']['key_points']))
-            <ul>@foreach($plan['content']['key_points'] as $k)<li>{{ $k }}</li>@endforeach</ul>
-        @endif
-        @if(!empty($plan['content']['example']))<p><strong>Example:</strong> {{ $plan['content']['example'] }}</p>@endif
-        @if(!empty($plan['content']['misconception']))<p><strong>Common misconception:</strong> {{ $plan['content']['misconception'] }}</p>@endif
-        @if(!empty($plan['content']['real_life']))<p><strong>Real-life link:</strong> {{ $plan['content']['real_life'] }}</p>@endif
-    @endif
-
-    @if(!empty($plan['prior_knowledge']))
-        <h2>Prior Knowledge</h2>
-        <p>{{ $plan['prior_knowledge'] }}</p>
-    @endif
-
-    @if(!empty($plan['materials']))
-        <h2>Materials &amp; Resources</h2>
-        <ul>@foreach($plan['materials'] as $m)<li>{{ $m }}</li>@endforeach</ul>
-    @endif
-
-    @if(!empty($plan['vocabulary']))
-        <h2>Key Vocabulary</h2>
-        <ul>@foreach($plan['vocabulary'] as $v)<li><strong>{{ $v['term'] ?? '' }}</strong> — {{ $v['meaning'] ?? '' }}</li>@endforeach</ul>
-    @endif
-
-    @if(!empty($plan['lesson_flow']))
-        <h2>Lesson Flow</h2>
-        <table class="flow">
-            <thead><tr><th>Phase</th><th style="width:8%;text-align:center">Min</th><th>Teacher activity</th><th>Student activity</th></tr></thead>
-            <tbody>
-            @foreach($plan['lesson_flow'] as $p)
-                <tr>
-                    <td><strong>{{ $p['phase'] ?? '' }}</strong></td>
-                    <td class="m">{{ $p['minutes'] ?? '' }}</td>
-                    <td>{{ $p['teacher'] ?? '' }}</td>
-                    <td>{{ $p['student'] ?? '' }}</td>
-                </tr>
+    {{-- 2. Content Knowledge --}}
+    <div class="sec">
+        <div class="sec-h">2. Content Knowledge</div>
+        <div class="body-box content-box">
+            @foreach ($contentBlocks as $line)
+                <div class="content-line">{{ $line }}</div>
             @endforeach
-            </tbody>
-        </table>
-    @endif
+        </div>
+    </div>
 
-    <table class="two"><tr>
-        <td>
-            @if(!empty($plan['activities']))
-                <h2>Activities</h2>
-                <ul>@foreach($plan['activities'] as $a)<li>{{ $a }}</li>@endforeach</ul>
+    {{-- 3. Homework --}}
+    <div class="sec">
+        <div class="sec-h">3. Homework</div>
+        <div class="body-box homework-box">
+            @if (!empty($homework))
+                <div class="content-line">{{ $homework }}</div>
             @endif
-        </td>
-        <td>
-            @if(!empty($plan['assessment']))
-                <h2>Assessment</h2>
-                <ul>@foreach($plan['assessment'] as $a)<li>{{ $a }}</li>@endforeach</ul>
-            @endif
-        </td>
-    </tr></table>
+        </div>
+    </div>
 
-    @if(!empty($plan['differentiation']))
-        <h2>Differentiation</h2>
-        <p><strong>Support:</strong> {{ $plan['differentiation']['support'] ?? '' }}</p>
-        <p><strong>Challenge:</strong> {{ $plan['differentiation']['challenge'] ?? '' }}</p>
-    @endif
-
-    @if(!empty($plan['homework']))
-        <h2>Homework</h2>
-        <p>{{ $plan['homework'] }}</p>
-    @endif
-
-    @if(!empty($plan['board_plan']))
-        <h2>Board Plan</h2>
-        <div class="box">{{ $plan['board_plan'] }}</div>
-    @endif
-
-    @if(!empty($plan['references']))
-        <h2>References</h2>
-        <ul>@foreach($plan['references'] as $r)<li>{{ $r }}</li>@endforeach</ul>
-    @endif
-
+    {{-- Signatures --}}
     <table class="foot">
         <tr>
             <td><span class="sig">Teacher's Signature</span></td>
-            <td style="text-align:right"><span class="sig">Head Teacher / Coordinator</span></td>
+            <td style="text-align:right"><span class="sig">Head Teacher / Principal</span></td>
         </tr>
     </table>
 
     <div class="tag">
         Generated {{ $generatedAt->format('d M Y, h:i A') }}
-        · {{ ($plan['generated_by'] ?? '') === 'ai' ? 'AI-assisted' : (($plan['generated_by'] ?? '') === 'reference' ? 'Sourced (Wikipedia)' : 'Template') }}
+        · {{ ($plan['generated_by'] ?? '') === 'ai' ? 'AI-assisted'
+            : (($plan['generated_by'] ?? '') === 'reference' ? 'Sourced (Wikipedia)' : 'Template') }}
         · {{ $school->name ?? '' }}
     </div>
-</div>
 </body>
 </html>

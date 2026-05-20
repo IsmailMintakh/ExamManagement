@@ -27,6 +27,13 @@ class SchoolClass extends Model
                 $model->slug = Str::slug($model->name);
             }
         });
+
+        // Default grade-order everywhere. Callers needing a different
+        // order can use ->reorder('column') to clear and replace it.
+        static::addGlobalScope('gradeOrder', function ($query) {
+            $query->orderBy('school_classes.sort_order')
+                ->orderBy('school_classes.name');
+        });
     }
 
     protected function casts(): array

@@ -6,6 +6,7 @@ import FileUpload from '@/Components/FileUpload.vue'
 import { Head, useForm, Link, router } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import { ArrowLeftIcon, PhotoIcon, TrashIcon, CloudArrowUpIcon, PencilIcon } from '@heroicons/vue/24/outline'
+import { confirmDelete } from '@/lib/swal'
 
 const props = defineProps({
     album:  { type: Object, default: null },
@@ -50,8 +51,8 @@ function uploadFiles(e) {
         })
 }
 
-function deletePhoto(id) {
-    if (!confirm('Remove this photo?')) return
+async function deletePhoto(id) {
+    if (!await confirmDelete({ title: 'Remove this photo?', confirmText: 'Yes, remove' })) return
     router.delete(route('website.gallery.photos.destroy', [props.album.id, id]), { preserveScroll: true })
 }
 

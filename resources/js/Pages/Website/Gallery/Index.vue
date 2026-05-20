@@ -7,13 +7,14 @@ import {
     EyeIcon, EyeSlashIcon, CalendarDaysIcon,
 } from '@heroicons/vue/24/outline'
 import { formatDate } from '@/Utils/format'
+import { confirmDelete } from '@/lib/swal'
 
 const props = defineProps({
     albums: { type: Array, default: () => [] },
 })
 
-function destroy(id) {
-    if (!confirm('Delete this album and all its photos?')) return
+async function destroy(id) {
+    if (!await confirmDelete({ title: 'Delete this album?', text: 'All its photos will be removed too.' })) return
     router.delete(route('website.gallery.destroy', id), { preserveScroll: true })
 }
 </script>
