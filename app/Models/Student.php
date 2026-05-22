@@ -37,6 +37,68 @@ class Student extends Model
         ];
     }
 
+    /**
+     * Default sort students by roll number 1 → N (numeric, not alphabetical)
+     * everywhere they're listed: marks entry, students index, award lists,
+     * mark sheets, admit cards, etc. Roll numbers are stored as varchar so
+     * a plain orderBy('roll_no') puts "10" before "2". The LENGTH() prefix
+     * groups by digit count first, then sorts lexically — gives the natural
+     * 1, 2, 3, …, 9, 10, 11 order without DB-specific CAST.
+     *
+     * Callers needing a different order (e.g. by name) can use ->reorder().
+     */
+    protected static function booted(): void
+    {
+        // Default students to numeric roll-number order (1, 2, 3, …, 10) on
+        // every list across the app: marks entry, students index, mark sheets,
+        // award lists, etc. We hook in via beforeQuery so we can inspect the
+        // *final* query state and:
+        //   - skip when GROUP BY / aggregate is set (only_full_group_by)
+        //   - inject LENGTH() in front of an existing orderBy('roll_no') so
+        //     the controller's sort becomes numeric instead of lexical
+        //   - apply a sensible default when no order was specified
+        //   - leave explicit non-roll orders (e.g. orderBy('name')) untouched
+        static::addGlobalScope('byRollNo', function ($query) {
+            $query->getQuery()->beforeQuery(function ($q) {
+                if (!empty($q->groups) || !empty($q->aggregate)) {
+                    return;
+                }
+
+                $isRollNoCol = fn ($o) => isset($o['column'])
+                    && in_array($o['column'], ['roll_no', 'students.roll_no'], true);
+
+                if (empty($q->orders)) {
+                    $q->orderBy('students.school_class_id')
+                        ->orderBy('students.section_id')
+                        ->orderByRaw("LENGTH(COALESCE(students.roll_no, ''))")
+                        ->orderBy('students.roll_no');
+                    return;
+                }
+
+                $hasRollNo = collect($q->orders)->contains($isRollNoCol);
+                if (!$hasRollNo) {
+                    return;
+                }
+
+                // Insert LENGTH() right before the first roll_no orderBy so
+                // strings sort numerically: "1" < "2" < … < "9" < "10".
+                $rewritten = [];
+                $injected = false;
+                foreach ($q->orders as $o) {
+                    if (!$injected && $isRollNoCol($o)) {
+                        $rewritten[] = [
+                            'type' => 'Raw',
+                            'sql' => "LENGTH(COALESCE(students.roll_no, ''))",
+                        ];
+                        $injected = true;
+                    }
+                    $rewritten[] = $o;
+                }
+                $q->orders = $rewritten;
+            });
+        });
+    }
+
     public function previousClass()
     {
         return $this->belongsTo(SchoolClass::class, 'previous_class_id');
