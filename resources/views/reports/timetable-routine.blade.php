@@ -11,22 +11,7 @@
         'mon' => 'Mon', 'tue' => 'Tue', 'wed' => 'Wed',
         'thu' => 'Thu', 'fri' => 'Fri', 'sat' => 'Sat',
     ];
-
-    // Cells now show full names — no abbreviation legend needed.
-    // Smarter pagination: with full names, ~14 sections per page is the sweet
-    // spot before cells get too cramped vertically.
-    $sectionPages = $sections->chunk(14);
-
-    // Detect periods that don't run on every working day (Friday half-day, etc.)
     $allWorkingDays = ['mon','tue','wed','thu','fri','sat'];
-    $slotMissingDays = [];
-    foreach ($periodSlots as $slot) {
-        $days = $slot->weekdays ?? $allWorkingDays;
-        $missing = array_diff($allWorkingDays, $days);
-        if (!empty($missing)) {
-            $slotMissingDays[$slot->id] = array_values($missing);
-        }
-    }
 
     $headerTitle = $session?->name
         ? 'Timetable for Session ' . $session->name
@@ -237,8 +222,44 @@
 </head>
 <body>
 
-@foreach($sectionPages as $pageIdx => $pageSections)
-    <div @class(['page' => !$loop->last])>
+{{--
+    One block per (stage × section-page). Each stage's table only shows
+    that stage's period slots, capped to e.g. 4 for Pre-Primary, 6 for
+    Primary, 7-8 for higher stages. Sections of each stage paginate within
+    the block (~14 per page) so cells don't go microscopic.
+--}}
+@php
+    $blockPages = collect();
+    foreach ($blocks as $block) {
+        $pages = $block['sections']->chunk(14);
+        foreach ($pages as $pi => $pageSections) {
+            $blockPages->push([
+                'stage' => $block['stage'],
+                'stage_label' => $block['stage_label'],
+                'period_slots' => $block['period_slots'],
+                'sections' => $pageSections,
+                'page_index' => $pi,
+                'page_total' => $pages->count(),
+            ]);
+        }
+    }
+    $totalPages = $blockPages->count();
+@endphp
+
+@foreach($blockPages as $bpIdx => $block)
+    @php
+        $periodSlots = $block['period_slots'];
+        $pageSections = $block['sections'];
+        $slotMissingDays = [];
+        foreach ($periodSlots as $slot) {
+            $days = $slot->weekdays ?? $allWorkingDays;
+            $missing = array_diff($allWorkingDays, $days);
+            if (!empty($missing)) {
+                $slotMissingDays[$slot->id] = array_values($missing);
+            }
+        }
+    @endphp
+    <div @class(['page' => $bpIdx < $totalPages - 1])>
         <div class="frame"><div class="frame-inner">
 
             {{-- ─── HEADER ─── --}}
@@ -251,7 +272,7 @@
                     @endif
                 </div>
                 <div class="hdr-center">
-                    <div class="sch-tag">Daily Class Routine — Master Wall Chart</div>
+                    <div class="sch-tag">Daily Class Routine — {{ $block['stage_label'] }}</div>
                     <div class="sch-name">{{ $school->name }}</div>
                     <div class="sch-session">{{ $headerTitle }}</div>
                 </div>
@@ -260,6 +281,12 @@
                     {{ $generatedAt->format('d M Y') }}
                 </div>
             </div>
+
+            @if($block['page_total'] > 1)
+                <p style="text-align:center;font-size:7pt;color:#64748b;margin:0 0 4px;font-style:italic;">
+                    {{ $block['stage_label'] }} — Page {{ $block['page_index'] + 1 }} of {{ $block['page_total'] }}
+                </p>
+            @endif
 
             {{-- ─── MAIN GRID ─── --}}
             <table class="routine">
@@ -295,12 +322,19 @@
                                     $entry = $row['entry'] ?? null;
                                 @endphp
                                 @if($entry && $entry->subject_id)
+                                    @php
+                                        $subjLabel = $entry->subject?->code
+                                            ?: \Illuminate\Support\Str::limit($entry->subject?->name ?? '—', 12, '…');
+                                        $tchLabel = $entry->teacher
+                                            ? \Illuminate\Support\Str::limit($entry->teacher->name, 14, '…')
+                                            : 'No teacher';
+                                    @endphp
                                     <td class="cell">
                                         @if(($show ?? 'both') !== 'teacher')
-                                            <div class="sub">{{ $entry->subject?->name ?? '—' }}</div>
+                                            <div class="sub" title="{{ $entry->subject?->name }}">{{ $subjLabel }}</div>
                                         @endif
                                         @if(($show ?? 'both') !== 'subject')
-                                            <div class="tch">{{ $entry->teacher?->name ?? 'No teacher' }}</div>
+                                            <div class="tch" title="{{ $entry->teacher?->name }}">{{ $tchLabel }}</div>
                                         @endif
                                         @if(($row['has_variant'] ?? false))
                                             <div class="var">* differs some days</div>
@@ -315,7 +349,6 @@
                 </tbody>
             </table>
 
-            {{-- Half-day footnote (only if any slot skips a day) --}}
             @if(!empty($slotMissingDays))
                 <div class="working-days-note">
                     @foreach($slotMissingDays as $slotId => $missing)
@@ -331,8 +364,7 @@
                 </div>
             @endif
 
-            {{-- ─── PRINCIPAL SIGNATURE (only on last page) ─── --}}
-            @if($loop->last)
+            @if($bpIdx === $totalPages - 1)
                 <div class="sig-row">
                     @if($sigPath)
                         <img src="{{ $sigPath }}" class="sig-img" alt="">

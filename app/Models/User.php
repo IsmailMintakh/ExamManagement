@@ -15,14 +15,14 @@ class User extends Authenticatable
     use HasFactory, Notifiable, HasRoles, SoftDeletes, LogsActivity;
 
     protected $fillable = [
-        'name', 'email', 'password', 'phone', 'avatar',
+        'name', 'email', 'password', 'phone', 'avatar', 'signature_image',
         'school_id', 'is_active', 'last_login_at',
     ];
 
     protected $hidden = ['password', 'remember_token'];
 
-    /** Auto-serialize the computed avatar URL for Vue. */
-    protected $appends = ['avatar_url'];
+    /** Auto-serialize computed URLs so Vue can render them directly. */
+    protected $appends = ['avatar_url', 'signature_url'];
 
     protected function casts(): array
     {
@@ -107,12 +107,34 @@ class User extends Authenticatable
 
     public function getAvatarUrlAttribute(): ?string
     {
-        // Same pattern as School::logo_url — uses Storage::disk('public')->url()
-        // so the configured prefix (default /uploads) is respected and the
-        // file is reachable even when public/storage symlink is broken.
-        return $this->avatar
-            ? \Illuminate\Support\Facades\Storage::disk('public')->url($this->avatar)
-            : null;
+        return $this->avatar ? $this->publicAssetUrl($this->avatar) : null;
+    }
+
+    public function getSignatureUrlAttribute(): ?string
+    {
+        return $this->signature_image ? $this->publicAssetUrl($this->signature_image) : null;
+    }
+
+    /**
+     * Build a public-disk URL against the current request host (instead of
+     * the cached APP_URL). Lets uploads survive a domain change without
+     * needing to rebuild the config cache.
+     */
+    protected function publicAssetUrl(string $path): string
+    {
+        $prefix = trim(env('FILESYSTEM_PUBLIC_URL_PREFIX', '/uploads'), '/');
+        return url($prefix.'/'.ltrim($path, '/'));
+    }
+
+    /**
+     * Absolute filesystem path of the signature image — used by DomPDF/mPDF
+     * which need a file path (not a public URL) to embed the image into PDFs.
+     */
+    public function signaturePath(): ?string
+    {
+        if (!$this->signature_image) return null;
+        $path = public_path('storage/'.$this->signature_image);
+        return file_exists($path) ? $path : null;
     }
 
     public function scopeActive($query)

@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import Pagination from '@/Components/Pagination.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
 import EmptyState from '@/Components/EmptyState.vue'
@@ -17,12 +18,15 @@ const props = defineProps({
     classes: Object,
     filters: Object,
     schools: Array,
+    stages: { type: Object, default: () => ({}) },
 })
 
 const search = ref(props.filters?.search || '')
 const schoolId = ref(props.filters?.school_id || '')
+const stageFilter = ref(props.filters?.stage || '')
 
-const activeFilterCount = computed(() => [schoolId.value].filter(Boolean).length)
+const activeFilterCount = computed(() =>
+    [schoolId.value, stageFilter.value].filter(Boolean).length)
 const filtersOpen = ref(activeFilterCount.value > 0)
 
 let timer = null
@@ -32,14 +36,23 @@ function pushFilters() {
         router.get(route('classes.index'), {
             search: search.value || undefined,
             school_id: schoolId.value || undefined,
+            stage: stageFilter.value || undefined,
         }, {
             preserveState: true, preserveScroll: true, replace: true, only: ['classes', 'filters'],
         })
     }, 300)
 }
-watch([search, schoolId], pushFilters)
+watch([search, schoolId, stageFilter], pushFilters)
 
-function clearFilters() { schoolId.value = '' }
+function clearFilters() { schoolId.value = ''; stageFilter.value = '' }
+
+const stageBadge = (s) => ({
+    pre_primary: 'badge-info',
+    primary: 'badge-success',
+    middle: 'badge-warning',
+    secondary: 'badge-accent',
+    higher_secondary: 'badge-primary',
+}[s] || 'badge-ghost')
 
 const confirmDelete = ref(false)
 const classToDelete = ref(null)
@@ -94,12 +107,20 @@ function deleteClass() {
 
                 <Transition name="filter-panel">
                     <div v-if="filtersOpen && schools?.length" class="border-b border-base-200 bg-base-200/30 px-5 sm:px-6 py-4 space-y-3">
-                        <div>
-                            <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 block">School</label>
-                            <select v-model="schoolId" class="select select-bordered select-sm w-full sm:max-w-xs text-sm">
-                                <option value="">All schools</option>
-                                <option v-for="s in schools" :key="s.id" :value="s.id">{{ s.name }}</option>
-                            </select>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 block">School</label>
+                                <SearchableSelect v-model="schoolId" size="sm"
+                                    :options="[{ value: '', label: 'All schools' }, ...(schools || []).map(s => ({ value: s.id, label: s.name }))]"
+                                    placeholder="All schools" />
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 block">Stage</label>
+                                <select v-model="stageFilter" class="select select-bordered select-sm w-full text-sm">
+                                    <option value="">All stages</option>
+                                    <option v-for="(label, key) in stages" :key="key" :value="key">{{ label }}</option>
+                                </select>
+                            </div>
                         </div>
                         <div v-if="activeFilterCount > 0" class="flex items-center justify-between gap-2 pt-2 border-t border-base-200">
                             <span class="text-xs text-base-content/55">
@@ -121,6 +142,7 @@ function deleteClass() {
                                 <th class="w-12">#</th>
                                 <th>School</th>
                                 <th>Class</th>
+                                <th>Stage</th>
                                 <th class="text-center">Sections</th>
                                 <th class="text-center">Students</th>
                                 <th class="text-center">Subjects</th>
@@ -132,6 +154,12 @@ function deleteClass() {
                                 <td class="text-xs font-mono text-base-content/55 tabular-nums">{{ classes.from + i }}</td>
                                 <td class="text-[13px] text-base-content/75 truncate max-w-[200px]" :title="cls.school?.name">{{ cls.school?.name || '—' }}</td>
                                 <td class="font-bold text-sm">{{ cls.name }}</td>
+                                <td>
+                                    <span v-if="cls.stage" class="badge badge-sm" :class="stageBadge(cls.stage)">
+                                        {{ stages?.[cls.stage] || cls.stage }}
+                                    </span>
+                                    <span v-else class="text-xs text-base-content/40">—</span>
+                                </td>
                                 <td class="text-center"><span class="badge badge-info badge-sm tabular-nums">{{ cls.sections_count ?? 0 }}</span></td>
                                 <td class="text-center"><span class="badge badge-ghost badge-sm tabular-nums">{{ cls.students_count ?? 0 }}</span></td>
                                 <td class="text-center"><span class="badge badge-ghost badge-sm tabular-nums">{{ cls.subjects_count ?? 0 }}</span></td>

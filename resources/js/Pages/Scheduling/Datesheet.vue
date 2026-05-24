@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import SchedulingSubnav from '@/Components/scheduling/SchedulingSubnav.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import { Head, Link, router, useForm } from '@inertiajs/vue3'
@@ -11,12 +12,17 @@ import {
     ArrowLeftIcon,
     ClockIcon,
     ExclamationTriangleIcon,
+    BoltIcon,
+    XMarkIcon,
+    InformationCircleIcon,
 } from '@heroicons/vue/24/outline'
+import { confirmAction } from '@/lib/swal'
 
 const props = defineProps({
     exam: Object,
     rows: { type: Array, default: () => [] },
     classes: { type: Array, default: () => [] },
+    autoModeDefault: { type: String, default: 'terminal' }, // 'terminal' | 'period_based'
 })
 
 const classFilter = ref('')
@@ -100,6 +106,71 @@ function save() {
 
 function openPdf() {
     window.open(route('scheduling.datesheet-pdf', props.exam.id), '_blank')
+}
+
+// ─── Auto-generate modal ───
+const autoOpen = ref(false)
+const autoSubmitting = ref(false)
+const auto = ref({
+    mode: props.autoModeDefault || 'terminal',
+    start_date: props.exam?.start_date || new Date().toISOString().slice(0, 10),
+    end_date: props.exam?.end_date || '',
+    default_start_time: '09:00',
+    default_duration_minutes: 120,
+    off_days: [0], // Sunday off
+    holiday_input: '',
+    holidays: [],
+    overwrite_existing: false,
+})
+
+const WEEKDAY_LABELS = [
+    { value: 0, short: 'Sun' },
+    { value: 1, short: 'Mon' },
+    { value: 2, short: 'Tue' },
+    { value: 3, short: 'Wed' },
+    { value: 4, short: 'Thu' },
+    { value: 5, short: 'Fri' },
+    { value: 6, short: 'Sat' },
+]
+
+function toggleOffDay(d) {
+    const i = auto.value.off_days.indexOf(d)
+    if (i > -1) auto.value.off_days.splice(i, 1)
+    else auto.value.off_days.push(d)
+}
+
+function addHoliday() {
+    const v = auto.value.holiday_input
+    if (v && !auto.value.holidays.includes(v)) auto.value.holidays.push(v)
+    auto.value.holiday_input = ''
+}
+function removeHoliday(d) {
+    auto.value.holidays = auto.value.holidays.filter(x => x !== d)
+}
+
+async function submitAuto() {
+    if (form.schedules.some(s => s.exam_date) && !auto.value.overwrite_existing) {
+        const ok = await confirmAction({
+            title: 'Keep existing dates?',
+            text: 'Some papers already have a date. Auto-gen will fill only the empty rows. Tick "Overwrite existing" first if you want to rebuild from scratch.',
+            confirmText: 'Continue (fill empty only)',
+        })
+        if (!ok) return
+    }
+    autoSubmitting.value = true
+    router.post(route('scheduling.datesheet-auto', props.exam.id), {
+        mode: auto.value.mode,
+        start_date: auto.value.start_date || null,
+        end_date: auto.value.end_date || null,
+        default_start_time: auto.value.default_start_time || null,
+        default_duration_minutes: auto.value.default_duration_minutes || 120,
+        off_days: auto.value.off_days,
+        holidays: auto.value.holidays,
+        overwrite_existing: auto.value.overwrite_existing,
+    }, {
+        preserveScroll: true,
+        onFinish: () => { autoSubmitting.value = false; autoOpen.value = false },
+    })
 }
 
 // ─── Bulk-apply time from one row to others ───
@@ -204,6 +275,9 @@ function isFirstWithInstructions(row) {
                     <Link :href="route('scheduling.index', exam.id)" class="btn btn-ghost btn-sm gap-1.5">
                         <ArrowLeftIcon class="h-4 w-4" /> Back
                     </Link>
+                    <button @click="autoOpen = true" class="btn btn-accent btn-sm gap-1.5">
+                        <BoltIcon class="h-4 w-4" /> Auto-generate
+                    </button>
                     <button @click="openPdf" class="btn btn-outline btn-sm gap-1.5">
                         <DocumentArrowDownIcon class="h-4 w-4" /> Generate PDF
                     </button>
@@ -230,10 +304,11 @@ function isFirstWithInstructions(row) {
             <div class="card-section">
                 <div class="card-header flex items-center justify-between">
                     <h3>Subject Schedule ({{ filtered.length }})</h3>
-                    <select v-model="classFilter" class="select select-bordered select-sm w-48">
-                        <option value="">All Classes</option>
-                        <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.name }}</option>
-                    </select>
+                    <div class="w-48">
+                        <SearchableSelect v-model="classFilter" size="sm"
+                            :options="[{ value: '', label: 'All Classes' }, ...classes.map(c => ({ value: c.id, label: c.name }))]"
+                            placeholder="All Classes" />
+                    </div>
                 </div>
                 <div class="overflow-x-auto">
                     <table v-if="filtered.length" class="table table-sm">
@@ -317,6 +392,156 @@ function isFirstWithInstructions(row) {
                     </table>
                     <EmptyState v-else title="No subjects to schedule" description="Add subjects to this exam first." />
                 </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ AUTO-GENERATE MODAL ═══════════ -->
+        <div v-if="autoOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-base-content/40 p-4"
+            @click.self="autoOpen = false">
+            <div class="bg-base-100 rounded-2xl shadow-2xl border border-base-300 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                <header class="px-5 py-4 border-b border-base-300 flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-accent/15 text-accent flex items-center justify-center">
+                        <BoltIcon class="w-5 h-5" />
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-base font-bold">Auto-generate date sheet</h3>
+                        <p class="text-xs text-base-content/55">
+                            Pick a strategy and the system fills every paper's date + time, skipping Sundays and holidays.
+                        </p>
+                    </div>
+                    <button @click="autoOpen = false" class="btn btn-ghost btn-sm btn-square">
+                        <XMarkIcon class="w-4 h-4" />
+                    </button>
+                </header>
+
+                <div class="p-5 space-y-4">
+                    <!-- Mode -->
+                    <div>
+                        <p class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-2">Strategy</p>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <button type="button" @click="auto.mode = 'terminal'"
+                                class="rounded-xl p-3 text-left ring-2 transition-colors"
+                                :class="auto.mode === 'terminal' ? 'ring-primary bg-primary/5' : 'ring-base-300 hover:bg-base-200/40'">
+                                <p class="font-bold text-sm">Terminal (one paper per class per day)</p>
+                                <p class="text-[11px] text-base-content/55 mt-1">
+                                    Spread papers across consecutive working days. Each class advances one subject per day.
+                                    Use for First/Mid/Annual/Send-up Exams.
+                                </p>
+                            </button>
+                            <button type="button" @click="auto.mode = 'period_based'"
+                                class="rounded-xl p-3 text-left ring-2 transition-colors"
+                                :class="auto.mode === 'period_based' ? 'ring-primary bg-primary/5' : 'ring-base-300 hover:bg-base-200/40'">
+                                <p class="font-bold text-sm">Period-based (test in class period)</p>
+                                <p class="text-[11px] text-base-content/55 mt-1">
+                                    Schedule every paper on one day, each at the period that subject is normally taught.
+                                    Use for Monthly / Unit Tests.
+                                </p>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Dates -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-[11px] uppercase tracking-wider font-bold text-base-content/55">Start date</label>
+                            <input v-model="auto.start_date" type="date"
+                                class="input input-bordered input-sm w-full mt-1 font-mono" />
+                        </div>
+                        <div v-if="auto.mode === 'terminal'">
+                            <label class="text-[11px] uppercase tracking-wider font-bold text-base-content/55">
+                                End date <span class="font-medium normal-case text-base-content/40">· optional</span>
+                            </label>
+                            <input v-model="auto.end_date" type="date" :min="auto.start_date || undefined"
+                                class="input input-bordered input-sm w-full mt-1 font-mono" />
+                        </div>
+                    </div>
+
+                    <!-- Default time + duration (terminal mode only) -->
+                    <div v-if="auto.mode === 'terminal'" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-[11px] uppercase tracking-wider font-bold text-base-content/55">Default start time</label>
+                            <input v-model="auto.default_start_time" type="time"
+                                class="input input-bordered input-sm w-full mt-1 font-mono" />
+                        </div>
+                        <div>
+                            <label class="text-[11px] uppercase tracking-wider font-bold text-base-content/55">Duration (minutes)</label>
+                            <input v-model.number="auto.default_duration_minutes" type="number" min="15" max="300"
+                                class="input input-bordered input-sm w-full mt-1 font-mono" />
+                        </div>
+                    </div>
+
+                    <div v-if="auto.mode === 'period_based'"
+                        class="rounded-lg border border-info/40 bg-info/5 p-3 flex items-start gap-2 text-xs text-base-content/70">
+                        <InformationCircleIcon class="w-4 h-4 shrink-0 text-info mt-0.5" />
+                        <span>
+                            Each paper will run at the period when that subject is normally taught (read from the timetable).
+                            If a subject isn't on the timetable yet, we fall back to <strong>{{ auto.default_start_time }}</strong> for
+                            <strong>{{ auto.default_duration_minutes }} min</strong>.
+                        </span>
+                    </div>
+
+                    <!-- Off days -->
+                    <div>
+                        <p class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-2">
+                            Off days <span class="font-medium normal-case text-base-content/40">· no papers on these</span>
+                        </p>
+                        <div class="flex flex-wrap gap-1.5">
+                            <button v-for="d in WEEKDAY_LABELS" :key="d.value"
+                                type="button" @click="toggleOffDay(d.value)"
+                                class="px-3 py-1.5 rounded-lg text-xs font-bold ring-1 transition-colors"
+                                :class="auto.off_days.includes(d.value)
+                                    ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 ring-rose-500/30'
+                                    : 'bg-base-200/40 text-base-content/60 ring-base-300 hover:bg-base-200'">
+                                {{ d.short }}
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Holidays -->
+                    <div>
+                        <p class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-2">
+                            Holidays <span class="font-medium normal-case text-base-content/40">· also skipped</span>
+                        </p>
+                        <div class="flex gap-2">
+                            <input v-model="auto.holiday_input" type="date"
+                                class="input input-bordered input-sm flex-1 font-mono"
+                                @keyup.enter="addHoliday" />
+                            <button type="button" @click="addHoliday" class="btn btn-outline btn-sm">Add</button>
+                        </div>
+                        <div v-if="auto.holidays.length" class="flex flex-wrap gap-1.5 mt-2">
+                            <span v-for="d in auto.holidays" :key="d"
+                                class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-rose-500/15 text-rose-700 dark:text-rose-300 text-[11px] font-semibold">
+                                {{ d }}
+                                <button type="button" @click="removeHoliday(d)" class="hover:text-rose-900">
+                                    <XMarkIcon class="w-3 h-3" />
+                                </button>
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Overwrite -->
+                    <label class="flex items-start gap-2.5 p-3 rounded-xl border-2 transition-colors cursor-pointer"
+                        :class="auto.overwrite_existing ? 'border-rose-500 bg-rose-500/5' : 'border-base-200 hover:bg-base-200/40'">
+                        <input type="checkbox" v-model="auto.overwrite_existing"
+                            class="checkbox checkbox-error checkbox-sm mt-0.5" />
+                        <div class="text-xs">
+                            <p class="font-bold">Overwrite existing schedule rows</p>
+                            <p class="text-base-content/55 mt-0.5">
+                                When OFF, auto-gen only fills papers that don't have a date yet — hand-set rows stay.
+                                When ON, every row is rebuilt from scratch.
+                            </p>
+                        </div>
+                    </label>
+                </div>
+
+                <footer class="px-5 py-4 border-t border-base-300 flex items-center justify-end gap-2">
+                    <button type="button" @click="autoOpen = false" class="btn btn-ghost btn-sm">Cancel</button>
+                    <button type="button" @click="submitAuto" :disabled="autoSubmitting"
+                        class="btn btn-accent btn-sm gap-1.5">
+                        <BoltIcon class="w-4 h-4" />
+                        {{ autoSubmitting ? 'Generating…' : 'Auto-generate' }}
+                    </button>
+                </footer>
             </div>
         </div>
     </AppLayout>

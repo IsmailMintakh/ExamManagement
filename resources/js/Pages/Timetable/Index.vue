@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import PageHeader from '@/Components/PageHeader.vue'
 import TimetableSubnav from '@/Components/timetable/TimetableSubnav.vue'
 import { Head, Link, router } from '@inertiajs/vue3'
@@ -87,11 +88,12 @@ async function autoGenerate() {
                 :subtitle="school ? 'Schedules, teacher assignments & daily class adjustments' : 'Pick a school to begin'"
                 :icon="CalendarIcon" tone="violet">
                 <template #actions>
-                    <select v-if="allSchools.length"
-                        @change="switchSchool($event.target.value)" :value="currentSchoolId"
-                        class="select select-bordered select-sm rounded-lg text-sm">
-                        <option v-for="s in allSchools" :key="s.id" :value="s.id">{{ s.name }}</option>
-                    </select>
+                    <div v-if="allSchools.length" class="min-w-[200px]">
+                        <SearchableSelect :model-value="currentSchoolId" size="sm"
+                            :options="allSchools.map(s => ({ value: s.id, label: s.name }))"
+                            placeholder="Select school"
+                            @change="(v) => switchSchool(v)" />
+                    </div>
                     <a v-if="school && hasSchedule" :href="route('timetable.routine.pdf', { school_id: school.id })" target="_blank"
                         class="btn btn-sm rounded-lg gap-1.5 btn-outline">
                         <PrinterIcon class="w-4 h-4" /> Routine PDF

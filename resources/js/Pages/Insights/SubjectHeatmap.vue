@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import { Head, router } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import {
@@ -93,18 +94,12 @@ const hasMatrix = computed(() => props.students.length > 0 && props.subjects.len
                     </div>
 
                     <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
-                        <select v-model="classId" class="select select-bordered w-full">
-                            <option value="">Select Class</option>
-                            <option v-for="c in classes" :key="c.id" :value="c.id">
-                                {{ c.name }}<span v-if="c.school_name"> — {{ c.school_name }}</span>
-                            </option>
-                        </select>
-                        <select v-model="examId" class="select select-bordered w-full">
-                            <option value="">Select Exam</option>
-                            <option v-for="e in exams" :key="e.id" :value="e.id">
-                                {{ e.name }}<span v-if="e.start_date"> ({{ e.start_date }})</span>
-                            </option>
-                        </select>
+                        <SearchableSelect v-model="classId"
+                            :options="classes.map(c => ({ value: c.id, label: c.school_name ? `${c.name} — ${c.school_name}` : c.name }))"
+                            placeholder="Select Class" />
+                        <SearchableSelect v-model="examId"
+                            :options="exams.map(e => ({ value: e.id, label: e.start_date ? `${e.name} (${e.start_date})` : e.name }))"
+                            placeholder="Select Exam" />
                         <button class="btn btn-primary" :disabled="!classId || !examId" @click="apply">
                             Apply
                         </button>

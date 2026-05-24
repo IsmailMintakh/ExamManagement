@@ -28,6 +28,9 @@ class SchoolClassController extends Controller
             ->when($request->has('school_id'), function ($query) use ($request) {
                 $query->where('school_id', $request->input('school_id'));
             })
+            ->when($request->filled('stage'), function ($query) use ($request) {
+                $query->where('stage', $request->input('stage'));
+            })
             ->with(['school', 'sections'])
             ->withCount(['sections', 'students'])
             ->ordered()
@@ -39,7 +42,8 @@ class SchoolClassController extends Controller
         return Inertia::render('Classes/Index', [
             'classes' => $classes,
             'schools' => $schools,
-            'filters' => $request->only(['search', 'school_id']),
+            'filters' => $request->only(['search', 'school_id', 'stage']),
+            'stages' => SchoolClass::STAGES,
         ]);
     }
 
@@ -62,6 +66,8 @@ class SchoolClassController extends Controller
         return Inertia::render('Classes/Create', [
             'schools' => $schools,
             'subjects' => $subjects,
+            'stages' => SchoolClass::STAGES,
+            'stageDescriptions' => SchoolClass::STAGE_DESCRIPTIONS,
             'prerequisites' => [
                 'hasSubjects' => $subjects->isNotEmpty(),
                 'subjectsMessage' => $subjects->isEmpty() ? 'No subjects found. Add subjects first to assign them to this class, or create the class now and assign subjects later.' : null,
@@ -80,6 +86,7 @@ class SchoolClassController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255'],
             'numeric_name' => ['nullable', 'integer'],
+            'stage' => ['nullable', 'in:' . implode(',', array_keys(SchoolClass::STAGES))],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'is_active' => ['boolean'],
             'subject_ids' => ['nullable', 'array'],
@@ -185,6 +192,8 @@ class SchoolClassController extends Controller
             'schoolClass' => $schoolClass,
             'schools' => $schools,
             'subjects' => $subjects,
+            'stages' => SchoolClass::STAGES,
+            'stageDescriptions' => SchoolClass::STAGE_DESCRIPTIONS,
         ]);
     }
 
@@ -199,6 +208,7 @@ class SchoolClassController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255'],
             'numeric_name' => ['nullable', 'integer'],
+            'stage' => ['nullable', 'in:' . implode(',', array_keys(SchoolClass::STAGES))],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'is_active' => ['boolean'],
             'subject_ids' => ['nullable', 'array'],

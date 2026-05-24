@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import Pagination from '@/Components/Pagination.vue'
 import { Head, Link, router } from '@inertiajs/vue3'
@@ -60,10 +61,11 @@ async function destroy(id) {
                         <input v-model="search" type="text" placeholder="Search title or excerpt…"
                             class="input input-bordered input-sm w-full pl-9 text-sm" />
                     </div>
-                    <select v-model="category" class="select select-bordered select-sm text-sm">
-                        <option value="">All categories</option>
-                        <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
-                    </select>
+                    <div class="min-w-[180px]">
+                        <SearchableSelect v-model="category" size="sm"
+                            :options="[{ value: '', label: 'All categories' }, ...(categories || []).map(c => ({ value: c, label: c }))]"
+                            placeholder="All categories" />
+                    </div>
                 </header>
 
                 <EmptyState v-if="!articles.data?.length"

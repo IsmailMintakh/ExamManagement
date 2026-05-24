@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import PageHeader from '@/Components/PageHeader.vue'
 import TimetableSubnav from '@/Components/timetable/TimetableSubnav.vue'
 import { Head, router, usePage } from '@inertiajs/vue3'
@@ -13,11 +14,14 @@ import {
 import { confirmAction } from '@/lib/swal'
 
 const props = defineProps({
+    fairness: { type: Object, default: () => ({ rows: [], avg: 0, total: 0, month_label: '' }) },
     date: String,
     today: String,
     teachers: { type: Array, default: () => [] },
     assignments: { type: Array, default: () => [] },
-    todaySlots: { type: Array, default: () => [] }, // [{id, name, starts_at}]
+    todaySlots: { type: Array, default: () => [] }, // school-wide period list (fallback)
+    stageLabels: { type: Object, default: () => ({}) },
+    coverStagePolicy: { type: String, default: 'strict' }, // 'strict' | 'open'
 })
 
 const dateInput = ref(props.date)
@@ -26,37 +30,86 @@ function changeDate(newDate) {
     router.get(route('timetable.adjustments'), { date: newDate }, { preserveScroll: true })
 }
 
+// ─── Cover policy toggle ───
+async function setPolicy(p) {
+    if (p === props.coverStagePolicy) return
+    const ok = await confirmAction({
+        title: p === 'strict' ? 'Switch to strict policy?' : 'Switch to open policy?',
+        text: p === 'strict'
+            ? 'Substitutes will be matched within the same stage only (e.g. Primary teachers stay with Primary classes).'
+            : 'Any qualified colleague can cover any stage (cluster-school mode).',
+        confirmText: 'Yes, switch',
+    })
+    if (!ok) return
+    router.post(route('timetable.adjustments.policy'),
+        { policy: p, date: props.date },
+        { preserveScroll: true })
+}
+
 // ─── Absence modal ───
-const absenceModal = ref(null) // null | { teacher, mode, fromTime, reason, isEdit }
+// mode: 'full'    → entire day
+//       'partial' → "left at HH:MM" (every period from that time on)
+//       'periods' → tick exact periods to cover (handles "left for P3-4
+//                   then came back for P5"). slotIds[] holds the picks.
+const absenceModal = ref(null) // null | { teacher, mode, fromTime, slotIds, reason, isEdit }
+
+// Picker shows the slots the teacher actually teaches (e.g. Primary's 6
+// periods for a Primary teacher); falls back to today's general slot list
+// so the picker is never empty.
+function slotsForAbsence(teacher) {
+    const own = Array.isArray(teacher?.slots) && teacher.slots.length ? teacher.slots : null
+    return own || props.todaySlots || []
+}
 
 function openMarkAbsent(teacher) {
+    const slots = slotsForAbsence(teacher)
     absenceModal.value = {
         teacher,
         mode: 'full',
-        fromTime: '',
+        fromTime: slots[0]?.starts_at || '',
+        slotIds: [],
         reason: '',
+        slots,
         isEdit: false,
     }
 }
 function openEditAbsence(teacher) {
+    const presetSlots = Array.isArray(teacher.absent_slot_ids) ? teacher.absent_slot_ids.map(Number) : []
+    const mode = presetSlots.length > 0 ? 'periods' : (teacher.from_time ? 'partial' : 'full')
+    const slots = slotsForAbsence(teacher)
     absenceModal.value = {
         teacher,
-        mode: teacher.from_time ? 'partial' : 'full',
-        fromTime: teacher.from_time || (props.todaySlots[0]?.starts_at || ''),
+        mode,
+        fromTime: teacher.from_time || (slots[0]?.starts_at || ''),
+        slotIds: presetSlots,
         reason: teacher.reason || '',
+        slots,
         isEdit: true,
     }
 }
 function closeAbsenceModal() { absenceModal.value = null }
 
+function toggleSlotForAbsence(slotId) {
+    const m = absenceModal.value
+    if (!m) return
+    const i = m.slotIds.indexOf(slotId)
+    if (i > -1) m.slotIds.splice(i, 1)
+    else m.slotIds.push(slotId)
+}
+
 function submitAbsence() {
     const m = absenceModal.value
     if (!m) return
+    if (m.mode === 'periods' && !m.slotIds.length) {
+        alert('Tick at least one period the teacher will miss.')
+        return
+    }
     router.post(route('timetable.adjustments.absence'), {
         user_id: m.teacher.id,
         date: props.date,
         reason: m.reason || null,
         from_time: m.mode === 'partial' ? m.fromTime : null,
+        absent_slot_ids: m.mode === 'periods' ? m.slotIds : null,
         action: m.isEdit ? 'update' : 'toggle',
     }, {
         preserveScroll: true,
@@ -139,6 +192,17 @@ const assignmentsBySubstitute = computed(() => {
 // Validation errors from confirm / reassign / decline guards.
 const formError = computed(() => usePage().props.errors?.adjustment)
 
+// Fairness UI — highlight rows that are ≥150% of the average, so an admin
+// instantly spots an overloaded teacher.
+const showFairness = ref(false)
+function fairnessClass(row) {
+    if (!props.fairness?.avg) return ''
+    if (row.covers_taken === 0) return 'text-base-content/40'
+    if (row.covers_taken >= props.fairness.avg * 1.5) return 'text-rose-700 dark:text-rose-300 font-bold'
+    if (row.covers_taken >= props.fairness.avg) return 'text-amber-700 dark:text-amber-300 font-semibold'
+    return 'text-emerald-700 dark:text-emerald-300'
+}
+
 function statusPill(status) {
     return {
         suggested: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 ring-amber-500/30',
@@ -170,6 +234,36 @@ function statusPill(status) {
             </PageHeader>
 
             <TimetableSubnav />
+
+            <!-- Cover policy toggle — strict vs open -->
+            <div class="rounded-2xl border border-base-300 bg-base-100 p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div class="text-xs text-base-content/70 flex-1">
+                    <p class="font-bold text-sm text-base-content">Who can cover for whom?</p>
+                    <p class="mt-0.5 leading-snug">
+                        <strong v-if="coverStagePolicy === 'strict'" class="text-rose-700 dark:text-rose-300">Strict:</strong>
+                        <strong v-else class="text-emerald-700 dark:text-emerald-300">Open:</strong>
+                        {{ coverStagePolicy === 'strict'
+                            ? 'Pre-Primary / Primary teachers will NOT be picked to cover Middle, Secondary or Higher Secondary classes (and vice-versa). A teacher who teaches across stages can cover any of their stages.'
+                            : 'Any qualified colleague can cover any class regardless of stage (cluster-school mode).' }}
+                    </p>
+                </div>
+                <div class="flex gap-1 rounded-xl border border-base-300 bg-base-200/40 p-1">
+                    <button type="button" @click="setPolicy('strict')"
+                        class="rounded-lg px-3 py-1.5 text-xs font-bold transition-colors"
+                        :class="coverStagePolicy === 'strict'
+                            ? 'bg-rose-500 text-white'
+                            : 'text-base-content/55 hover:bg-base-200'">
+                        Strict (by stage)
+                    </button>
+                    <button type="button" @click="setPolicy('open')"
+                        class="rounded-lg px-3 py-1.5 text-xs font-bold transition-colors"
+                        :class="coverStagePolicy === 'open'
+                            ? 'bg-emerald-500 text-white'
+                            : 'text-base-content/55 hover:bg-base-200'">
+                        Open (cluster)
+                    </button>
+                </div>
+            </div>
 
             <!-- Validation error (reassign / confirm blocked by a constraint) -->
             <div v-if="formError" class="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-2.5 flex items-start gap-2.5">
@@ -210,19 +304,29 @@ function statusPill(status) {
                     <div v-for="t in teachers" :key="t.id"
                         class="rounded-xl border p-3 transition-colors"
                         :class="t.absent
-                            ? (t.from_time ? 'bg-orange-500/10 border-orange-500/30' : 'bg-rose-500/10 border-rose-500/30')
+                            ? ((t.absent_slot_ids?.length || t.from_time) ? 'bg-orange-500/10 border-orange-500/30' : 'bg-rose-500/10 border-rose-500/30')
                             : 'bg-base-200/30 border-base-300'">
                         <div class="flex items-center gap-3">
                             <div class="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
                                 :class="t.absent
-                                    ? (t.from_time ? 'bg-orange-500 text-white' : 'bg-rose-500 text-white')
+                                    ? ((t.absent_slot_ids?.length || t.from_time) ? 'bg-orange-500 text-white' : 'bg-rose-500 text-white')
                                     : 'bg-base-300 text-base-content/55'">
                                 <UserMinusIcon v-if="t.absent" class="w-4 h-4" />
                                 <UserPlusIcon v-else class="w-4 h-4" />
                             </div>
                             <div class="flex-1 min-w-0">
-                                <p class="text-sm font-bold truncate">{{ t.name }}</p>
-                                <p v-if="t.absent && t.from_time"
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <p class="text-sm font-bold truncate">{{ t.name }}</p>
+                                    <span v-for="stg in (t.stages || [])" :key="stg"
+                                        class="badge badge-xs badge-ghost whitespace-nowrap">
+                                        {{ stageLabels?.[stg] || stg }}
+                                    </span>
+                                </div>
+                                <p v-if="t.absent && t.absent_slot_ids?.length"
+                                    class="text-[11px] text-orange-700 dark:text-orange-300 truncate font-semibold">
+                                    Absent for {{ t.absent_slot_ids.length }} period(s){{ t.reason ? ' · ' + t.reason : '' }}
+                                </p>
+                                <p v-else-if="t.absent && t.from_time"
                                     class="text-[11px] text-orange-700 dark:text-orange-300 truncate font-semibold">
                                     Left after {{ t.from_time }}{{ t.reason ? ' · ' + t.reason : '' }}
                                 </p>
@@ -251,6 +355,53 @@ function statusPill(status) {
                             </template>
                         </div>
                     </div>
+                </div>
+            </section>
+
+            <!-- Fairness audit — monthly cover counts -->
+            <section v-if="fairness?.rows?.length" class="rounded-2xl border border-violet-500/30 bg-violet-500/5 overflow-hidden">
+                <header class="px-5 py-3 border-b border-violet-500/30 flex items-center gap-2 cursor-pointer"
+                    @click="showFairness = !showFairness">
+                    <div class="w-8 h-8 rounded-lg bg-violet-500/15 text-violet-700 dark:text-violet-300 flex items-center justify-center">
+                        <QuestionMarkCircleIcon class="w-4 h-4" />
+                    </div>
+                    <div class="flex-1">
+                        <h2 class="text-sm font-bold">Fairness audit — {{ fairness.month_label }}</h2>
+                        <p class="text-[11px] text-base-content/55 mt-0.5">
+                            Total covers: <span class="font-bold tabular-nums">{{ fairness.total }}</span>
+                            · Avg per teacher: <span class="font-bold tabular-nums">{{ fairness.avg }}</span>
+                            · Click to {{ showFairness ? 'hide' : 'show' }} breakdown
+                        </p>
+                    </div>
+                </header>
+                <div v-if="showFairness" class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-base-200/40 text-[10px] uppercase tracking-wider text-base-content/55">
+                            <tr>
+                                <th class="text-left px-3 py-2 font-bold">Teacher</th>
+                                <th class="text-right px-3 py-2 font-bold">Covers taken</th>
+                                <th class="text-right px-3 py-2 font-bold">Covered for them</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-base-300">
+                            <tr v-for="row in fairness.rows" :key="row.id" class="hover:bg-base-200/30">
+                                <td class="px-3 py-2 text-sm">{{ row.name }}</td>
+                                <td class="px-3 py-2 text-right tabular-nums" :class="fairnessClass(row)">
+                                    {{ row.covers_taken }}
+                                </td>
+                                <td class="px-3 py-2 text-right text-xs text-base-content/60 tabular-nums">
+                                    {{ row.covered_for }}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p class="text-[11px] text-base-content/55 px-3 py-2 border-t border-base-300 bg-base-200/30">
+                        Colour key: <span class="text-rose-700 dark:text-rose-300 font-bold">≥ 150% of avg (overloaded)</span>
+                        · <span class="text-amber-700 dark:text-amber-300 font-semibold">≥ avg</span>
+                        · <span class="text-emerald-700 dark:text-emerald-300">below avg</span>
+                        · <span class="text-base-content/40">none yet</span>.
+                        The algorithm penalises teachers with high recent loads to keep this distribution even.
+                    </p>
                 </div>
             </section>
 
@@ -388,7 +539,7 @@ function statusPill(status) {
                     <p class="text-xs text-base-content/65 mb-4">{{ absenceModal.teacher.name }}</p>
 
                     <!-- Mode picker -->
-                    <div class="grid grid-cols-2 gap-2 mb-3">
+                    <div class="grid grid-cols-3 gap-2 mb-3">
                         <button type="button" @click="absenceModal.mode = 'full'"
                             class="rounded-xl p-3 text-left ring-2 transition-colors"
                             :class="absenceModal.mode === 'full'
@@ -396,9 +547,9 @@ function statusPill(status) {
                                 : 'ring-base-300 bg-base-200/30 hover:bg-base-200/60'">
                             <div class="flex items-center gap-2 mb-1">
                                 <UserMinusIcon class="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                                <span class="font-bold text-sm">Full day</span>
+                                <span class="font-bold text-xs">Full day</span>
                             </div>
-                            <p class="text-[11px] text-base-content/60">Absent the whole day. Every period needs a cover.</p>
+                            <p class="text-[10px] text-base-content/60">Absent whole day.</p>
                         </button>
                         <button type="button" @click="absenceModal.mode = 'partial'"
                             class="rounded-xl p-3 text-left ring-2 transition-colors"
@@ -407,25 +558,64 @@ function statusPill(status) {
                                 : 'ring-base-300 bg-base-200/30 hover:bg-base-200/60'">
                             <div class="flex items-center gap-2 mb-1">
                                 <ClockIcon class="w-4 h-4 text-orange-600 dark:text-orange-400" />
-                                <span class="font-bold text-sm">Left mid-day</span>
+                                <span class="font-bold text-xs">Left at time</span>
                             </div>
-                            <p class="text-[11px] text-base-content/60">Took some classes, then left. Only later periods need cover.</p>
+                            <p class="text-[10px] text-base-content/60">All periods after a time.</p>
+                        </button>
+                        <button type="button" @click="absenceModal.mode = 'periods'"
+                            class="rounded-xl p-3 text-left ring-2 transition-colors"
+                            :class="absenceModal.mode === 'periods'
+                                ? 'ring-amber-500 bg-amber-500/10'
+                                : 'ring-base-300 bg-base-200/30 hover:bg-base-200/60'">
+                            <div class="flex items-center gap-2 mb-1">
+                                <ClockIcon class="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                                <span class="font-bold text-xs">Pick periods</span>
+                            </div>
+                            <p class="text-[10px] text-base-content/60">Tick exact periods to cover.</p>
                         </button>
                     </div>
 
-                    <!-- Slot picker (partial only) -->
+                    <!-- Slot picker (left-at-time mode) -->
                     <div v-if="absenceModal.mode === 'partial'" class="mb-3">
                         <label class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 block mb-1.5">
                             Absent from
                         </label>
-                        <select v-model="absenceModal.fromTime"
-                            class="select select-bordered select-sm rounded-lg w-full text-sm">
-                            <option v-for="s in todaySlots" :key="s.id" :value="s.starts_at">
-                                {{ s.name }} (from {{ s.starts_at }})
-                            </option>
-                        </select>
+                        <SearchableSelect v-model="absenceModal.fromTime" size="sm"
+                            :options="absenceModal.slots.map(s => ({
+                                value: s.starts_at,
+                                label: `${s.name} (from ${s.starts_at})`,
+                                sublabel: s.stage ? (stageLabels?.[s.stage] || s.stage) : '',
+                            }))"
+                            placeholder="Select start time" />
                         <p class="text-[11px] text-base-content/55 mt-1">
                             All periods starting at <strong>{{ absenceModal.fromTime }}</strong> or later will be auto-covered.
+                        </p>
+                    </div>
+
+                    <!-- Per-period checkbox picker -->
+                    <div v-if="absenceModal.mode === 'periods'" class="mb-3">
+                        <label class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 block mb-1.5">
+                            Periods to cover ({{ absenceModal.slotIds.length }} ticked)
+                        </label>
+                        <div class="rounded-xl border border-amber-500/30 bg-amber-500/5 p-2 max-h-60 overflow-y-auto">
+                            <div v-if="!absenceModal.slots.length" class="text-xs text-base-content/55 italic p-2">
+                                No bell schedule configured for this teacher's stage. Set one up in
+                                Timetable → Bell Schedule first.
+                            </div>
+                            <label v-for="s in absenceModal.slots" :key="s.id"
+                                class="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-base-200/40 transition-colors">
+                                <input type="checkbox"
+                                    :checked="absenceModal.slotIds.includes(s.id)"
+                                    @change="toggleSlotForAbsence(s.id)"
+                                    class="checkbox checkbox-sm checkbox-warning" />
+                                <span class="font-bold text-sm flex-1">{{ s.name }}</span>
+                                <span v-if="s.stage" class="badge badge-xs badge-ghost">{{ stageLabels?.[s.stage] || s.stage }}</span>
+                                <span class="font-mono text-[11px] text-base-content/55">from {{ s.starts_at }}</span>
+                            </label>
+                        </div>
+                        <p class="text-[11px] text-base-content/55 mt-1.5 leading-snug">
+                            Tick only the periods the teacher will <strong>not</strong> take. Unticked periods stay
+                            with them (e.g. she takes P1, P2, then leaves for P3–P4, returns for P5).
                         </p>
                     </div>
 
@@ -457,12 +647,9 @@ function statusPill(status) {
                     <p class="text-xs text-base-content/65 mb-3">
                         Pick a different teacher to cover <strong>{{ reassignTarget.subject }}</strong> for {{ reassignTarget.class }} · {{ reassignTarget.section }} ({{ reassignTarget.time_slot }}).
                     </p>
-                    <select v-model="reassignTo" class="select select-bordered w-full text-sm">
-                        <option value="">— Select teacher —</option>
-                        <option v-for="t in teachers.filter(x => !x.absent)" :key="t.id" :value="t.id">
-                            {{ t.name }}
-                        </option>
-                    </select>
+                    <SearchableSelect v-model="reassignTo"
+                        :options="[{ value: '', label: '— Select teacher —' }, ...teachers.filter(x => !x.absent).map(t => ({ value: t.id, label: t.name }))]"
+                        placeholder="— Select teacher —" />
                     <div class="modal-action">
                         <button @click="closeReassign" class="btn btn-ghost btn-sm">Cancel</button>
                         <button @click="submitReassign" :disabled="!reassignTo" class="btn btn-primary btn-sm">Reassign</button>

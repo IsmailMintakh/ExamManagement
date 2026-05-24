@@ -139,18 +139,42 @@ class TimetableController extends Controller
         ]);
     }
 
-    /** GET /timetable/setup — bell-schedule editor. */
+    /** GET /timetable/setup — bell-schedule editor (per stage). */
     public function setup(Request $request): Response
     {
         $this->ensureManager($request);
         $school = $this->resolveSchool($request);
         abort_if(!$school, 404);
 
-        $slots = TimeSlot::where('school_id', $school->id)->ordered()->get();
+        // ?stage=primary  → that stage's slots only
+        // ?stage=         → school-wide defaults (stage IS NULL)
+        $stage = $request->input('stage');
+        $stage = in_array($stage, array_keys(\App\Models\SchoolClass::STAGES), true) ? $stage : null;
+
+        $slots = TimeSlot::query()
+            ->where('school_id', $school->id)
+            ->when($stage, fn ($q) => $q->where('stage', $stage), fn ($q) => $q->whereNull('stage'))
+            ->ordered()
+            ->get();
+
+        // Count how many slots already exist per stage so the tab strip can
+        // badge them ("Pre-primary · 5 slots"). Use '' for the school-wide
+        // default so the JSON key is always a string (Vue can't key a null).
+        $rows = TimeSlot::where('school_id', $school->id)
+            ->selectRaw('stage, COUNT(*) as cnt')
+            ->groupBy('stage')
+            ->get();
+        $countsPerStage = [];
+        foreach ($rows as $r) {
+            $countsPerStage[$r->stage ?? ''] = (int) $r->cnt;
+        }
 
         return Inertia::render('Timetable/Setup', [
             'school' => ['id' => $school->id, 'name' => $school->name],
             'slots' => $slots,
+            'stages' => \App\Models\SchoolClass::STAGES,
+            'selectedStage' => $stage,
+            'countsPerStage' => $countsPerStage,
         ]);
     }
 
@@ -162,6 +186,7 @@ class TimetableController extends Controller
         abort_if(!$school, 404);
 
         $validated = $request->validate([
+            'stage' => ['nullable', 'in:' . implode(',', array_keys(\App\Models\SchoolClass::STAGES))],
             'slots' => ['required', 'array', 'min:1'],
             'slots.*.id' => ['nullable', 'integer'],
             'slots.*.name' => ['required', 'string', 'max:60'],
@@ -172,10 +197,18 @@ class TimetableController extends Controller
             'slots.*.weekdays.*' => ['in:mon,tue,wed,thu,fri,sat'],
         ]);
 
+        // The save replaces only the slots for the chosen scope:
+        //   stage = null  → school-wide defaults (slots WHERE stage IS NULL)
+        //   stage = X     → that stage's slots only
+        // Slots for other stages are untouched so each stage's bell schedule
+        // is fully independent.
+        $stage = $validated['stage'] ?? null;
+
         $kept = [];
         foreach ($validated['slots'] as $i => $slotData) {
             $payload = [
                 'school_id' => $school->id,
+                'stage' => $stage,
                 'name' => $slotData['name'],
                 'type' => $slotData['type'],
                 'starts_at' => $slotData['starts_at'],
@@ -194,11 +227,17 @@ class TimetableController extends Controller
             $created = TimeSlot::create($payload);
             $kept[] = $created->id;
         }
-        // Delete any slots no longer in the submitted list.
-        TimeSlot::where('school_id', $school->id)->whereNotIn('id', $kept)->delete();
+        // Delete any slots in the SAME scope no longer in the submitted list.
+        TimeSlot::where('school_id', $school->id)
+            ->when($stage, fn ($q) => $q->where('stage', $stage), fn ($q) => $q->whereNull('stage'))
+            ->whereNotIn('id', $kept)
+            ->delete();
 
-        return redirect()->route('timetable.index', ['school_id' => $school->id])
-            ->with('success', 'Bell schedule saved.');
+        $back = ['school_id' => $school->id];
+        if ($stage) $back['stage'] = $stage;
+
+        return redirect()->route('timetable.setup', $back)
+            ->with('success', 'Bell schedule saved' . ($stage ? ' for '.\App\Models\SchoolClass::STAGES[$stage] : '') . '.');
     }
 
     /** GET /timetable/builder/{section} — grid editor for one section. */
@@ -210,7 +249,8 @@ class TimetableController extends Controller
         $user = $request->user();
         if (!$user->isSuperAdmin() && $user->school_id !== $schoolId) abort(403);
 
-        $slots = TimeSlot::where('school_id', $schoolId)->ordered()->get();
+        // Per-stage bell schedule (falls back to school-wide default).
+        $slots = TimeSlot::forSection($section);
         if ($slots->isEmpty()) {
             return Inertia::render('Timetable/EmptySchedule', [
                 'school' => ['id' => $schoolId, 'name' => $section->schoolClass->school->name],
@@ -259,6 +299,25 @@ class TimetableController extends Controller
                 'teacher_name' => $a->user->name,
             ])->values();
 
+        // Teacher-busy map: for every (teacher, slot) already used in ANOTHER
+        // section of this school in the current session, record the section
+        // label so the UI can warn before the user picks a conflicting cell.
+        // The routine is a daily-fixed pattern (same subject each day per
+        // period), so (teacher, slot) is enough — no need to bucket by day.
+        $busyRows = TimetableEntry::forSession($this->sessionId())
+            ->whereHas('section.schoolClass', fn ($q) => $q->where('school_id', $schoolId))
+            ->where('section_id', '!=', $section->id)
+            ->whereNotNull('teacher_id')
+            ->with(['section.schoolClass:id,name', 'teacher:id,name'])
+            ->get(['teacher_id', 'time_slot_id', 'section_id']);
+
+        $teacherBusy = [];
+        foreach ($busyRows as $row) {
+            $cls = $row->section?->schoolClass?->name ?? '—';
+            $sec = $row->section?->name ?? '—';
+            $teacherBusy[$row->teacher_id.'|'.$row->time_slot_id] = "{$cls} · {$sec}";
+        }
+
         // Other sections (for "copy from" picker) — must have entries to copy.
         $copyCandidates = Section::query()
             ->whereHas('schoolClass', fn ($q) => $q->where('school_id', $schoolId))
@@ -299,6 +358,7 @@ class TimetableController extends Controller
             'subjects' => $subjects,
             'teachers' => $teachers,
             'assignments' => $assignments,
+            'teacherBusy' => $teacherBusy,
         ]);
     }
 
@@ -615,17 +675,24 @@ class TimetableController extends Controller
 
         $validated = $request->validate([
             'preset' => ['required', 'in:winter,summer,ramadan'],
+            'stage' => ['nullable', 'in:' . implode(',', array_keys(\App\Models\SchoolClass::STAGES))],
         ]);
 
         $presets = $this->bellSchedulePresets();
         $preset = $presets[$validated['preset']] ?? null;
         abort_if(!$preset, 422);
 
-        \DB::transaction(function () use ($school, $preset) {
-            TimeSlot::where('school_id', $school->id)->delete();
+        $stage = $validated['stage'] ?? null;
+
+        \DB::transaction(function () use ($school, $preset, $stage) {
+            // Only nuke the matching scope, leave other stages alone.
+            TimeSlot::where('school_id', $school->id)
+                ->when($stage, fn ($q) => $q->where('stage', $stage), fn ($q) => $q->whereNull('stage'))
+                ->delete();
             foreach ($preset['slots'] as $i => $slot) {
                 TimeSlot::create([
                     'school_id' => $school->id,
+                    'stage' => $stage,
                     'name' => $slot['name'],
                     'type' => $slot['type'],
                     'starts_at' => $slot['starts_at'],
@@ -636,8 +703,11 @@ class TimetableController extends Controller
             }
         });
 
-        return redirect()->route('timetable.setup', ['school_id' => $school->id])
-            ->with('success', 'Applied "' . $preset['label'] . '" bell schedule preset. Tweak as needed.');
+        $back = ['school_id' => $school->id];
+        if ($stage) $back['stage'] = $stage;
+
+        return redirect()->route('timetable.setup', $back)
+            ->with('success', 'Applied "' . $preset['label'] . '" preset' . ($stage ? ' for '.\App\Models\SchoolClass::STAGES[$stage] : '') . '. Tweak as needed.');
     }
 
     /** Bell-schedule preset library. */
@@ -698,7 +768,7 @@ class TimetableController extends Controller
         $user = request()->user();
         if (!$user->isSuperAdmin() && $user->school_id !== $section->schoolClass->school_id) abort(403);
 
-        $slots = TimeSlot::where('school_id', $section->schoolClass->school_id)->ordered()->get();
+        $slots = TimeSlot::forSection($section);
         $entries = TimetableEntry::forSession()
             ->where('section_id', $section->id)
             ->with(['subject:id,name,code', 'teacher:id,name'])
@@ -747,7 +817,7 @@ class TimetableController extends Controller
     public function sectionPdf(Section $section)
     {
         $section->load('schoolClass.school');
-        $slots = TimeSlot::where('school_id', $section->schoolClass->school_id)->ordered()->get();
+        $slots = TimeSlot::forSection($section);
         $entries = TimetableEntry::forSession()
             ->where('section_id', $section->id)
             ->with(['subject:id,name,code', 'teacher:id,name'])
@@ -802,20 +872,46 @@ class TimetableController extends Controller
         $user = $request->user();
         if (!$user->isSuperAdmin() && $user->school_id !== $school->id) abort(403);
 
-        $slots = TimeSlot::where('school_id', $school->id)->ordered()->get();
+        $allSlots = TimeSlot::where('school_id', $school->id)->ordered()->get();
+        $slotsByStage = $allSlots->groupBy('stage');
+        $defaultSlots = $slotsByStage->get('') ?? $slotsByStage->get(null) ?? collect();
+
         $sections = Section::query()
             ->whereHas('schoolClass', fn ($q) => $q->where('school_id', $school->id))
-            ->with('schoolClass:id,name,sort_order')
+            ->with('schoolClass:id,name,sort_order,stage')
             ->active()
             ->get()
             ->sortBy(fn ($s) => sprintf('%05d-%s', $s->schoolClass?->sort_order ?? 999, $s->name))
             ->values();
 
+        // Build per-stage blocks: each carries its own slot set + the sections
+        // belonging to it. This is what the wall view renders — one table per
+        // stage instead of one P1–P17 mega-matrix.
+        $sectionsByStage = $sections->groupBy(fn ($s) => $s->schoolClass?->stage ?: '');
+        $stageBlocks = collect();
+        foreach (['pre_primary', 'primary', 'middle', 'secondary', 'higher_secondary', ''] as $stageKey) {
+            $secs = $sectionsByStage->get($stageKey) ?? collect();
+            if ($secs->isEmpty()) continue;
+            $stageSlots = $stageKey ? ($slotsByStage->get($stageKey) ?? collect()) : collect();
+            if ($stageSlots->isEmpty()) $stageSlots = $defaultSlots;
+            if ($stageSlots->isEmpty()) continue;
+            $stageBlocks->push([
+                'key' => $stageKey,
+                'label' => $stageKey ? (SchoolClass::STAGES[$stageKey] ?? $stageKey) : 'Other classes',
+                'slots' => $stageSlots->values(),
+                'sections' => $secs->map(fn ($s) => [
+                    'id' => $s->id,
+                    'name' => $s->name,
+                    'class_name' => $s->schoolClass?->name,
+                    'school_class_id' => $s->school_class_id,
+                ])->values(),
+            ]);
+        }
+
         $entries = TimetableEntry::forSession()
             ->whereIn('section_id', $sections->pluck('id'))
             ->with(['subject:id,name,code', 'teacher:id,name'])
             ->get()
-            // Key: "<weekday>|<slotId>|<sectionId>" → entry, for O(1) lookup in the grid.
             ->keyBy(fn ($e) => $e->weekday . '|' . $e->time_slot_id . '|' . $e->section_id);
 
         $allSchools = $user->isSuperAdmin()
@@ -824,7 +920,10 @@ class TimetableController extends Controller
 
         return Inertia::render('Timetable/Master', [
             'school' => ['id' => $school->id, 'name' => $school->name],
-            'slots' => $slots,
+            'stageBlocks' => $stageBlocks,
+            // Kept for backward-compat with any consumer relying on the flat list;
+            // the new UI prefers stageBlocks.
+            'slots' => $allSlots,
             'sections' => $sections->map(fn ($s) => [
                 'id' => $s->id,
                 'name' => $s->name,
@@ -850,17 +949,17 @@ class TimetableController extends Controller
         $user = $request->user();
         if (!$user->isSuperAdmin() && $user->school_id !== $school->id) abort(403);
 
-        $slots = TimeSlot::where('school_id', $school->id)
+        $allPeriodSlots = TimeSlot::where('school_id', $school->id)
             ->where('type', 'period')
-            ->orderBy('starts_at')
+            ->ordered()
             ->get();
-        abort_if($slots->isEmpty(), 404, 'Bell schedule not configured.');
-
-        $allSlots = TimeSlot::where('school_id', $school->id)->ordered()->get();
+        abort_if($allPeriodSlots->isEmpty(), 404, 'Bell schedule not configured.');
+        $periodsByStage = $allPeriodSlots->groupBy('stage');
+        $defaultPeriods = $periodsByStage->get('') ?? $periodsByStage->get(null) ?? collect();
 
         $sections = Section::query()
             ->whereHas('schoolClass', fn ($q) => $q->where('school_id', $school->id))
-            ->with('schoolClass:id,name,sort_order')
+            ->with('schoolClass:id,name,sort_order,stage')
             ->active()
             ->get()
             ->sortBy(fn ($s) => sprintf('%05d-%s', $s->schoolClass?->sort_order ?? 999, $s->name))
@@ -905,11 +1004,36 @@ class TimetableController extends Controller
         $show = $request->input('show', 'both'); // subject | teacher | both
         if (!in_array($show, ['subject', 'teacher', 'both'], true)) $show = 'both';
 
+        // Build one block per stage so each table only shows that stage's
+        // slots (and only the sections that belong to that stage). Without
+        // this, the routine renders a single matrix of every stage's slots
+        // concatenated — Nursery would print 17 columns instead of 4.
+        $sectionsByStage = $sections->groupBy(fn ($s) => $s->schoolClass?->stage ?: '');
+
+        $blocks = collect();
+        foreach (['pre_primary', 'primary', 'middle', 'secondary', 'higher_secondary', ''] as $stageKey) {
+            $secs = $sectionsByStage->get($stageKey) ?? collect();
+            if ($secs->isEmpty()) {
+                continue;
+            }
+            $stagePeriods = $stageKey ? ($periodsByStage->get($stageKey) ?? collect()) : collect();
+            if ($stagePeriods->isEmpty()) {
+                $stagePeriods = $defaultPeriods;
+            }
+            if ($stagePeriods->isEmpty()) {
+                continue;
+            }
+            $blocks->push([
+                'stage' => $stageKey,
+                'stage_label' => $stageKey ? (SchoolClass::STAGES[$stageKey] ?? $stageKey) : 'Other classes',
+                'sections' => $secs->values(),
+                'period_slots' => $stagePeriods->values(),
+            ]);
+        }
+
         $pdf = Pdf::loadView('reports.timetable-routine', [
             'school' => $school,
-            'periodSlots' => $slots,
-            'allSlots' => $allSlots,
-            'sections' => $sections,
+            'blocks' => $blocks,
             'consolidated' => $consolidated,
             'generatedAt' => now(),
             'session' => $session,
@@ -920,8 +1044,10 @@ class TimetableController extends Controller
     }
 
     /**
-     * GET /timetable/master/pdf — same matrix, one A4-landscape page per
-     * weekday. Typical use: print 6 sheets, pin them in the staff room.
+     * GET /timetable/master/pdf — one block per stage (each with its own
+     * bell schedule), per weekday. Typical use: print, pin in the staff
+     * room. Without per-stage grouping a Nursery row would span 17 columns
+     * of mostly-empty cells.
      */
     public function masterPdf(Request $request)
     {
@@ -930,16 +1056,31 @@ class TimetableController extends Controller
         $user = $request->user();
         if (!$user->isSuperAdmin() && $user->school_id !== $school->id) abort(403);
 
-        $slots = TimeSlot::where('school_id', $school->id)->ordered()->get();
-        abort_if($slots->isEmpty(), 404, 'Bell schedule not configured.');
+        $allSlots = TimeSlot::where('school_id', $school->id)->ordered()->get();
+        abort_if($allSlots->isEmpty(), 404, 'Bell schedule not configured.');
+        $slotsByStage = $allSlots->groupBy('stage');
+        $defaultSlots = $slotsByStage->get('') ?? $slotsByStage->get(null) ?? collect();
 
         $sections = Section::query()
             ->whereHas('schoolClass', fn ($q) => $q->where('school_id', $school->id))
-            ->with('schoolClass:id,name,sort_order')
+            ->with('schoolClass:id,name,sort_order,stage')
             ->active()
             ->get()
             ->sortBy(fn ($s) => sprintf('%05d-%s', $s->schoolClass?->sort_order ?? 999, $s->name))
             ->values();
+
+        // Group sections by stage so the PDF can render one block per stage
+        // with the right slots. Sections with an unknown stage land in a
+        // catch-all "default" block.
+        $stageLabels = SchoolClass::STAGES;
+        $sectionsByStage = $sections->groupBy(fn ($s) => $s->schoolClass?->stage ?: '');
+
+        // Pre-build the [stage => slots] map mirroring how each block prints.
+        $blockSlotsByStage = [];
+        foreach ($sectionsByStage as $stageKey => $secs) {
+            $stageSlots = $stageKey ? ($slotsByStage->get($stageKey) ?? collect()) : collect();
+            $blockSlotsByStage[$stageKey] = $stageSlots->isNotEmpty() ? $stageSlots : $defaultSlots;
+        }
 
         $entries = TimetableEntry::forSession()
             ->whereIn('section_id', $sections->pluck('id'))
@@ -949,8 +1090,9 @@ class TimetableController extends Controller
 
         $pdf = Pdf::loadView('reports.timetable-master', [
             'school' => $school,
-            'slots' => $slots,
-            'sections' => $sections,
+            'sectionsByStage' => $sectionsByStage,
+            'slotsByStage' => $blockSlotsByStage,
+            'stageLabels' => $stageLabels,
             'entries' => $entries,
         ])->setPaper('a3', 'landscape');
 
@@ -965,16 +1107,30 @@ class TimetableController extends Controller
         $user = $request->user();
         if (!$user->isSuperAdmin() && $user->school_id !== $school->id) abort(403);
 
-        $slots = TimeSlot::where('school_id', $school->id)->ordered()->get();
-        abort_if($slots->isEmpty(), 404, 'Bell schedule not configured.');
+        // Each section gets the bell schedule for its own stage (or the
+        // school-wide default if the stage has none). Without this, a Nursery
+        // section would print 17 periods instead of 4.
+        $allSlots = TimeSlot::where('school_id', $school->id)->ordered()->get();
+        abort_if($allSlots->isEmpty(), 404, 'Bell schedule not configured.');
+        $slotsByStage = $allSlots->groupBy('stage');
+        $defaultSlots = $slotsByStage->get('') ?? $slotsByStage->get(null) ?? collect();
 
         $sections = Section::query()
             ->whereHas('schoolClass', fn ($q) => $q->where('school_id', $school->id))
-            ->with(['schoolClass:id,name,sort_order'])
+            ->with(['schoolClass:id,name,sort_order,stage'])
             ->active()
             ->orderBy(SchoolClass::select('sort_order')->whereColumn('school_classes.id', 'sections.school_class_id'))
             ->orderBy('name')
             ->get();
+
+        // Slot list per section — keyed by section_id so the template doesn't
+        // need to know about the stage logic.
+        $slotsBySection = [];
+        foreach ($sections as $sec) {
+            $stage = $sec->schoolClass?->stage;
+            $stageSlots = $stage ? ($slotsByStage->get($stage) ?? collect()) : collect();
+            $slotsBySection[$sec->id] = $stageSlots->isNotEmpty() ? $stageSlots : $defaultSlots;
+        }
 
         $entriesBySection = TimetableEntry::forSession()
             ->whereIn('section_id', $sections->pluck('id'))
@@ -986,7 +1142,7 @@ class TimetableController extends Controller
         $pdf = Pdf::loadView('reports.timetable-school', [
             'school' => $school,
             'sections' => $sections,
-            'slots' => $slots,
+            'slotsBySection' => $slotsBySection,
             'entriesBySection' => $entriesBySection,
         ])->setPaper('a4', 'landscape');
 

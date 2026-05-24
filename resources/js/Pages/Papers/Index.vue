@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import Pagination from '@/Components/Pagination.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
@@ -72,14 +73,14 @@ function formatDate(d) {
                                 placeholder="Search paper title or exam name..."
                                 class="input input-bordered input-sm w-full" />
                         </div>
-                        <select v-model="filters.subject_id" @change="applyFilters" class="select select-bordered select-sm">
-                            <option value="">All Subjects</option>
-                            <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
-                        </select>
-                        <select v-model="filters.school_class_id" @change="applyFilters" class="select select-bordered select-sm">
-                            <option value="">All Classes</option>
-                            <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.name }}</option>
-                        </select>
+                        <SearchableSelect v-model="filters.subject_id" size="sm"
+                            :options="[{ value: '', label: 'All Subjects' }, ...subjects.map(s => ({ value: s.id, label: s.name }))]"
+                            placeholder="All Subjects"
+                            @change="applyFilters" />
+                        <SearchableSelect v-model="filters.school_class_id" size="sm"
+                            :options="[{ value: '', label: 'All Classes' }, ...classes.map(c => ({ value: c.id, label: c.name }))]"
+                            placeholder="All Classes"
+                            @change="applyFilters" />
                     </div>
                 </div>
             </div>

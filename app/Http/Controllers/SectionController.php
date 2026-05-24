@@ -45,9 +45,21 @@ class SectionController extends Controller
             ->ordered()
             ->get(['id', 'name', 'school_id']);
 
+        // For the inline "Class Teacher" dropdown on each row — admins can
+        // shuffle assignments without opening the edit form. Class-teachers
+        // viewing their own section don't need this list.
+        $teachers = $user->isSuperAdmin() || $user->isSchoolAdmin()
+            ? User::role('class-teacher')
+                ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+                ->active()
+                ->orderBy('name')
+                ->get(['id', 'name'])
+            : collect();
+
         return Inertia::render('Sections/Index', [
             'sections' => $sections,
             'classes' => $classes,
+            'teachers' => $teachers,
             'filters' => $request->only(['search', 'class_id']),
         ]);
     }
@@ -158,5 +170,24 @@ class SectionController extends Controller
         $section->delete();
 
         return redirect()->route('sections.index')->with('success', 'Section deleted successfully.');
+    }
+
+    /**
+     * Inline reassignment of the class teacher from the Sections index page —
+     * the full update endpoint requires every section field, which makes a
+     * one-field PATCH from a dropdown awkward. This dedicated endpoint lets
+     * admins shuffle class teachers in one click without opening the edit form.
+     */
+    public function updateClassTeacher(Request $request, Section $section): RedirectResponse
+    {
+        $this->authorize('update', $section);
+
+        $validated = $request->validate([
+            'class_teacher_id' => ['nullable', 'exists:users,id'],
+        ]);
+
+        $section->update($validated);
+
+        return back()->with('success', 'Class teacher updated.');
     }
 }

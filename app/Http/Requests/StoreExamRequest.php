@@ -43,6 +43,12 @@ class StoreExamRequest extends FormRequest
             'exam_type_id' => ['required', 'exists:exam_types,id'],
             'academic_session_id' => ['required', 'exists:academic_sessions,id'],
             'grading_scale_id' => ['nullable', 'exists:grading_scales,id'],
+            'term' => ['nullable', 'in:first,second,final'],
+            'combine_previous_terms' => ['boolean'],
+            'term_weights' => ['nullable', 'array'],
+            'term_weights.first' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'term_weights.second' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'term_weights.final' => ['nullable', 'integer', 'min:0', 'max:100'],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
             'description' => ['nullable', 'string', 'max:1000'],
@@ -84,5 +90,28 @@ class StoreExamRequest extends FormRequest
             'subjects.*.exam_date.after_or_equal' => 'Each subject paper date must fall on or after the exam start date.',
             'subjects.*.exam_date.before_or_equal' => 'Each subject paper date must fall on or before the exam end date.',
         ];
+    }
+
+    /**
+     * Reject "combine previous terms" unless this is the final-term exam and
+     * the three weights add up to 100. We do this after validate() so the
+     * standard rules fire first.
+     */
+    public function withValidator(\Illuminate\Contracts\Validation\Validator $validator): void
+    {
+        $validator->after(function ($v) {
+            if (!$this->boolean('combine_previous_terms')) return;
+            if ($this->input('term') !== 'final') {
+                $v->errors()->add('combine_previous_terms',
+                    'Only the final-term exam can combine previous terms. Set term = "Final" first.');
+                return;
+            }
+            $w = $this->input('term_weights', []);
+            $sum = (int) ($w['first'] ?? 0) + (int) ($w['second'] ?? 0) + (int) ($w['final'] ?? 0);
+            if ($sum !== 100) {
+                $v->errors()->add('term_weights',
+                    "Term weights must add up to 100 (currently {$sum}).");
+            }
+        });
     }
 }

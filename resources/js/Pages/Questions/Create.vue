@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import { Head, Link, useForm } from '@inertiajs/vue3'
 import { computed, watch } from 'vue'
 import { invalidatePageCache } from '@/Composables/useCacheInvalidation'
@@ -223,18 +224,20 @@ function submit() {
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
                                 <label class="text-[11px] font-semibold text-base-content/65 uppercase tracking-wider">Subject <span class="text-error">*</span></label>
-                                <select v-model="form.subject_id" required class="select select-bordered select-sm w-full mt-1">
-                                    <option value="">Choose subject...</option>
-                                    <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
-                                </select>
+                                <div class="mt-1">
+                                    <SearchableSelect v-model="form.subject_id" size="sm"
+                                        :options="subjects.map(s => ({ value: s.id, label: s.name }))"
+                                        placeholder="Choose subject..." />
+                                </div>
                                 <p v-if="form.errors.subject_id" class="mt-1 text-xs text-error">{{ form.errors.subject_id }}</p>
                             </div>
                             <div>
                                 <label class="text-[11px] font-semibold text-base-content/65 uppercase tracking-wider">Class <span class="text-base-content/40">(any)</span></label>
-                                <select v-model="form.school_class_id" class="select select-bordered select-sm w-full mt-1">
-                                    <option value="">Any class</option>
-                                    <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.name }}</option>
-                                </select>
+                                <div class="mt-1">
+                                    <SearchableSelect v-model="form.school_class_id" size="sm"
+                                        :options="[{ value: '', label: 'Any class' }, ...classes.map(c => ({ value: c.id, label: c.name }))]"
+                                        placeholder="Any class" />
+                                </div>
                             </div>
                         </div>
 

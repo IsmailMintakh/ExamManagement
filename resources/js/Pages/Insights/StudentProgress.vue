@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import StatCard from '@/Components/StatCard.vue'
 import { Head, router, Link } from '@inertiajs/vue3'
 import { computed, ref } from 'vue'
@@ -148,27 +149,25 @@ const maxPct = computed(() => {
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 flex items-center gap-1">
                                     <BuildingLibraryIcon class="w-3 h-3" /> School
                                 </label>
-                                <select v-model="schoolId" class="select select-bordered select-sm w-full text-sm">
-                                    <option value="">All schools</option>
-                                    <option v-for="s in schools" :key="s.id" :value="s.id">{{ s.name }}</option>
-                                </select>
+                                <SearchableSelect v-model="schoolId" size="sm"
+                                    :options="[{ value: '', label: 'All schools' }, ...(schools || []).map(s => ({ value: s.id, label: s.name }))]"
+                                    placeholder="All schools" />
                             </div>
                             <div>
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 block">Class</label>
-                                <select v-model="classId" class="select select-bordered select-sm w-full text-sm">
-                                    <option value="">All classes</option>
-                                    <option v-for="c in visibleClasses" :key="c.id" :value="c.id">{{ c.name }}</option>
-                                </select>
+                                <SearchableSelect v-model="classId" size="sm"
+                                    :options="[{ value: '', label: 'All classes' }, ...(visibleClasses || []).map(c => ({ value: c.id, label: c.name }))]"
+                                    placeholder="All classes" />
                             </div>
                             <div>
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 block">
                                     Section
                                     <span v-if="!classId" class="text-base-content/40 normal-case font-medium">· pick a class first</span>
                                 </label>
-                                <select v-model="sectionId" class="select select-bordered select-sm w-full text-sm" :disabled="!visibleSections.length">
-                                    <option value="">All sections</option>
-                                    <option v-for="s in visibleSections" :key="s.id" :value="s.id">{{ s.name }}</option>
-                                </select>
+                                <SearchableSelect v-model="sectionId" size="sm"
+                                    :options="[{ value: '', label: 'All sections' }, ...(visibleSections || []).map(s => ({ value: s.id, label: s.name }))]"
+                                    placeholder="All sections"
+                                    :disabled="!visibleSections.length" />
                             </div>
                         </div>
                         <div v-if="activeFilterCount > 0" class="flex items-center justify-between gap-2 pt-2 border-t border-base-200">

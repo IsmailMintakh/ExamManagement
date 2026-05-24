@@ -54,26 +54,56 @@ class StudentController extends Controller
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->input('status')))
             ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
             ->with(['school', 'schoolClass', 'section'])
-            ->orderBy('name')
+            // No explicit orderBy here — Student model's `byRollNo` global
+            // scope already sorts by class → section → numeric roll_no.
             ->paginate(15)
             ->withQueryString();
 
         $schools = $user->isSuperAdmin() ? School::active()->orderBy('name')->get(['id', 'name']) : [];
+
+        // ── Class teachers + subject teachers only see THEIR classes ──
+        // Compute the class/section ID set the teacher is allowed to filter by:
+        //   - admin (super / school) → every class in their school
+        //   - class teacher          → the classes of their assigned sections
+        //   - subject teacher        → the classes they teach via SubjectTeacher
+        $isAdmin = $user->isSuperAdmin() || $user->isSchoolAdmin();
+        $allowedClassIds = null;
+        $allowedSectionIds = null;
+        if (!$isAdmin) {
+            $ctSectionIds = Section::where('class_teacher_id', $user->id)->pluck('id');
+            $stRows = \App\Models\SubjectTeacher::where('user_id', $user->id)
+                ->where('is_active', true)
+                ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+                ->get(['school_class_id', 'section_id']);
+            $allowedSectionIds = $ctSectionIds->merge($stRows->pluck('section_id'))->unique()->values();
+            $allowedClassIds = $stRows->pluck('school_class_id')
+                ->merge(Section::whereIn('id', $ctSectionIds)->pluck('school_class_id'))
+                ->unique()->values();
+        }
+
         $classes = SchoolClass::query()
             ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->when($allowedClassIds, fn ($q) => $q->whereIn('id', $allowedClassIds))
             ->ordered()->get(['id', 'name', 'school_id']);
 
-        // Sections are scoped to the user's school and carry school_class_id so
-        // the frontend can cascade-filter them when a class is picked. We don't
-        // restrict to active() here because students may exist in legacy/inactive
-        // sections — filtering them out would leave the dropdown empty when the
-        // class actually has data.
+        // Sections carry school_class_id so the frontend can cascade-filter
+        // when a class is picked. Also carry the class name so the dropdown
+        // can render "Class 8 — A" instead of just "A" (which previously
+        // showed as "A, A, A" — one per class — and looked broken).
         $sections = Section::query()
             ->whereHas('schoolClass', function ($q) use ($user) {
                 $q->when(!$user->isSuperAdmin(), fn ($q2) => $q2->where('school_id', $user->school_id));
             })
-            ->orderBy('name')
-            ->get(['id', 'name', 'school_class_id']);
+            ->when($allowedSectionIds, fn ($q) => $q->whereIn('id', $allowedSectionIds))
+            ->with('schoolClass:id,name,sort_order')
+            ->get(['id', 'name', 'school_class_id'])
+            ->sortBy(fn ($s) => sprintf('%05d-%s', $s->schoolClass?->sort_order ?? 9999, $s->name))
+            ->values()
+            ->map(fn ($s) => [
+                'id' => $s->id,
+                'name' => trim(($s->schoolClass?->name ?? '') . ' — ' . $s->name),
+                'school_class_id' => $s->school_class_id,
+            ]);
 
         return Inertia::render('Students/Index', [
             'students' => $students,

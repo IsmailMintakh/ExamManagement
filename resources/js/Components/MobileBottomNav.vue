@@ -76,8 +76,10 @@ const tabs = computed(() => {
         { label: 'Home', href: '/dashboard', icon: HomeIcon, iconActive: HomeIconSolid },
     ]
 
-    // Primary action — the centerpiece of the bar (slightly elevated)
-    if (hasRole('class-teacher')) {
+    // Primary action — the centerpiece of the bar (slightly elevated).
+    // "My Class" requires an actual section assignment, not just the role —
+    // otherwise the page 403s on the assignment guard.
+    if (user.value?.isClassTeacher) {
         items.push({ label: 'My Class', href: '/my-class', icon: AcademicCapIcon, iconActive: AcademicCapIconSolid, primary: true })
     } else if (hasPerm('marks.enter')) {
         items.push({ label: 'Marks', href: '/marks', icon: DocumentTextIcon, iconActive: DocsIconSolid, primary: true })

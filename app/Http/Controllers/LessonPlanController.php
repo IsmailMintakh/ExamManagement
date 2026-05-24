@@ -78,7 +78,7 @@ class LessonPlanController extends Controller
     public function pdf(Request $request)
     {
         $v = $request->validate([
-            'plan' => ['required', 'string'],   // JSON-encoded plan from the page
+            'plan' => ['required', 'string'],
             'topic' => ['required', 'string', 'max:200'],
             'subject' => ['nullable', 'string', 'max:120'],
             'class' => ['nullable', 'string', 'max:120'],
@@ -86,6 +86,7 @@ class LessonPlanController extends Controller
             'duration' => ['nullable', 'integer'],
             'students_count' => ['nullable', 'integer', 'min:0'],
             'lesson_date' => ['nullable', 'date'],
+            'language' => ['nullable', 'in:en,ur,both'],
         ]);
 
         $plan = json_decode($v['plan'], true);
@@ -96,9 +97,17 @@ class LessonPlanController extends Controller
             'subject' => $v['subject'] ?? '',
             'class' => $v['class'] ?? '',
             'duration' => $v['duration'] ?? 40,
+            'language' => $v['language'] ?? 'en',
         ]);
 
-        $pdf = Pdf::loadView('reports.lesson-plan', [
+        // Detect Urdu so we can pick the right PDF engine. DomPDF can't shape
+        // Arabic/Urdu glyphs (letters come out disconnected and reversed),
+        // so we route Urdu plans through mPDF which has full RTL + shaping.
+        $isUrdu = (($plan['language'] ?? 'en') === 'ur')
+            || (!empty($plan['content']['is_urdu'] ?? false))
+            || $this->looksUrdu($plan);
+
+        $view = view('reports.lesson-plan', [
             'plan' => $plan,
             'school' => $request->user()->school,
             'teacher' => $request->user(),
@@ -106,10 +115,61 @@ class LessonPlanController extends Controller
             'studentsCount' => $v['students_count'] ?? null,
             'lessonDate' => $v['lesson_date'] ? \Carbon\Carbon::parse($v['lesson_date']) : now(),
             'generatedAt' => now(),
-        ])->setPaper('a4', 'portrait');
-
+            'isUrdu' => $isUrdu,
+        ]);
+        $html = $view->render();
         $slug = \Illuminate\Support\Str::slug(substr($v['topic'], 0, 40)) ?: 'lesson-plan';
-        return $pdf->stream("lesson-plan-{$slug}.pdf");
+        $filename = "lesson-plan-{$slug}.pdf";
+
+        if ($isUrdu) {
+            // mPDF — full Arabic/Urdu shaping + RTL bidi.
+            $mpdf = new \Mpdf\Mpdf([
+                'mode' => 'utf-8',
+                'format' => 'A4',
+                'orientation' => 'P',
+                'margin_left' => 14, 'margin_right' => 14,
+                'margin_top' => 12, 'margin_bottom' => 14,
+                // Bundled fonts that ship with mPDF and render Urdu correctly.
+                'default_font' => 'xbriyaz',
+                'autoScriptToLang' => true,
+                'autoLangToFont' => true,
+            ]);
+            $mpdf->SetDirectionality('rtl');
+
+            // mPDF emits harmless E_WARNING from its internal table renderer
+            // (Undefined array key 0 inside Mpdf.php:8601/8604/8607). The
+            // PDF still renders correctly, but Laravel's debug handler
+            // converts those warnings into ErrorException and aborts the
+            // request. Suppress those non-fatal warnings for the render only.
+            $oldLevel = error_reporting();
+            error_reporting($oldLevel & ~E_WARNING & ~E_NOTICE & ~E_DEPRECATED);
+            try {
+                $mpdf->WriteHTML($html);
+                $pdf = $mpdf->Output($filename, 'S');
+            } finally {
+                error_reporting($oldLevel);
+            }
+
+            return response($pdf, 200, [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            ]);
+        }
+
+        // English path stays on DomPDF — faster, simpler.
+        return Pdf::loadHTML($html)->setPaper('a4', 'portrait')->stream($filename);
+    }
+
+    /**
+     * Heuristic — does this plan contain Urdu text? Catches the case where
+     * the form forgot to pass language=ur but the content was translated.
+     */
+    protected function looksUrdu(array $plan): bool
+    {
+        $sample = ($plan['content']['introduction'] ?? '') . ' '
+            . ($plan['content']['definition'] ?? '') . ' '
+            . (($plan['objectives'][0] ?? ''));
+        return (bool) preg_match('/\p{Arabic}/u', $sample);
     }
 
     /**

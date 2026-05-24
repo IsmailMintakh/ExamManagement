@@ -14,7 +14,7 @@ class TeacherAbsence extends Model
 {
     protected $fillable = [
         'user_id', 'academic_session_id', 'absent_on',
-        'reason', 'from_time', 'was_backdated', 'marked_by',
+        'reason', 'from_time', 'absent_slot_ids', 'was_backdated', 'marked_by',
     ];
 
     protected function casts(): array
@@ -22,12 +22,13 @@ class TeacherAbsence extends Model
         return [
             'absent_on' => 'date',
             'was_backdated' => 'boolean',
+            'absent_slot_ids' => 'array',
         ];
     }
 
     public function isPartialDay(): bool
     {
-        return !empty($this->from_time);
+        return !empty($this->from_time) || !empty($this->absent_slot_ids);
     }
 
     public function scopeForSession($query, ?int $sessionId = null)

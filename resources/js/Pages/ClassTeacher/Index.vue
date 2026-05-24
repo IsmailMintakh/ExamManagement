@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import PageHeader from '@/Components/PageHeader.vue'
 import { Head, Link, router, usePage } from '@inertiajs/vue3'
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
@@ -251,14 +252,12 @@ watch(() => usePage().url, () => { activeTab.value = tabFromUrl() })
                 :subtitle="`${activeSection?.school_name ?? ''}${currentSession ? ' · ' + currentSession.name : ''} · Monitoring view (read-only) — subject teachers enter the marks`"
                 :icon="AcademicCapIcon" tone="emerald">
                 <template #actions>
-                    <select v-if="sections.length > 1"
-                        @change="switchSection($event.target.value)"
-                        :value="activeSection?.id"
-                        class="select select-bordered select-sm rounded-lg text-sm">
-                        <option v-for="s in sections" :key="s.id" :value="s.id">
-                            {{ s.class_name }} · {{ s.name }}
-                        </option>
-                    </select>
+                    <div v-if="sections.length > 1" class="min-w-[220px]">
+                        <SearchableSelect :model-value="activeSection?.id" size="sm"
+                            :options="sections.map(s => ({ value: s.id, label: `${s.class_name} · ${s.name}` }))"
+                            placeholder="Select section"
+                            @change="(v) => switchSection(v)" />
+                    </div>
                 </template>
                 </PageHeader>
 
@@ -707,10 +706,11 @@ watch(() => usePage().url, () => { activeTab.value = tabFromUrl() })
                 <div v-else class="p-4 space-y-4">
                     <div class="flex flex-col sm:flex-row sm:items-center gap-2">
                         <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/55 shrink-0">Exam</label>
-                        <select v-model="selectedExamId"
-                            class="select select-bordered select-sm rounded-lg text-sm w-full sm:w-96">
-                            <option v-for="e in availableExams" :key="e.id" :value="e.id">{{ e.name }}</option>
-                        </select>
+                        <div class="w-full sm:w-96">
+                            <SearchableSelect v-model="selectedExamId" size="sm"
+                                :options="availableExams.map(e => ({ value: e.id, label: e.name }))"
+                                placeholder="Select exam" />
+                        </div>
                     </div>
 
                     <div v-if="printUrls" class="grid grid-cols-1 sm:grid-cols-2 gap-3">

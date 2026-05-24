@@ -1,19 +1,29 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
 import { Head, router } from '@inertiajs/vue3'
-import { computed } from 'vue'
+import { ref } from 'vue'
 import {
     ArrowsRightLeftIcon, ClockIcon, CalendarDaysIcon, CheckCircleIcon,
-    XCircleIcon, FaceSmileIcon, ExclamationTriangleIcon,
+    XCircleIcon, FaceSmileIcon, UserIcon, UsersIcon, ChartBarIcon,
 } from '@heroicons/vue/24/outline'
 import { confirmAction } from '@/lib/swal'
 
 const props = defineProps({
+    // Covers I take (this teacher = substitute)
     todayRows: { type: Array, default: () => [] },
     upcomingRows: { type: Array, default: () => [] },
     pastRows: { type: Array, default: () => [] },
+    // Covers taken FOR me (this teacher = original / absent)
+    absenceTodayRows: { type: Array, default: () => [] },
+    absenceUpcomingRows: { type: Array, default: () => [] },
+    absencePastRows: { type: Array, default: () => [] },
+    // Monthly fairness stats
+    monthlyStats: { type: Object, default: () => ({}) },
     totals: { type: Object, default: () => ({}) },
 })
+
+// Two tabs at the top: "Covers I take" (default) and "Covers taken for me".
+const tab = ref(props.absenceTodayRows.length ? 'covered-for-me' : 'i-take')
 
 async function declineCover(row) {
     const ok = await confirmAction({
@@ -48,132 +58,299 @@ function statusPill(status) {
                     My Class Adjustments
                 </h1>
                 <p class="text-sm text-base-content/55 mt-1">
-                    Adjustment periods you've been assigned. Today's are at the top.
+                    Covers you take when colleagues are absent, and who covers your classes when
+                    you're away. {{ monthlyStats.month_label || '' }} stats below.
                 </p>
             </div>
 
-            <!-- Stat strip -->
-            <div class="grid grid-cols-3 gap-3">
-                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3">
-                    <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Today</p>
-                    <p class="text-2xl font-extrabold tabular-nums" :class="totals.today > 0 ? 'text-amber-600' : ''">
-                        {{ totals.today || 0 }}
-                    </p>
+            <!-- Monthly fairness strip -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <ChartBarIcon class="w-4 h-4 text-emerald-700 dark:text-emerald-300" />
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-emerald-700 dark:text-emerald-300">
+                            Covers I took — {{ monthlyStats.month_label || 'this month' }}
+                        </p>
+                    </div>
+                    <p class="text-3xl font-extrabold tabular-nums">{{ monthlyStats.covers_taken || 0 }}</p>
+                    <div v-if="monthlyStats.by_original_teacher?.length" class="mt-3 space-y-1">
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-base-content/45">For whom</p>
+                        <div v-for="t in monthlyStats.by_original_teacher" :key="t.teacher_name"
+                            class="flex items-center justify-between text-xs">
+                            <span class="text-base-content/70">{{ t.teacher_name }}</span>
+                            <span class="font-bold tabular-nums">{{ t.count }}</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3">
-                    <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Upcoming</p>
-                    <p class="text-2xl font-extrabold tabular-nums">{{ totals.upcoming || 0 }}</p>
-                </div>
-                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3">
-                    <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">All-time</p>
-                    <p class="text-2xl font-extrabold tabular-nums">{{ totals.all_time || 0 }}</p>
+
+                <div class="rounded-2xl border border-sky-500/30 bg-sky-500/5 p-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <UsersIcon class="w-4 h-4 text-sky-700 dark:text-sky-300" />
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-sky-700 dark:text-sky-300">
+                            Covered for me — {{ monthlyStats.month_label || 'this month' }}
+                        </p>
+                    </div>
+                    <p class="text-3xl font-extrabold tabular-nums">{{ monthlyStats.covered_for_me || 0 }}</p>
+                    <div v-if="monthlyStats.by_substitute_teacher?.length" class="mt-3 space-y-1">
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-base-content/45">By whom</p>
+                        <div v-for="t in monthlyStats.by_substitute_teacher" :key="t.teacher_name"
+                            class="flex items-center justify-between text-xs">
+                            <span class="text-base-content/70">{{ t.teacher_name }}</span>
+                            <span class="font-bold tabular-nums">{{ t.count }}</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- TODAY -->
-            <section class="rounded-2xl border-2 border-amber-500/30 bg-amber-500/5 overflow-hidden">
-                <header class="px-5 py-3 border-b border-amber-500/30 flex items-center gap-2">
-                    <ClockIcon class="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                    <h2 class="text-sm font-bold">Today</h2>
-                    <span class="text-xs text-base-content/45">· {{ todayRows.length }}</span>
-                </header>
-                <div v-if="todayRows.length" class="divide-y divide-amber-500/20">
-                    <div v-for="r in todayRows" :key="r.id" class="px-5 py-3 flex items-center gap-3">
-                        <div class="font-mono text-xs font-bold text-amber-700 dark:text-amber-300 shrink-0 w-20">
-                            {{ r.time_range || '—' }}
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <p class="font-bold text-sm truncate">{{ r.subject || 'Class' }}</p>
-                            <p class="text-xs text-base-content/65 truncate">
-                                {{ r.class }} · {{ r.section }}
-                                <span v-if="r.replaces" class="text-base-content/45">— replacing {{ r.replaces }}</span>
-                            </p>
-                        </div>
-                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 capitalize"
-                            :class="statusPill(r.status)">
-                            {{ r.status }}
-                        </span>
-                        <button v-if="r.status !== 'declined'" @click="declineCover(r)"
-                            class="btn btn-ghost btn-xs rounded-lg gap-1 text-rose-600">
-                            <XCircleIcon class="w-3.5 h-3.5" /> Decline
-                        </button>
+            <!-- Tabs -->
+            <div class="flex gap-1 rounded-2xl border border-base-300 bg-base-100 p-1">
+                <button @click="tab = 'i-take'"
+                    class="flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition-colors"
+                    :class="tab === 'i-take' ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/30' : 'text-base-content/60 hover:bg-base-200'">
+                    <UserIcon class="inline w-3.5 h-3.5 mr-1" />
+                    Covers I take
+                    <span class="badge badge-xs badge-ghost ml-1">{{ todayRows.length + upcomingRows.length }}</span>
+                </button>
+                <button @click="tab = 'covered-for-me'"
+                    class="flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition-colors"
+                    :class="tab === 'covered-for-me' ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300 ring-1 ring-sky-500/30' : 'text-base-content/60 hover:bg-base-200'">
+                    <UsersIcon class="inline w-3.5 h-3.5 mr-1" />
+                    Covers taken for me
+                    <span class="badge badge-xs badge-ghost ml-1">{{ absenceTodayRows.length + absenceUpcomingRows.length }}</span>
+                </button>
+            </div>
+
+            <!-- ───── TAB 1: COVERS I TAKE ───── -->
+            <template v-if="tab === 'i-take'">
+                <!-- Stat strip -->
+                <div class="grid grid-cols-3 gap-3">
+                    <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Today</p>
+                        <p class="text-2xl font-extrabold tabular-nums" :class="totals.today > 0 ? 'text-amber-600' : ''">
+                            {{ totals.today || 0 }}
+                        </p>
+                    </div>
+                    <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Upcoming</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ totals.upcoming || 0 }}</p>
+                    </div>
+                    <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">All-time</p>
+                        <p class="text-2xl font-extrabold tabular-nums">{{ totals.all_time || 0 }}</p>
                     </div>
                 </div>
-                <div v-else class="px-5 py-8 text-center">
-                    <FaceSmileIcon class="w-10 h-10 text-emerald-500 mx-auto mb-2" />
-                    <p class="font-bold text-sm">No class adjustments today!</p>
-                </div>
-            </section>
 
-            <!-- UPCOMING -->
-            <section v-if="upcomingRows.length" class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
-                <header class="px-5 py-3 border-b border-base-300 flex items-center gap-2">
-                    <CalendarDaysIcon class="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                    <h2 class="text-sm font-bold">Upcoming</h2>
-                    <span class="text-xs text-base-content/45">· {{ upcomingRows.length }}</span>
-                </header>
-                <table class="w-full text-sm">
-                    <thead class="bg-base-200/40 text-[10px] uppercase tracking-wider text-base-content/55">
-                        <tr>
-                            <th class="text-left px-3 py-2 font-bold">Date</th>
-                            <th class="text-left px-3 py-2 font-bold">Period</th>
-                            <th class="text-left px-3 py-2 font-bold">Class · Section</th>
-                            <th class="text-left px-3 py-2 font-bold">Subject</th>
-                            <th class="text-left px-3 py-2 font-bold">Replacing</th>
-                            <th class="text-center px-3 py-2 font-bold">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-base-300">
-                        <tr v-for="r in upcomingRows" :key="r.id" class="hover:bg-base-200/30">
-                            <td class="px-3 py-2 text-xs font-bold">{{ r.date_human }}</td>
-                            <td class="px-3 py-2 text-xs">
-                                <p>{{ r.time_slot }}</p>
-                                <p class="text-[10px] text-base-content/55 font-mono">{{ r.time_range }}</p>
-                            </td>
-                            <td class="px-3 py-2 text-xs">{{ r.class }} · {{ r.section }}</td>
-                            <td class="px-3 py-2 text-xs font-semibold">{{ r.subject }}</td>
-                            <td class="px-3 py-2 text-xs text-base-content/55">{{ r.replaces }}</td>
-                            <td class="px-3 py-2 text-center">
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 capitalize"
-                                    :class="statusPill(r.status)">
-                                    {{ r.status }}
-                                </span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </section>
+                <!-- TODAY -->
+                <section class="rounded-2xl border-2 border-amber-500/30 bg-amber-500/5 overflow-hidden">
+                    <header class="px-5 py-3 border-b border-amber-500/30 flex items-center gap-2">
+                        <ClockIcon class="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                        <h2 class="text-sm font-bold">Today</h2>
+                        <span class="text-xs text-base-content/45">· {{ todayRows.length }}</span>
+                    </header>
+                    <div v-if="todayRows.length" class="divide-y divide-amber-500/20">
+                        <div v-for="r in todayRows" :key="r.id" class="px-5 py-3 flex items-center gap-3">
+                            <div class="font-mono text-xs font-bold text-amber-700 dark:text-amber-300 shrink-0 w-20">
+                                {{ r.time_range || '—' }}
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="font-bold text-sm truncate">{{ r.subject || 'Class' }}</p>
+                                <p class="text-xs text-base-content/65 truncate">
+                                    {{ r.class }} · {{ r.section }}
+                                    <span v-if="r.replaces" class="text-base-content/45">— replacing {{ r.replaces }}</span>
+                                </p>
+                            </div>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 capitalize"
+                                :class="statusPill(r.status)">
+                                {{ r.status }}
+                            </span>
+                            <button v-if="r.status !== 'declined'" @click="declineCover(r)"
+                                class="btn btn-ghost btn-xs rounded-lg gap-1 text-rose-600">
+                                <XCircleIcon class="w-3.5 h-3.5" /> Decline
+                            </button>
+                        </div>
+                    </div>
+                    <div v-else class="px-5 py-8 text-center">
+                        <FaceSmileIcon class="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                        <p class="font-bold text-sm">No class adjustments today!</p>
+                    </div>
+                </section>
 
-            <!-- PAST -->
-            <section v-if="pastRows.length" class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
-                <header class="px-5 py-3 border-b border-base-300 flex items-center gap-2">
-                    <CheckCircleIcon class="w-4 h-4 text-base-content/55" />
-                    <h2 class="text-sm font-bold">Recent (last 20)</h2>
-                </header>
-                <table class="w-full text-sm">
-                    <thead class="bg-base-200/40 text-[10px] uppercase tracking-wider text-base-content/55">
-                        <tr>
-                            <th class="text-left px-3 py-2 font-bold">Date</th>
-                            <th class="text-left px-3 py-2 font-bold">Class · Section</th>
-                            <th class="text-left px-3 py-2 font-bold">Subject</th>
-                            <th class="text-center px-3 py-2 font-bold">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-base-300">
-                        <tr v-for="r in pastRows" :key="r.id" class="hover:bg-base-200/30">
-                            <td class="px-3 py-2 text-xs">{{ r.date_human }}</td>
-                            <td class="px-3 py-2 text-xs">{{ r.class }} · {{ r.section }}</td>
-                            <td class="px-3 py-2 text-xs font-semibold">{{ r.subject }}</td>
-                            <td class="px-3 py-2 text-center">
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 capitalize"
-                                    :class="statusPill(r.status)">
-                                    {{ r.status }}
-                                </span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </section>
+                <!-- UPCOMING -->
+                <section v-if="upcomingRows.length" class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
+                    <header class="px-5 py-3 border-b border-base-300 flex items-center gap-2">
+                        <CalendarDaysIcon class="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                        <h2 class="text-sm font-bold">Upcoming</h2>
+                        <span class="text-xs text-base-content/45">· {{ upcomingRows.length }}</span>
+                    </header>
+                    <table class="w-full text-sm">
+                        <thead class="bg-base-200/40 text-[10px] uppercase tracking-wider text-base-content/55">
+                            <tr>
+                                <th class="text-left px-3 py-2 font-bold">Date</th>
+                                <th class="text-left px-3 py-2 font-bold">Period</th>
+                                <th class="text-left px-3 py-2 font-bold">Class · Section</th>
+                                <th class="text-left px-3 py-2 font-bold">Subject</th>
+                                <th class="text-left px-3 py-2 font-bold">Replacing</th>
+                                <th class="text-center px-3 py-2 font-bold">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-base-300">
+                            <tr v-for="r in upcomingRows" :key="r.id" class="hover:bg-base-200/30">
+                                <td class="px-3 py-2 text-xs font-bold">{{ r.date_human }}</td>
+                                <td class="px-3 py-2 text-xs">
+                                    <p>{{ r.time_slot }}</p>
+                                    <p class="text-[10px] text-base-content/55 font-mono">{{ r.time_range }}</p>
+                                </td>
+                                <td class="px-3 py-2 text-xs">{{ r.class }} · {{ r.section }}</td>
+                                <td class="px-3 py-2 text-xs font-semibold">{{ r.subject }}</td>
+                                <td class="px-3 py-2 text-xs text-base-content/55">{{ r.replaces }}</td>
+                                <td class="px-3 py-2 text-center">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 capitalize"
+                                        :class="statusPill(r.status)">
+                                        {{ r.status }}
+                                    </span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <!-- PAST -->
+                <section v-if="pastRows.length" class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
+                    <header class="px-5 py-3 border-b border-base-300 flex items-center gap-2">
+                        <CheckCircleIcon class="w-4 h-4 text-base-content/55" />
+                        <h2 class="text-sm font-bold">Recent (last 20)</h2>
+                    </header>
+                    <table class="w-full text-sm">
+                        <thead class="bg-base-200/40 text-[10px] uppercase tracking-wider text-base-content/55">
+                            <tr>
+                                <th class="text-left px-3 py-2 font-bold">Date</th>
+                                <th class="text-left px-3 py-2 font-bold">Class · Section</th>
+                                <th class="text-left px-3 py-2 font-bold">Subject</th>
+                                <th class="text-center px-3 py-2 font-bold">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-base-300">
+                            <tr v-for="r in pastRows" :key="r.id" class="hover:bg-base-200/30">
+                                <td class="px-3 py-2 text-xs">{{ r.date_human }}</td>
+                                <td class="px-3 py-2 text-xs">{{ r.class }} · {{ r.section }}</td>
+                                <td class="px-3 py-2 text-xs font-semibold">{{ r.subject }}</td>
+                                <td class="px-3 py-2 text-center">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 capitalize"
+                                        :class="statusPill(r.status)">
+                                        {{ r.status }}
+                                    </span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+            </template>
+
+            <!-- ───── TAB 2: COVERS TAKEN FOR ME ───── -->
+            <template v-else>
+                <!-- TODAY -->
+                <section class="rounded-2xl border-2 border-sky-500/30 bg-sky-500/5 overflow-hidden">
+                    <header class="px-5 py-3 border-b border-sky-500/30 flex items-center gap-2">
+                        <ClockIcon class="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                        <h2 class="text-sm font-bold">Today — your classes being covered</h2>
+                        <span class="text-xs text-base-content/45">· {{ absenceTodayRows.length }}</span>
+                    </header>
+                    <div v-if="absenceTodayRows.length" class="divide-y divide-sky-500/20">
+                        <div v-for="r in absenceTodayRows" :key="r.id" class="px-5 py-3 flex items-center gap-3">
+                            <div class="font-mono text-xs font-bold text-sky-700 dark:text-sky-300 shrink-0 w-20">
+                                {{ r.time_range || '—' }}
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="font-bold text-sm truncate">{{ r.subject || 'Class' }}</p>
+                                <p class="text-xs text-base-content/65 truncate">
+                                    {{ r.class }} · {{ r.section }}
+                                    <span class="text-base-content/45">— covered by <strong class="text-sky-700 dark:text-sky-300">{{ r.covered_by || 'pending' }}</strong></span>
+                                </p>
+                            </div>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 capitalize"
+                                :class="statusPill(r.status)">
+                                {{ r.status }}
+                            </span>
+                        </div>
+                    </div>
+                    <div v-else class="px-5 py-8 text-center">
+                        <FaceSmileIcon class="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                        <p class="font-bold text-sm">No absences today — you're at school!</p>
+                    </div>
+                </section>
+
+                <!-- UPCOMING -->
+                <section v-if="absenceUpcomingRows.length" class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
+                    <header class="px-5 py-3 border-b border-base-300 flex items-center gap-2">
+                        <CalendarDaysIcon class="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                        <h2 class="text-sm font-bold">Upcoming absences</h2>
+                        <span class="text-xs text-base-content/45">· {{ absenceUpcomingRows.length }}</span>
+                    </header>
+                    <table class="w-full text-sm">
+                        <thead class="bg-base-200/40 text-[10px] uppercase tracking-wider text-base-content/55">
+                            <tr>
+                                <th class="text-left px-3 py-2 font-bold">Date</th>
+                                <th class="text-left px-3 py-2 font-bold">Period</th>
+                                <th class="text-left px-3 py-2 font-bold">Class · Section</th>
+                                <th class="text-left px-3 py-2 font-bold">Subject</th>
+                                <th class="text-left px-3 py-2 font-bold">Covered by</th>
+                                <th class="text-center px-3 py-2 font-bold">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-base-300">
+                            <tr v-for="r in absenceUpcomingRows" :key="r.id" class="hover:bg-base-200/30">
+                                <td class="px-3 py-2 text-xs font-bold">{{ r.date_human }}</td>
+                                <td class="px-3 py-2 text-xs">
+                                    <p>{{ r.time_slot }}</p>
+                                    <p class="text-[10px] text-base-content/55 font-mono">{{ r.time_range }}</p>
+                                </td>
+                                <td class="px-3 py-2 text-xs">{{ r.class }} · {{ r.section }}</td>
+                                <td class="px-3 py-2 text-xs font-semibold">{{ r.subject }}</td>
+                                <td class="px-3 py-2 text-xs">{{ r.covered_by || '—' }}</td>
+                                <td class="px-3 py-2 text-center">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 capitalize"
+                                        :class="statusPill(r.status)">
+                                        {{ r.status }}
+                                    </span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <!-- PAST -->
+                <section v-if="absencePastRows.length" class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
+                    <header class="px-5 py-3 border-b border-base-300 flex items-center gap-2">
+                        <CheckCircleIcon class="w-4 h-4 text-base-content/55" />
+                        <h2 class="text-sm font-bold">Recent absences (last 20)</h2>
+                    </header>
+                    <table class="w-full text-sm">
+                        <thead class="bg-base-200/40 text-[10px] uppercase tracking-wider text-base-content/55">
+                            <tr>
+                                <th class="text-left px-3 py-2 font-bold">Date</th>
+                                <th class="text-left px-3 py-2 font-bold">Class · Section</th>
+                                <th class="text-left px-3 py-2 font-bold">Subject</th>
+                                <th class="text-left px-3 py-2 font-bold">Covered by</th>
+                                <th class="text-center px-3 py-2 font-bold">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-base-300">
+                            <tr v-for="r in absencePastRows" :key="r.id" class="hover:bg-base-200/30">
+                                <td class="px-3 py-2 text-xs">{{ r.date_human }}</td>
+                                <td class="px-3 py-2 text-xs">{{ r.class }} · {{ r.section }}</td>
+                                <td class="px-3 py-2 text-xs font-semibold">{{ r.subject }}</td>
+                                <td class="px-3 py-2 text-xs">{{ r.covered_by || '—' }}</td>
+                                <td class="px-3 py-2 text-center">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 capitalize"
+                                        :class="statusPill(r.status)">
+                                        {{ r.status }}
+                                    </span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+            </template>
         </div>
     </AppLayout>
 </template>

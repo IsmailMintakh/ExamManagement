@@ -33,6 +33,12 @@ use Illuminate\Support\Facades\Notification;
  *   H6  Not invigilating an exam during that period.
  *   H7  Daily cover cap (MAX_COVERS_PER_DAY) per teacher.
  *   H8  A teacher who declined a specific period is not re-suggested for it.
+ *   H9  Stage compatibility — substitute must teach the same stage as the
+ *       absent class (so a Pre-Primary teacher isn't sent to Class 9, and
+ *       vice-versa). A teacher who teaches across stages can cover any of
+ *       their stages. Teachers with no assigned classes are unrestricted.
+ *       Honoured only when the school's cover_stage_policy = 'strict';
+ *       'open' lets any qualified colleague cover (cluster-school mode).
  *
  * ─────────────── PRESERVATION ───────────────
  *   - Confirmed covers are never altered and they consume the substitute's
@@ -45,8 +51,10 @@ use Illuminate\Support\Facades\Notification;
  *   +10  already teaches that subject elsewhere
  *   + 5  already teaches in that class
  *   + 3  is the class-teacher of that section
- *   - 2  per cover already given today (load balancing)
- *   tie → fewer covers, then alphabetical.
+ *   - 2  per cover already given today (today load balancing)
+ *   - 1  per cover in the trailing 30 days (long-term fairness — stops
+ *         the same teacher carrying every absence over a week/month)
+ *   tie → fewer 30-day covers, then today's covers, then alphabetical.
  */
 class SubstitutionService
 {
@@ -68,6 +76,14 @@ class SubstitutionService
         $sessionId = AcademicSession::currentSession()?->id;
         $dateStr = $date->toDateString();
 
+        // ── 0. School policy on cross-stage covers ──
+        // strict (default): a Pre-Primary teacher cannot cover Class 9, etc.
+        // open: cluster-school mode — any qualified colleague can cover.
+        $stagePolicy = 'strict';
+        if ($schoolId) {
+            $stagePolicy = \App\Models\School::whereKey($schoolId)->value('cover_stage_policy') ?: 'strict';
+        }
+
         // ── 1. Absences today → per-teacher availability map ──
         $absencesQ = TeacherAbsence::where('absent_on', $dateStr);
         if ($sessionId) $absencesQ->where('academic_session_id', $sessionId);
@@ -78,13 +94,22 @@ class SubstitutionService
             return $this->emptySummary($date);
         }
 
-        // user_id => ['full' => bool, 'from' => 'HH:MM'|null]
-        $absenceByTeacher = $absences->mapWithKeys(fn ($a) => [
-            $a->user_id => [
-                'full' => empty($a->from_time),
-                'from' => $a->from_time ? $this->hm($a->from_time) : null,
-            ],
-        ])->all();
+        // user_id => [
+        //   'full' => true → full day absence
+        //   'from' => HH:MM → "left at" threshold (legacy partial-day mode)
+        //   'slot_ids' => [int] → exact periods to cover (per-period mode)
+        // ] — `slot_ids` wins when present; otherwise we fall back to `from`,
+        // and `full=true` when neither is set.
+        $absenceByTeacher = $absences->mapWithKeys(function ($a) {
+            $slotIds = $a->absent_slot_ids ?: [];
+            $hasSlotIds = is_array($slotIds) && !empty($slotIds);
+            $hasFrom = !empty($a->from_time);
+            return [$a->user_id => [
+                'full' => !$hasSlotIds && !$hasFrom,
+                'from' => $hasFrom ? $this->hm($a->from_time) : null,
+                'slot_ids' => $hasSlotIds ? array_map('intval', $slotIds) : null,
+            ]];
+        })->all();
         $absentTeacherIds = array_keys($absenceByTeacher);
 
         // ── 2. Their periods this weekday that actually need a cover ──
@@ -100,8 +125,12 @@ class SubstitutionService
                 if (!$e->timeSlot) return false;
                 $info = $absenceByTeacher[$e->teacher_id] ?? null;
                 if (!$info) return false;
+                // Per-period selection wins: cover only ticked slots.
+                if (!empty($info['slot_ids'])) {
+                    return in_array((int) $e->time_slot_id, $info['slot_ids'], true);
+                }
                 if ($info['full']) return true;
-                // Partial: only periods that start at/after the leave time.
+                // Legacy partial mode: cover only periods at/after leave time.
                 return $this->hm($e->timeSlot->starts_at) >= $info['from'];
             })
             ->values();
@@ -160,6 +189,23 @@ class SubstitutionService
             ->map(fn ($rows) => $rows->pluck('school_class_id')->unique()->all());
         $classTeacherBySection = \App\Models\Section::pluck('class_teacher_id', 'id')->all();
 
+        // ── H9 prep: stage-set per teacher (which stages they actually teach)
+        // and stage per class (so we can match the absent class to candidates).
+        // A Pre-Primary teacher won't be picked to cover Class 9, and vice-versa.
+        $classStageById = \App\Models\SchoolClass::query()
+            ->whereIn('id', $allEntriesToday->pluck('school_class_id')->unique()
+                ->merge($needsCover->pluck('school_class_id'))->unique())
+            ->pluck('stage', 'id')->all();
+        $teacherStages = $allEntriesToday
+            ->groupBy('teacher_id')
+            ->map(fn ($rows) => $rows
+                ->pluck('school_class_id')
+                ->map(fn ($cid) => $classStageById[$cid] ?? null)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all());
+
         $examInvigilators = $this->buildInvigilatorSet($date);
 
         $candidatePool = User::query()
@@ -175,6 +221,20 @@ class SubstitutionService
         foreach ($confirmedCovers as $c) {
             $subsAssigned[$c->substitute_teacher_id] = ($subsAssigned[$c->substitute_teacher_id] ?? 0) + 1;
         }
+
+        // ── 4c. Recent cover load (trailing 30 days, this date NOT included).
+        // Used by the scorer to spread covers across staff — a teacher who
+        // already carried 6 covers this month is downranked vs one with 0,
+        // so the rota stays equal over time, not just on a single day.
+        $thirtyAgo = $date->copy()->subDays(30)->toDateString();
+        $coversLast30 = SubstitutionAssignment::query()
+            ->whereIn('status', ['suggested', 'confirmed'])
+            ->whereBetween('date', [$thirtyAgo, $date->copy()->subDay()->toDateString()])
+            ->whereNotNull('substitute_teacher_id')
+            ->selectRaw('substitute_teacher_id, COUNT(*) as cnt')
+            ->groupBy('substitute_teacher_id')
+            ->pluck('cnt', 'substitute_teacher_id')
+            ->all();
 
         // ── 5. Decide a substitute for each uncovered period ──
         $assignments = [];
@@ -195,6 +255,8 @@ class SubstitutionService
             $bestScore = -1e9;
             $bestBreakdown = null;
 
+            $absentStage = $classStageById[$entry->school_class_id] ?? null;
+
             foreach ($candidatePool as $cand) {
                 // H1/H4 — free in this slot (own class OR an assigned cover)
                 if (isset($busy[$cand->id . '|' . $entry->time_slot_id])) continue;
@@ -207,16 +269,37 @@ class SubstitutionService
                 if ($this->isInvigilating($examInvigilators, $cand->id, $entry)) continue;
                 // H8 — don't re-suggest the teacher who declined this cell
                 if ($declinedTeacher && $cand->id === $declinedTeacher) continue;
-                // H3 — partially-absent teacher who has already left
-                if ($this->isAwayAt($absenceByTeacher, $cand->id, $slotStart)) continue;
+                // H3 — partially-absent teacher who has already left, OR
+                // a per-period absence that covers this slot.
+                if ($this->isAwayAt($absenceByTeacher, $cand->id, $slotStart, $entry->time_slot_id)) continue;
+                // H9 — stage compatibility (only when school policy = strict).
+                // Skip when the candidate teaches no classes at all (admin /
+                // new staff) or the absent class has no stage tagged — those
+                // fall through to the soft scorer regardless.
+                if ($stagePolicy === 'strict' && $absentStage) {
+                    $candStages = (array) ($teacherStages[$cand->id] ?? []);
+                    if (!empty($candStages) && !in_array($absentStage, $candStages, true)) continue;
+                }
 
                 [$score, $reasons] = $this->scoreCandidate(
                     $cand, $entry, $teacherSubjects, $teacherClasses,
-                    $classTeacherBySection, $subsAssigned
+                    $classTeacherBySection, $subsAssigned, $coversLast30
                 );
 
-                if ($score > $bestScore
-                    || ($score === $bestScore && $cand->name < ($best?->name ?? "\xff"))) {
+                // Tie-break order: higher score → fewer 30-day covers → fewer
+                // today's covers → alphabetical. Pure load-balance after the
+                // suitability score, no bias toward any one teacher.
+                $bestCovers30 = $best ? ($coversLast30[$best->id] ?? 0) : PHP_INT_MAX;
+                $candCovers30 = $coversLast30[$cand->id] ?? 0;
+                $bestCoversToday = $best ? ($subsAssigned[$best->id] ?? 0) : PHP_INT_MAX;
+                $candCoversToday = $subsAssigned[$cand->id] ?? 0;
+
+                $wins = $score > $bestScore
+                    || ($score === $bestScore && $candCovers30 < $bestCovers30)
+                    || ($score === $bestScore && $candCovers30 === $bestCovers30 && $candCoversToday < $bestCoversToday)
+                    || ($score === $bestScore && $candCovers30 === $bestCovers30 && $candCoversToday === $bestCoversToday && $cand->name < ($best?->name ?? "\xff"));
+
+                if ($wins) {
                     $best = $cand;
                     $bestScore = $score;
                     $bestBreakdown = [
@@ -326,7 +409,8 @@ class SubstitutionService
 
     /** Soft score for one candidate against one period. */
     protected function scoreCandidate(
-        $cand, $entry, $teacherSubjects, $teacherClasses, $classTeacherBySection, $subsAssigned
+        $cand, $entry, $teacherSubjects, $teacherClasses, $classTeacherBySection,
+        $subsAssigned, array $coversLast30 = []
     ): array {
         $score = 0;
         $reasons = [];
@@ -349,6 +433,14 @@ class SubstitutionService
             $score += $penalty;
             $reasons[] = [(string) $penalty, "already has {$existingCovers} cover(s) today"];
         }
+        // Trailing-30-day load — spreads covers across staff. Same magnitude
+        // as today's cover penalty so 1 cover/week ≈ 1 cover/day in weight.
+        $monthly = $coversLast30[$cand->id] ?? 0;
+        if ($monthly > 0) {
+            $penalty = -1 * $monthly;
+            $score += $penalty;
+            $reasons[] = [(string) $penalty, "{$monthly} cover(s) in last 30 days"];
+        }
 
         return [$score, $reasons];
     }
@@ -357,12 +449,16 @@ class SubstitutionService
      * Is this teacher unavailable at $slotStart because of their own absence?
      * Used both to bar them as a substitute (H3) and by reassign validation.
      */
-    public function isAwayAt(array $absenceByTeacher, int $teacherId, string $slotStart): bool
+    public function isAwayAt(array $absenceByTeacher, int $teacherId, string $slotStart, ?int $slotId = null): bool
     {
         $info = $absenceByTeacher[$teacherId] ?? null;
         if (!$info) return false;
+        // Per-period absence: away iff the specific slot is in the ticked list.
+        if (!empty($info['slot_ids'])) {
+            return $slotId !== null && in_array((int) $slotId, $info['slot_ids'], true);
+        }
         if ($info['full']) return true;
-        return $slotStart >= $info['from'];
+        return $info['from'] !== null && $slotStart >= $info['from'];
     }
 
     /** Normalise a time value to 'HH:MM' for safe lexicographic comparison. */

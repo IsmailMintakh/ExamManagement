@@ -17,7 +17,7 @@ class School extends Model
         'website', 'principal_signature', 'principal_name',
         'school_stamp',
         'exam_officer_signature', 'exam_officer_name',
-        'is_main', 'is_active', 'settings',
+        'is_main', 'is_active', 'settings', 'cover_stage_policy',
     ];
 
     /** Auto-serialize the computed logo URL so Vue can use school.logo_url. */
@@ -71,7 +71,11 @@ class School extends Model
      */
     public function getLogoUrlAttribute(): ?string
     {
-        return $this->logo ? \Illuminate\Support\Facades\Storage::disk('public')->url($this->logo) : null;
+        if (!$this->logo) return null;
+        // Build against the current request host so the logo still loads
+        // after a domain change (APP_URL may still be the old domain).
+        $prefix = trim(env('FILESYSTEM_PUBLIC_URL_PREFIX', '/uploads'), '/');
+        return url($prefix.'/'.ltrim($this->logo, '/'));
     }
 
     public function scopeActive($query)

@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import { Head, Link, useForm } from '@inertiajs/vue3'
 import { ref, computed, watch } from 'vue'
 import {
@@ -318,14 +319,12 @@ function submit() {
                             <div class="flex-1">
                                 <label class="text-[13px] font-semibold">What subject &amp; class?</label>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
-                                    <select v-model="form.subject_id" required class="select select-bordered w-full">
-                                        <option value="">Choose subject...</option>
-                                        <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
-                                    </select>
-                                    <select v-model="form.school_class_id" class="select select-bordered w-full">
-                                        <option value="">Any class</option>
-                                        <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.name }}</option>
-                                    </select>
+                                    <SearchableSelect v-model="form.subject_id"
+                                        :options="subjects.map(s => ({ value: s.id, label: s.name }))"
+                                        placeholder="Choose subject..." />
+                                    <SearchableSelect v-model="form.school_class_id"
+                                        :options="[{ value: '', label: 'Any class' }, ...classes.map(c => ({ value: c.id, label: c.name }))]"
+                                        placeholder="Any class" />
                                 </div>
                                 <p v-if="form.errors.subject_id" class="mt-1 text-xs text-error">{{ form.errors.subject_id }}</p>
 

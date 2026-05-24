@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import { Head, useForm, Link } from '@inertiajs/vue3'
 import { ref, computed, watch } from 'vue'
 import {
@@ -20,6 +21,7 @@ const props = defineProps({
     teachers: { type: Array, default: () => [] },
     isSuperAdmin: Boolean,
     currentSchoolId: Number,
+    defaultTermWeights: { type: Object, default: () => ({ first: 25, second: 25, final: 50 }) },
 })
 
 const isEdit = !!props.exam?.id
@@ -29,6 +31,9 @@ const form = useForm({
     exam_type_id: props.exam?.exam_type_id || '',
     academic_session_id: props.exam?.academic_session_id || '',
     grading_scale_id: props.exam?.grading_scale_id || '',
+    term: props.exam?.term || '',
+    combine_previous_terms: props.exam?.combine_previous_terms ?? false,
+    term_weights: props.exam?.term_weights || { ...props.defaultTermWeights },
     exam_controller_id: props.exam?.exam_controller_id || '',
     start_date: props.exam?.start_date || '',
     end_date: props.exam?.end_date || '',
@@ -71,6 +76,13 @@ const steps = [
     { num: 4, key: 'rules', label: 'Passing Rules', icon: Cog6ToothIcon, desc: 'Custom logic' },
     { num: 5, key: 'preview', label: 'Preview', icon: EyeIcon, desc: 'See sample outcomes' },
 ]
+
+// Live total for the 1st/2nd/Final weights — backend rejects unless this is 100.
+const termWeightSum = computed(() =>
+    (Number(form.term_weights?.first) || 0)
+    + (Number(form.term_weights?.second) || 0)
+    + (Number(form.term_weights?.final) || 0)
+)
 
 function canAdvance(stepNum) {
     if (stepNum === 1) return form.name && form.exam_type_id && form.academic_session_id && form.start_date && form.end_date
@@ -135,10 +147,92 @@ const totalMarksAutoSync = ref(true)
 const subjectsTotalMarksSum = computed(() =>
     form.subjects.reduce((sum, s) => sum + (Number(s.total_marks) || 0), 0)
 )
+const subjectsPassingMarksSum = computed(() =>
+    form.subjects.reduce((sum, s) => sum + (Number(s.passing_marks) || 0), 0)
+)
 watch(subjectsTotalMarksSum, (newSum) => {
     if (totalMarksAutoSync.value && newSum > 0) {
         form.total_marks = newSum
     }
+})
+
+// ─── Typical per-subject marks (mode of the rows) ───
+// The "Configuration Summary" needs to show meaningful numbers for the user.
+// 2100 total / 33% passing was confusing because:
+//   - 2100 is the SUM of all subject totals (correct, but not "per subject")
+//   - 33% was a stale default that never updated to the 40% the user set
+// We now derive the typical per-subject total/passing values and use them
+// to (a) display in the summary and (b) auto-sync passing_percentage.
+function mode(values) {
+    if (!values.length) return null
+    const counts = new Map()
+    for (const v of values) counts.set(v, (counts.get(v) || 0) + 1)
+    let best = null, bestCount = 0
+    for (const [v, c] of counts) {
+        if (c > bestCount) { best = v; bestCount = c }
+    }
+    return best
+}
+const subjectTotalsTypical = computed(() =>
+    mode(form.subjects.map(s => Number(s.total_marks) || 0).filter(v => v > 0))
+)
+const subjectPassingTypical = computed(() =>
+    mode(form.subjects.map(s => Number(s.passing_marks) || 0).filter(v => v >= 0))
+)
+const subjectPassingPctTypical = computed(() => {
+    if (!subjectTotalsTypical.value || subjectTotalsTypical.value <= 0) return null
+    if (subjectPassingTypical.value == null) return null
+    return Math.round((subjectPassingTypical.value / subjectTotalsTypical.value) * 1000) / 10
+})
+// True when at least one subject row uses different marks than the typical
+// pair — surfaced in the summary so the user is reminded "not uniform".
+const subjectsMarksUniform = computed(() => {
+    if (form.subjects.length === 0) return true
+    return form.subjects.every(s =>
+        Number(s.total_marks) === subjectTotalsTypical.value
+        && Number(s.passing_marks) === subjectPassingTypical.value
+    )
+})
+
+// Keep form.passing_percentage in sync with what the subjects actually use —
+// otherwise the summary keeps showing a stale 33%.
+watch(subjectPassingPctTypical, (pct) => {
+    if (pct != null && Math.abs((form.passing_percentage || 0) - pct) > 0.05) {
+        form.passing_percentage = pct
+    }
+})
+
+// ─── Per-class breakdown for the Summary panel ───
+// "Sum of all totals" across every class isn't a meaningful number — each
+// class only sits its own subjects. This builds one row per class with that
+// class's totals, which is what teachers actually grade against.
+const subjectsByClassBreakdown = computed(() => {
+    const map = new Map()
+    for (const row of form.subjects) {
+        const cid = Number(row.school_class_id)
+        if (!cid) continue
+        if (!map.has(cid)) {
+            const cls = (props.classes || []).find(c => Number(c.id) === cid)
+            map.set(cid, {
+                id: cid,
+                name: cls?.name || `Class #${cid}`,
+                sort_order: cls?.sort_order ?? 9999,
+                subjects: 0,
+                total: 0,
+                passing: 0,
+            })
+        }
+        const r = map.get(cid)
+        r.subjects += 1
+        r.total += Number(row.total_marks) || 0
+        r.passing += Number(row.passing_marks) || 0
+    }
+    return [...map.values()]
+        .map(r => ({
+            ...r,
+            percentage: r.total > 0 ? Math.round((r.passing / r.total) * 1000) / 10 : 0,
+        }))
+        .sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name))
 })
 // User typed in the Total Marks input → switch off auto-sync so we don't fight
 // them on the next subject change.
@@ -158,6 +252,30 @@ const bulkSelectedClasses = ref([])
 const bulkSelectedSubjects = ref([])
 const bulkTotalMarks = ref(100)
 const bulkPassingMarks = ref(33)
+
+// Per-subject override map: subject_id → { total, passing }.
+// Only filled when admin wants a subject to differ from the global default
+// (e.g. Computer = 50 / 17, while every other subject keeps 100 / 33). Empty
+// entry falls back to bulkTotalMarks / bulkPassingMarks.
+const bulkSubjectOverrides = ref({})
+
+function ensureOverride(subjectId) {
+    if (!bulkSubjectOverrides.value[subjectId]) {
+        bulkSubjectOverrides.value[subjectId] = { total: null, passing: null }
+    }
+    return bulkSubjectOverrides.value[subjectId]
+}
+function clearOverride(subjectId) {
+    delete bulkSubjectOverrides.value[subjectId]
+}
+function overrideOf(subjectId) {
+    const o = bulkSubjectOverrides.value[subjectId]
+    return {
+        total: (o && o.total != null && o.total !== '') ? Number(o.total) : bulkTotalMarks.value,
+        passing: (o && o.passing != null && o.passing !== '') ? Number(o.passing) : bulkPassingMarks.value,
+    }
+}
+const showSubjectOverrides = ref(false)
 
 const availableClasses = computed(() => {
     if (form.apply_to_all_schools) return props.classes || []
@@ -208,9 +326,6 @@ function applyBulkSubjects() {
     if (!bulkSelectedClasses.value.length || !bulkSelectedSubjects.value.length) return
     let added = 0
     for (const classId of bulkSelectedClasses.value) {
-        // Per-class scope: only add the subjects this specific class teaches
-        // (a subject ticked in bulk shouldn't get added to a class that doesn't
-        // teach it, even if another picked class does).
         const cls = (props.classes || []).find(c => Number(c.id) === Number(classId))
         const classSubjectIds = new Set((cls?.subjects || []).map(s => s.id))
         for (const subjectId of bulkSelectedSubjects.value) {
@@ -218,11 +333,12 @@ function applyBulkSubjects() {
             const exists = form.subjects.some(s =>
                 Number(s.school_class_id) === Number(classId) && Number(s.subject_id) === Number(subjectId))
             if (exists) continue
+            const m = overrideOf(subjectId)
             form.subjects.push({
                 subject_id: subjectId,
                 school_class_id: classId,
-                total_marks: bulkTotalMarks.value,
-                passing_marks: bulkPassingMarks.value,
+                total_marks: m.total,
+                passing_marks: m.passing,
                 exam_date: '',
             })
             added++
@@ -231,8 +347,78 @@ function applyBulkSubjects() {
     if (added > 0) {
         bulkSelectedClasses.value = []
         bulkSelectedSubjects.value = []
+        bulkSubjectOverrides.value = {}
+        showSubjectOverrides.value = false
     }
 }
+
+// ── Bulk edit on the per-class table ──
+// Tick the rows whose marks should change (or pick a whole subject / class
+// at once via the helper buttons), set the marks, click Apply.
+const editSelected = ref(new Set())
+const editTotal = ref(null)
+const editPass = ref(null)
+
+function toggleEditRow(i) {
+    if (editSelected.value.has(i)) editSelected.value.delete(i)
+    else editSelected.value.add(i)
+    editSelected.value = new Set(editSelected.value)
+}
+function selectAllRows() {
+    if (editSelected.value.size === form.subjects.length) editSelected.value = new Set()
+    else editSelected.value = new Set(form.subjects.map((_, i) => i))
+}
+function selectBySubject(subjectId) {
+    const next = new Set(editSelected.value)
+    form.subjects.forEach((r, i) => {
+        if (Number(r.subject_id) === Number(subjectId)) next.add(i)
+    })
+    editSelected.value = next
+}
+function selectByClass(classId) {
+    const next = new Set(editSelected.value)
+    form.subjects.forEach((r, i) => {
+        if (Number(r.school_class_id) === Number(classId)) next.add(i)
+    })
+    editSelected.value = next
+}
+function applyEditMarks() {
+    if (!editSelected.value.size) return
+    for (const i of editSelected.value) {
+        if (editTotal.value !== null && editTotal.value !== '') form.subjects[i].total_marks = Number(editTotal.value)
+        if (editPass.value !== null && editPass.value !== '') form.subjects[i].passing_marks = Number(editPass.value)
+    }
+    editSelected.value = new Set()
+    editTotal.value = null
+    editPass.value = null
+}
+function removeSelectedRows() {
+    if (!editSelected.value.size) return
+    const indices = [...editSelected.value].sort((a, b) => b - a) // delete back-to-front
+    for (const i of indices) form.subjects.splice(i, 1)
+    editSelected.value = new Set()
+}
+
+const distinctSubjectsInRows = computed(() => {
+    const seen = new Map()
+    for (const r of form.subjects) {
+        if (r.subject_id && !seen.has(r.subject_id)) {
+            const s = props.subjects.find(x => Number(x.id) === Number(r.subject_id))
+            seen.set(r.subject_id, { id: r.subject_id, name: s?.name || `#${r.subject_id}` })
+        }
+    }
+    return [...seen.values()]
+})
+const distinctClassesInRows = computed(() => {
+    const seen = new Map()
+    for (const r of form.subjects) {
+        if (r.school_class_id && !seen.has(r.school_class_id)) {
+            const c = props.classes.find(x => Number(x.id) === Number(r.school_class_id))
+            seen.set(r.school_class_id, { id: r.school_class_id, name: c?.name || `#${r.school_class_id}` })
+        }
+    }
+    return [...seen.values()]
+})
 
 // For the per-row subject dropdown — only show subjects assigned to that row's class
 function subjectsForClass(classId) {
@@ -503,17 +689,19 @@ function submit() {
                         <div class="form-grid">
                             <div>
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Exam Type *</label>
-                                <select v-model="form.exam_type_id" required class="select select-bordered w-full mt-1.5">
-                                    <option value="">Select type...</option>
-                                    <option v-for="t in examTypes" :key="t.id" :value="t.id">{{ t.name }}</option>
-                                </select>
+                                <div class="mt-1.5">
+                                    <SearchableSelect v-model="form.exam_type_id"
+                                        :options="(examTypes || []).map(t => ({ value: t.id, label: t.name }))"
+                                        placeholder="Select type..." />
+                                </div>
                             </div>
                             <div>
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Academic Session *</label>
-                                <select v-model="form.academic_session_id" required class="select select-bordered w-full mt-1.5">
-                                    <option value="">Select session...</option>
-                                    <option v-for="s in sessions" :key="s.id" :value="s.id">{{ s.name }}</option>
-                                </select>
+                                <div class="mt-1.5">
+                                    <SearchableSelect v-model="form.academic_session_id"
+                                        :options="(sessions || []).map(s => ({ value: s.id, label: s.name }))"
+                                        placeholder="Select session..." />
+                                </div>
                             </div>
                             <div>
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Start Date *</label>
@@ -534,10 +722,11 @@ function submit() {
                             </div>
                             <div>
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Grading Scale</label>
-                                <select v-model="form.grading_scale_id" class="select select-bordered w-full mt-1.5">
-                                    <option value="">Default</option>
-                                    <option v-for="g in gradingScales" :key="g.id" :value="g.id">{{ g.name }}</option>
-                                </select>
+                                <div class="mt-1.5">
+                                    <SearchableSelect v-model="form.grading_scale_id"
+                                        :options="[{ value: '', label: 'Default' }, ...(gradingScales || []).map(g => ({ value: g.id, label: g.name }))]"
+                                        placeholder="Default" />
+                                </div>
                             </div>
                             <!-- Optional: pick a teacher to designate as Exam Controller for this exam.
                                  Their name will appear on the date sheet, admit cards, etc. as the
@@ -547,10 +736,12 @@ function submit() {
                                     Exam Controller
                                     <span class="text-base-content/40 normal-case font-medium">· optional</span>
                                 </label>
-                                <select v-model="form.exam_controller_id" class="select select-bordered w-full mt-1.5">
-                                    <option value="">— None —</option>
-                                    <option v-for="t in teachers" :key="t.id" :value="t.id">{{ t.name }}</option>
-                                </select>
+                                <div class="mt-1.5">
+                                    <SearchableSelect v-model="form.exam_controller_id"
+                                        :options="[{ value: '', label: '— None —' }, ...(teachers || []).map(t => ({ value: t.id, label: t.name }))]"
+                                        placeholder="— None —"
+                                        clearable />
+                                </div>
                                 <p class="text-[10px] text-base-content/45 mt-1">
                                     Pick a teacher to sign exam paperwork (date sheet, admit cards, etc.).
                                 </p>
@@ -561,6 +752,74 @@ function submit() {
                             <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Description</label>
                             <textarea v-model="form.description" rows="2" placeholder="Optional notes about this exam..."
                                 class="textarea textarea-bordered w-full mt-1.5"></textarea>
+                        </div>
+
+                        <!-- ─── Term + final-year combination ─── -->
+                        <div class="rounded-xl border-2 border-dashed border-violet-500/30 bg-violet-500/5 p-4 space-y-3">
+                            <p class="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300 flex items-center gap-1.5">
+                                <ClipboardDocumentListIcon class="w-3.5 h-3.5" />
+                                Term &amp; Final-Year Combination
+                                <span class="text-base-content/40 normal-case font-medium">· optional</span>
+                            </p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/65">Which term?</label>
+                                    <select v-model="form.term" class="select select-bordered w-full mt-1.5">
+                                        <option value="">— Not part of a term cycle —</option>
+                                        <option value="first">First Term</option>
+                                        <option value="second">Second Term</option>
+                                        <option value="final">Final Term</option>
+                                    </select>
+                                    <p class="text-[10px] text-base-content/45 mt-1">
+                                        Tag this exam so the year-end aggregator knows where it sits.
+                                    </p>
+                                </div>
+                                <div v-if="form.term === 'final'" class="flex items-center">
+                                    <label class="flex items-start gap-2.5 p-3 rounded-xl border-2 transition-colors cursor-pointer w-full"
+                                        :class="form.combine_previous_terms ? 'border-violet-500 bg-violet-500/10' : 'border-base-200 hover:bg-base-200/40'">
+                                        <input type="checkbox" v-model="form.combine_previous_terms"
+                                            class="checkbox checkbox-sm checkbox-primary mt-0.5" />
+                                        <div class="text-xs">
+                                            <p class="font-bold">Combine 1st + 2nd term into final result</p>
+                                            <p class="text-base-content/55 mt-0.5">Year-end result = weighted aggregate of all three terms.</p>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div v-if="form.term === 'final' && form.combine_previous_terms"
+                                class="rounded-lg border border-violet-500/30 bg-base-100 p-3 space-y-2">
+                                <p class="text-[11px] font-bold uppercase tracking-wider text-base-content/65 flex items-center justify-between">
+                                    <span>Term weights (must total 100)</span>
+                                    <span class="font-mono tabular-nums" :class="termWeightSum === 100 ? 'text-emerald-600' : 'text-rose-600'">
+                                        sum = {{ termWeightSum }}
+                                    </span>
+                                </p>
+                                <div class="grid grid-cols-3 gap-2">
+                                    <div>
+                                        <label class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">1st Term %</label>
+                                        <input type="number" min="0" max="100" v-model.number="form.term_weights.first"
+                                            class="input input-bordered input-sm w-full mt-1" />
+                                    </div>
+                                    <div>
+                                        <label class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">2nd Term %</label>
+                                        <input type="number" min="0" max="100" v-model.number="form.term_weights.second"
+                                            class="input input-bordered input-sm w-full mt-1" />
+                                    </div>
+                                    <div>
+                                        <label class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Final %</label>
+                                        <input type="number" min="0" max="100" v-model.number="form.term_weights.final"
+                                            class="input input-bordered input-sm w-full mt-1" />
+                                    </div>
+                                </div>
+                                <p class="text-[11px] text-base-content/55 leading-snug">
+                                    Result generation will pull each student's marks for the 1st-term and 2nd-term exams
+                                    of the same session, then blend them with this final-term's marks using these
+                                    percentages. The combined number is what appears on the final result card.
+                                </p>
+                                <p v-if="form.errors.term_weights" class="text-xs text-error">{{ form.errors.term_weights }}</p>
+                                <p v-if="form.errors.combine_previous_terms" class="text-xs text-error">{{ form.errors.combine_previous_terms }}</p>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -692,9 +951,84 @@ function submit() {
                             </div>
                         </div>
 
-                        <p class="text-[11px] text-base-content/55 italic">
-                            Marks are set per (class, subject) row in the table below — defaults to 100 / 33 and you can adjust each one.
-                        </p>
+                        <!-- Default marks for every fanned-out row. Per-subject
+                             overrides below let admin tweak only the odd ones
+                             (e.g. Computer = 50/17 while everyone else = 100/33). -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-base-200 bg-base-200/40 p-3">
+                            <div>
+                                <label class="text-[11px] uppercase tracking-wider font-bold text-base-content/55">
+                                    Default total marks
+                                </label>
+                                <input v-model.number="bulkTotalMarks" type="number" min="1"
+                                    class="input input-bordered input-sm rounded-lg w-full mt-1 font-mono" />
+                            </div>
+                            <div>
+                                <label class="text-[11px] uppercase tracking-wider font-bold text-base-content/55">
+                                    Default passing marks
+                                </label>
+                                <input v-model.number="bulkPassingMarks" type="number" min="0"
+                                    class="input input-bordered input-sm rounded-lg w-full mt-1 font-mono" />
+                            </div>
+                        </div>
+
+                        <!-- Per-subject override toggle -->
+                        <div v-if="bulkSelectedSubjects.length">
+                            <button type="button" @click="showSubjectOverrides = !showSubjectOverrides"
+                                class="btn btn-ghost btn-xs gap-1 text-primary">
+                                <Cog6ToothIcon class="w-3.5 h-3.5" />
+                                {{ showSubjectOverrides ? 'Hide' : 'Override marks for specific subjects' }}
+                                <span class="badge badge-xs badge-ghost ml-1" v-if="Object.keys(bulkSubjectOverrides).length">
+                                    {{ Object.keys(bulkSubjectOverrides).length }} custom
+                                </span>
+                            </button>
+
+                            <div v-if="showSubjectOverrides"
+                                class="mt-2 rounded-xl border border-base-200 bg-base-100 overflow-hidden">
+                                <table class="w-full text-xs">
+                                    <thead class="bg-base-200/50 text-[10px] uppercase tracking-wider text-base-content/55">
+                                        <tr>
+                                            <th class="text-left px-3 py-2 font-bold">Subject</th>
+                                            <th class="text-right px-3 py-2 font-bold w-24">Total</th>
+                                            <th class="text-right px-3 py-2 font-bold w-24">Pass</th>
+                                            <th class="px-2 py-2 w-8"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-base-200">
+                                        <tr v-for="sid in bulkSelectedSubjects" :key="sid">
+                                            <td class="px-3 py-1.5 truncate">
+                                                {{ (subjects.find(s => Number(s.id) === Number(sid)) || {}).name }}
+                                            </td>
+                                            <td class="px-3 py-1.5">
+                                                <input type="number" min="1"
+                                                    :placeholder="bulkTotalMarks"
+                                                    :value="bulkSubjectOverrides[sid]?.total ?? ''"
+                                                    @input="ensureOverride(sid).total = $event.target.value"
+                                                    class="input input-bordered input-xs rounded w-full text-right font-mono" />
+                                            </td>
+                                            <td class="px-3 py-1.5">
+                                                <input type="number" min="0"
+                                                    :placeholder="bulkPassingMarks"
+                                                    :value="bulkSubjectOverrides[sid]?.passing ?? ''"
+                                                    @input="ensureOverride(sid).passing = $event.target.value"
+                                                    class="input input-bordered input-xs rounded w-full text-right font-mono" />
+                                            </td>
+                                            <td class="px-2 py-1.5 text-right">
+                                                <button v-if="bulkSubjectOverrides[sid]" type="button"
+                                                    @click="clearOverride(sid)"
+                                                    class="btn btn-ghost btn-xs btn-square text-base-content/55"
+                                                    title="Reset to default">
+                                                    <XCircleIcon class="w-3.5 h-3.5" />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <p class="px-3 py-2 text-[10px] text-base-content/55 bg-base-200/30">
+                                    Leave a row blank to use the defaults above. Set a row to
+                                    e.g. 50 / 17 for subjects like Computer or Art that carry less weight.
+                                </p>
+                            </div>
+                        </div>
 
                         <button type="button" @click="applyBulkSubjects"
                             :disabled="!bulkSelectedClasses.length || !bulkSelectedSubjects.length"
@@ -736,10 +1070,61 @@ function submit() {
                         <p class="text-xs text-base-content/45 mt-1">Use the bulk apply above to map subjects to classes.</p>
                     </div>
 
-                    <div v-else class="overflow-x-auto">
+                    <!-- Bulk-edit toolbar — tick rows, set marks, apply -->
+                    <div v-if="form.subjects.length" class="px-4 py-2.5 bg-violet-500/5 border-y border-violet-500/20 flex flex-wrap items-center gap-2 text-xs">
+                        <span class="text-[10px] uppercase tracking-wider font-bold text-violet-700 dark:text-violet-300">
+                            Bulk edit:
+                        </span>
+                        <span class="font-mono tabular-nums">
+                            {{ editSelected.size }} selected
+                        </span>
+
+                        <div class="flex items-center gap-1">
+                            <span class="text-[10px] text-base-content/55">Quick pick:</span>
+                            <div class="w-40">
+                                <SearchableSelect :model-value="''"
+                                    :options="[{ value: '', label: '— By subject —' }, ...distinctSubjectsInRows.map(s => ({ value: s.id, label: s.name }))]"
+                                    placeholder="— By subject —" size="xs"
+                                    @change="(v) => v && selectBySubject(v)" />
+                            </div>
+                            <div class="w-40">
+                                <SearchableSelect :model-value="''"
+                                    :options="[{ value: '', label: '— By class —' }, ...distinctClassesInRows.map(c => ({ value: c.id, label: c.name }))]"
+                                    placeholder="— By class —" size="xs"
+                                    @change="(v) => v && selectByClass(v)" />
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-1 ml-auto">
+                            <input v-model.number="editTotal" type="number" min="1" placeholder="Total"
+                                class="input input-bordered input-xs rounded-md w-20 text-right font-mono" />
+                            <span class="text-base-content/40">/</span>
+                            <input v-model.number="editPass" type="number" min="0" placeholder="Pass"
+                                class="input input-bordered input-xs rounded-md w-20 text-right font-mono" />
+                            <button type="button" @click="applyEditMarks"
+                                :disabled="!editSelected.size || (editTotal == null && editPass == null)"
+                                class="btn btn-primary btn-xs gap-1">
+                                Apply
+                            </button>
+                            <button type="button" @click="removeSelectedRows"
+                                :disabled="!editSelected.size"
+                                class="btn btn-ghost btn-xs gap-1 text-rose-600"
+                                :title="'Remove ' + editSelected.size + ' selected row(s)'">
+                                <TrashIcon class="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div v-if="form.subjects.length" class="overflow-x-auto">
                         <table class="w-full text-sm">
                             <thead class="bg-base-200/40 text-[11px] uppercase tracking-wider text-base-content/55">
                                 <tr>
+                                    <th class="px-3 py-3 w-8">
+                                        <input type="checkbox"
+                                            :checked="editSelected.size === form.subjects.length"
+                                            @change="selectAllRows"
+                                            class="checkbox checkbox-xs checkbox-primary" />
+                                    </th>
                                     <th class="text-left px-4 py-3 font-bold">Class</th>
                                     <th class="text-left px-3 py-3 font-bold">Subject</th>
                                     <th class="text-right px-3 py-3 font-bold w-24">Total</th>
@@ -748,18 +1133,22 @@ function submit() {
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-base-200">
-                                <tr v-for="(row, i) in form.subjects" :key="i" class="hover:bg-base-200/30">
+                                <tr v-for="(row, i) in form.subjects" :key="i"
+                                    :class="editSelected.has(i) ? 'bg-violet-500/10' : 'hover:bg-base-200/30'">
+                                    <td class="px-3 py-2 text-center">
+                                        <input type="checkbox" :checked="editSelected.has(i)"
+                                            @change="toggleEditRow(i)"
+                                            class="checkbox checkbox-xs checkbox-primary" />
+                                    </td>
                                     <td class="px-4 py-2">
-                                        <select v-model="row.school_class_id" class="select select-bordered select-xs rounded-lg w-full">
-                                            <option value="">—</option>
-                                            <option v-for="c in availableClasses" :key="c.id" :value="c.id">{{ c.name }}</option>
-                                        </select>
+                                        <SearchableSelect v-model="row.school_class_id"
+                                            :options="availableClasses.map(c => ({ value: c.id, label: c.name }))"
+                                            placeholder="—" size="xs" />
                                     </td>
                                     <td class="px-3 py-2">
-                                        <select v-model="row.subject_id" class="select select-bordered select-xs rounded-lg w-full">
-                                            <option value="">—</option>
-                                            <option v-for="s in subjectsForClass(row.school_class_id)" :key="s.id" :value="s.id">{{ s.name }}</option>
-                                        </select>
+                                        <SearchableSelect v-model="row.subject_id"
+                                            :options="subjectsForClass(row.school_class_id).map(s => ({ value: s.id, label: s.name }))"
+                                            placeholder="—" size="xs" />
                                     </td>
                                     <td class="px-3 py-2">
                                         <input v-model.number="row.total_marks" type="number" min="1"
@@ -963,23 +1352,121 @@ function submit() {
                             Configuration Summary
                         </h3>
                     </header>
-                    <div class="surface-body">
-                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-                        <div><dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Total Marks</dt><dd class="font-mono font-bold mt-0.5">{{ form.total_marks }}</dd></div>
-                        <div><dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Pass %</dt><dd class="font-mono font-bold mt-0.5">{{ form.passing_percentage }}%</dd></div>
-                        <div><dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Grace</dt><dd class="font-mono font-bold mt-0.5">{{ form.grace_marks || 0 }} on max {{ form.grace_marks_max_subjects || 0 }}</dd></div>
-                        <div><dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Subjects mapped</dt><dd class="font-mono font-bold mt-0.5">{{ form.subjects.length }}</dd></div>
-                        <div><dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Schools</dt><dd class="font-bold mt-0.5">{{ form.apply_to_all_schools ? 'All schools' : `${form.selected_school_ids.length} selected` }}</dd></div>
-                        <div><dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Position by</dt><dd class="font-bold mt-0.5 capitalize">{{ form.position_calculation }}</dd></div>
-                        <div><dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Strict mode</dt>
-                            <dd class="font-bold mt-0.5">
-                                <span v-if="form.all_subjects_must_pass" class="text-rose-700">All must pass</span>
-                                <span v-else-if="form.main_subjects_must_pass" class="text-amber-700">Main must pass</span>
-                                <span v-else class="text-base-content/55">No</span>
-                            </dd>
+                    <div class="surface-body space-y-4">
+                        <!-- Per-subject marks (what teachers actually enter) -->
+                        <div>
+                            <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55 mb-2">
+                                Per-subject marks
+                                <span v-if="form.subjects.length && !subjectsMarksUniform"
+                                    class="ml-1 text-amber-700 dark:text-amber-400 normal-case font-medium">
+                                    · not uniform — some subjects use different marks
+                                </span>
+                            </p>
+                            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                                <div>
+                                    <dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Total per subject</dt>
+                                    <dd class="font-mono font-bold mt-0.5">{{ subjectTotalsTypical ?? '—' }}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Pass mark per subject</dt>
+                                    <dd class="font-mono font-bold mt-0.5">{{ subjectPassingTypical ?? '—' }}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Pass %</dt>
+                                    <dd class="font-mono font-bold mt-0.5">
+                                        {{ subjectPassingPctTypical != null ? subjectPassingPctTypical + '%' : '—' }}
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Subjects mapped</dt>
+                                    <dd class="font-mono font-bold mt-0.5">{{ form.subjects.length }}</dd>
+                                </div>
+                            </div>
                         </div>
-                        <div><dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Mandatory subjects</dt><dd class="font-bold mt-0.5">{{ form.passing_rules?.mandatory_subjects?.length || 0 }}</dd></div>
+
+                        <!-- Per-class totals — what each class will actually be graded on -->
+                        <div class="pt-3 border-t border-base-200">
+                            <div class="flex items-center justify-between mb-2">
+                                <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">
+                                    Per-class totals
+                                </p>
+                                <p class="text-[10px] text-base-content/45">
+                                    Each class is graded out of its own subject total — not the sum across all classes.
+                                </p>
+                            </div>
+                            <div v-if="!subjectsByClassBreakdown.length" class="text-xs text-base-content/45 italic px-2 py-3">
+                                Map subjects to classes in Step 3 to see this.
+                            </div>
+                            <div v-else class="rounded-xl border border-base-200 overflow-hidden">
+                                <table class="w-full text-xs">
+                                    <thead class="bg-base-200/40 text-[10px] uppercase tracking-wider text-base-content/55">
+                                        <tr>
+                                            <th class="text-left px-3 py-2 font-bold">Class</th>
+                                            <th class="text-right px-3 py-2 font-bold">Subjects</th>
+                                            <th class="text-right px-3 py-2 font-bold">Total marks</th>
+                                            <th class="text-right px-3 py-2 font-bold">Passing</th>
+                                            <th class="text-right px-3 py-2 font-bold">Pass %</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-base-200">
+                                        <tr v-for="row in subjectsByClassBreakdown" :key="row.id" class="hover:bg-base-200/30">
+                                            <td class="px-3 py-2 font-semibold">{{ row.name }}</td>
+                                            <td class="px-3 py-2 text-right font-mono">{{ row.subjects }}</td>
+                                            <td class="px-3 py-2 text-right font-mono font-bold">{{ row.total }}</td>
+                                            <td class="px-3 py-2 text-right font-mono">{{ row.passing }}</td>
+                                            <td class="px-3 py-2 text-right font-mono">{{ row.percentage }}%</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="grid grid-cols-2 lg:grid-cols-2 gap-3 text-sm mt-3">
+                                <div>
+                                    <dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Grace</dt>
+                                    <dd class="font-mono font-bold mt-0.5">{{ form.grace_marks || 0 }} on max {{ form.grace_marks_max_subjects || 0 }}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Schools</dt>
+                                    <dd class="font-bold mt-0.5">{{ form.apply_to_all_schools ? 'All schools' : `${form.selected_school_ids.length} selected` }}</dd>
+                                </div>
+                            </div>
                         </div>
+
+                        <!-- Rules / behaviour -->
+                        <div class="pt-3 border-t border-base-200">
+                            <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55 mb-2">
+                                Passing rules &amp; calculation
+                            </p>
+                            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                                <div>
+                                    <dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Position by</dt>
+                                    <dd class="font-bold mt-0.5 capitalize">{{ form.position_calculation }}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Strict mode</dt>
+                                    <dd class="font-bold mt-0.5">
+                                        <span v-if="form.all_subjects_must_pass" class="text-rose-700">All must pass</span>
+                                        <span v-else-if="form.main_subjects_must_pass" class="text-amber-700">Main must pass</span>
+                                        <span v-else class="text-base-content/55">No</span>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Mandatory subjects</dt>
+                                    <dd class="font-bold mt-0.5">{{ form.passing_rules?.mandatory_subjects?.length || 0 }}</dd>
+                                </div>
+                                <div v-if="form.term">
+                                    <dt class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Term</dt>
+                                    <dd class="font-bold mt-0.5 capitalize">
+                                        {{ form.term }}<span v-if="form.term === 'final' && form.combine_previous_terms"> · combined</span>
+                                    </dd>
+                                </div>
+                            </div>
+                        </div>
+
+                        <p class="text-[11px] text-base-content/55 leading-snug pt-2 border-t border-base-200">
+                            💡 The result engine grades each student <strong>per subject</strong> — a student passes a
+                            subject when their marks ≥ that subject's pass mark. Overall percentage =
+                            <code class="text-[10px] bg-base-200 px-1 rounded">total obtained / sum of all subject totals × 100</code>.
+                        </p>
                     </div>
                 </section>
             </div>

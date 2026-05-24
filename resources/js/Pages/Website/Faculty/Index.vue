@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import Pagination from '@/Components/Pagination.vue'
 import { Head, Link, router } from '@inertiajs/vue3'
@@ -62,10 +63,11 @@ function initials(name) {
                     <input v-model="search" type="text" placeholder="Search by name, designation…"
                         class="input input-bordered input-sm w-full pl-9 text-sm" />
                 </div>
-                <select v-model="department" class="select select-bordered select-sm text-sm">
-                    <option value="">All departments</option>
-                    <option v-for="d in departments" :key="d" :value="d">{{ d }}</option>
-                </select>
+                <div class="min-w-[180px]">
+                    <SearchableSelect v-model="department" size="sm"
+                        :options="[{ value: '', label: 'All departments' }, ...(departments || []).map(d => ({ value: d, label: d }))]"
+                        placeholder="All departments" />
+                </div>
             </div>
 
             <EmptyState v-if="!members.data?.length"

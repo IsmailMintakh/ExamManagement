@@ -158,8 +158,12 @@
                     @elseif(!$isPeriod)
                         <td class="brk-cell">{{ $slot->type }}</td>
                     @elseif($entry)
+                        @php
+                            $subjLabel = $entry->subject?->code
+                                ?: \Illuminate\Support\Str::limit($entry->subject?->name ?? '—', 14, '…');
+                        @endphp
                         <td class="cell">
-                            <div class="sub">{{ $entry->subject?->name ?? '—' }}</div>
+                            <div class="sub" title="{{ $entry->subject?->name }}">{{ $subjLabel }}</div>
                             <div class="cls">{{ $entry->schoolClass?->name }} · {{ $entry->section?->name }}</div>
                         </td>
                     @else

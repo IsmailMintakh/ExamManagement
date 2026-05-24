@@ -53,16 +53,36 @@ class ReportController extends Controller
             ])
             ->values();
 
+        // Picker dropdown — ordered by roll number (within class+section) via
+        // the model's global byRollNo scope; the search field on the dropdown
+        // handles name-based lookup, so we don't need to override the order.
         $students = Student::query()
             ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
             ->active()
-            ->orderBy('name')
-            ->limit(2000) // safety cap; admin can search via the picker
+            ->limit(2000)
             ->get(['id', 'name', 'roll_no'])
             ->map(fn ($s) => [
                 'id' => $s->id,
                 'name' => $s->name . ($s->roll_no ? " (Roll {$s->roll_no})" : ''),
             ]);
+
+        // ── Class/section/exam dropdowns scoped to the teacher's assignments ──
+        // Without this a class-teacher saw EVERY class in the school.
+        $isAdmin = $user->isSuperAdmin() || $user->isSchoolAdmin();
+        if (!$isAdmin) {
+            $ctSectionIds = Section::where('class_teacher_id', $user->id)->pluck('id');
+            $stRows = \App\Models\SubjectTeacher::where('user_id', $user->id)
+                ->where('is_active', true)
+                ->get(['school_class_id', 'section_id']);
+            $allowedClassIds = $stRows->pluck('school_class_id')
+                ->merge(Section::whereIn('id', $ctSectionIds)->pluck('school_class_id'))
+                ->unique()->values();
+            $classes = $classes->whereIn('id', $allowedClassIds)->values();
+            $sections = $sections->filter(function ($s) use ($ctSectionIds, $stRows) {
+                return $ctSectionIds->contains($s['id'])
+                    || $stRows->where('section_id', $s['id'])->isNotEmpty();
+            })->values();
+        }
 
         $teachers = \App\Models\User::query()
             ->where('is_active', true)
@@ -96,7 +116,7 @@ class ReportController extends Controller
             ->when($user->isClassTeacher() && !$user->isSchoolAdmin() && !$user->isSuperAdmin(),
                 fn ($q) => $q->whereIn('section_id', $user->classSections->pluck('id'))
             )
-            ->with(['student', 'school', 'schoolClass', 'section'])
+            ->with(['student', 'school', 'schoolClass', 'section.classTeacher:id,name,signature_image'])
             ->orderByDesc('percentage')
             ->get();
 
@@ -117,7 +137,7 @@ class ReportController extends Controller
             },
         ])->findOrFail($exam);
 
-        $schoolClassModel = SchoolClass::with(['sections.classTeacher:id,name', 'school'])->findOrFail($schoolClass);
+        $schoolClassModel = SchoolClass::with(['sections.classTeacher:id,name,signature_image', 'school'])->findOrFail($schoolClass);
 
         $user = request()->user();
         if (!$user->isSuperAdmin() && $schoolClassModel->school_id !== $user->school_id) {
@@ -341,7 +361,7 @@ class ReportController extends Controller
     public function sectionMarkSheets(int $exam, int $section)
     {
         $examModel = Exam::with(['examType', 'gradingScale.entries', 'academicSession', 'examController:id,name'])->findOrFail($exam);
-        $sectionModel = Section::with(['schoolClass.school', 'classTeacher:id,name'])->findOrFail($section);
+        $sectionModel = Section::with(['schoolClass.school', 'classTeacher:id,name,signature_image'])->findOrFail($section);
 
         $user = request()->user();
         if (!$user->isSuperAdmin() && $sectionModel->schoolClass->school_id !== $user->school_id) {
@@ -514,7 +534,7 @@ class ReportController extends Controller
         $classIds = ExamSubject::where('exam_id', $exam)->pluck('school_class_id')->unique();
         $classes = SchoolClass::whereIn('id', $classIds)
             ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
-            ->with(['sections.classTeacher:id,name', 'school'])
+            ->with(['sections.classTeacher:id,name,signature_image', 'school'])
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get();
@@ -607,7 +627,7 @@ class ReportController extends Controller
 
         $schoolClassModel = SchoolClass::with(['school', 'sections' => function ($q) {
             $q->orderBy('name');
-        }, 'sections.classTeacher:id,name'])->findOrFail($schoolClass);
+        }, 'sections.classTeacher:id,name,signature_image'])->findOrFail($schoolClass);
 
         $user = request()->user();
         if (!$user->isSuperAdmin() && $schoolClassModel->school_id !== $user->school_id) {

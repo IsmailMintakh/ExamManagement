@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Model;
 class TimeSlot extends Model
 {
     protected $fillable = [
-        'school_id', 'name', 'type', 'starts_at', 'ends_at', 'sort_order', 'weekdays',
+        'school_id', 'name', 'type', 'stage', 'starts_at', 'ends_at', 'sort_order', 'weekdays',
     ];
 
     protected function casts(): array
@@ -55,6 +55,47 @@ class TimeSlot extends Model
     public function scopeOrdered($query)
     {
         return $query->orderBy('sort_order');
+    }
+
+    /**
+     * Slots applicable to a given class stage:
+     *   - stage IS NULL (school-wide default), OR
+     *   - stage = the class's stage
+     * If $stage is null, returns only the school-wide rows.
+     */
+    public function scopeForStage($query, ?string $stage)
+    {
+        return $query->where(function ($q) use ($stage) {
+            $q->whereNull('stage');
+            if ($stage) {
+                $q->orWhere('stage', $stage);
+            }
+        });
+    }
+
+    /**
+     * Slots a section actually uses on its timetable:
+     *  - prefer the rows tagged with its class's stage
+     *  - fall back to the school-wide default (stage IS NULL) when the
+     *    stage has no rows configured
+     * Returns an ordered collection ready for rendering.
+     */
+    public static function forSection(\App\Models\Section $section): \Illuminate\Support\Collection
+    {
+        $schoolId = $section->schoolClass?->school_id;
+        $stage = $section->schoolClass?->stage;
+        if (!$schoolId) {
+            return collect();
+        }
+
+        if ($stage) {
+            $stageSlots = self::where('school_id', $schoolId)->where('stage', $stage)
+                ->ordered()->get();
+            if ($stageSlots->isNotEmpty()) {
+                return $stageSlots;
+            }
+        }
+        return self::where('school_id', $schoolId)->whereNull('stage')->ordered()->get();
     }
 
     public function scopeForDay($query, string $day)

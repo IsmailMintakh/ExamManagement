@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import FormInput from '@/Components/FormInput.vue'
 import FormTextarea from '@/Components/FormTextarea.vue'
 import FileUpload from '@/Components/FileUpload.vue'
@@ -81,9 +82,9 @@ const gradientOptions = [
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                             <div>
                                 <label class="mb-1.5 flex items-center gap-1 text-[12px] font-semibold text-base-content/75">Category</label>
-                                <select v-model="form.category" class="select select-bordered w-full text-sm">
-                                    <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
-                                </select>
+                                <SearchableSelect v-model="form.category" size="sm"
+                                    :options="(categories || []).map(c => ({ value: c, label: c }))"
+                                    placeholder="Select category" />
                                 <p v-if="form.errors.category" class="mt-1.5 text-xs text-error">{{ form.errors.category }}</p>
                             </div>
                             <div>

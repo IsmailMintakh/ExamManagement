@@ -15,7 +15,25 @@ const { can } = usePermissions()
 const props = defineProps({
     sections: Object,
     filters: Object,
+    teachers: { type: Array, default: () => [] },
 })
+
+// Inline class-teacher reassignment — admins can pick a new teacher straight
+// from the row instead of opening the edit form. `saving` tracks which row
+// is in-flight so the dropdown shows a brief spinner.
+const saving = ref(null)
+function reassignClassTeacher(section, newTeacherId) {
+    const value = newTeacherId === '' ? null : Number(newTeacherId)
+    if (value === (section.class_teacher_id ?? null)) return
+    saving.value = section.id
+    router.patch(route('sections.class-teacher.update', section.id), {
+        class_teacher_id: value,
+    }, {
+        preserveScroll: true,
+        only: ['sections', 'flash'],
+        onFinish: () => { saving.value = null },
+    })
+}
 
 const search = useDebouncedSearch({
     routeName: 'sections.index',
@@ -82,7 +100,20 @@ function deleteSection() {
                                 <td class="text-xs font-mono text-base-content/55 tabular-nums">{{ sections.from + i }}</td>
                                 <td class="font-bold text-sm">{{ section.school_class?.name || '—' }}</td>
                                 <td class="text-[13px] text-base-content/75">{{ section.name }}</td>
-                                <td class="text-[13px] text-base-content/75 truncate max-w-[180px]" :title="section.class_teacher?.name">{{ section.class_teacher?.name || '—' }}</td>
+                                <td>
+                                    <select
+                                        v-if="teachers.length"
+                                        class="select select-bordered select-xs w-full max-w-[200px]"
+                                        :disabled="saving === section.id || !can('sections.edit')"
+                                        :value="section.class_teacher_id ?? ''"
+                                        @change="reassignClassTeacher(section, $event.target.value)"
+                                        :title="section.class_teacher?.name || 'No class teacher'"
+                                    >
+                                        <option value="">— Unassigned —</option>
+                                        <option v-for="t in teachers" :key="t.id" :value="t.id">{{ t.name }}</option>
+                                    </select>
+                                    <span v-else class="text-[13px] text-base-content/75">{{ section.class_teacher?.name || '—' }}</span>
+                                </td>
                                 <td class="text-center"><span class="badge badge-info badge-sm tabular-nums">{{ section.students_count ?? 0 }}</span></td>
                                 <td class="text-center text-[13px] text-base-content/75 tabular-nums">{{ section.capacity || '—' }}</td>
                                 <td class="text-right whitespace-nowrap">

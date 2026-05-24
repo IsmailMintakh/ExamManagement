@@ -13,7 +13,31 @@ class SchoolClass extends Model
 {
     use HasFactory, SoftDeletes, LogsActivity;
 
-    protected $fillable = ['school_id', 'name', 'slug', 'numeric_name', 'sort_order', 'is_active'];
+    protected $fillable = ['school_id', 'name', 'slug', 'numeric_name', 'stage', 'sort_order', 'is_active'];
+
+    /**
+     * Educational stages — drives per-stage bell schedules + grouped UI.
+     * Keys must match the enum values used in the migration.
+     */
+    public const STAGES = [
+        'pre_primary' => 'Pre-Primary',
+        'primary' => 'Primary',
+        'middle' => 'Middle',
+        'secondary' => 'Secondary',
+        'higher_secondary' => 'Higher Secondary',
+    ];
+
+    /**
+     * Detailed labels for tooltips / dropdown subtitles. Mirrors the typical
+     * Pakistan school structure (ECD → 12).
+     */
+    public const STAGE_DESCRIPTIONS = [
+        'pre_primary' => 'ECD / Nursery / Prep — short day, 4-5 periods',
+        'primary' => 'Classes 1–5 — full day, ~6 periods',
+        'middle' => 'Classes 6–8 — 7–8 periods',
+        'secondary' => 'Classes 9–10 (Matric/SSC) — full day',
+        'higher_secondary' => 'Classes 11–12 (FA/FSc) — full day',
+    ];
 
     protected static function booted(): void
     {
@@ -84,5 +108,16 @@ class SchoolClass extends Model
     public function scopeOrdered($query)
     {
         return $query->orderBy('sort_order')->orderBy('name');
+    }
+
+    public function scopeOfStage($query, string $stage)
+    {
+        return $query->where('stage', $stage);
+    }
+
+    /** Display label for the class's stage (or '—' if unset). */
+    public function getStageLabelAttribute(): string
+    {
+        return self::STAGES[$this->stage] ?? '—';
     }
 }

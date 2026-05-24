@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import SearchableSelect from './SearchableSelect.vue'
 
 const props = defineProps({
     modelValue: { type: [String, Number, Array], default: '' },
@@ -12,6 +13,10 @@ const props = defineProps({
     disabled: { type: Boolean, default: false },
     helpText: { type: String, default: '' },
     size: { type: String, default: 'md' },
+    // When undefined, single-select lists auto-switch to the combobox
+    // when there are more than 8 options. Set `searchable="true"` to force on,
+    // or `searchable="false"` to force the native `<select>`.
+    searchable: { type: [Boolean, String], default: undefined },
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -24,12 +29,26 @@ const sizeClasses = {
     lg: 'select-lg text-base',
 }
 
+// Auto-decide: long single-select lists get the combobox so the user can
+// type to filter instead of scrolling. Multi-select keeps the native
+// element (combobox UX for multi is a separate redesign).
+const useSearchable = computed(() => {
+    if (props.multiple) return false
+    if (props.searchable === false || props.searchable === 'false') return false
+    if (props.searchable === true || props.searchable === 'true') return true
+    return (props.options?.length || 0) > 8
+})
+
 function onChange(e) {
     if (props.multiple) {
         emit('update:modelValue', Array.from(e.target.selectedOptions, (opt) => opt.value))
     } else {
         emit('update:modelValue', e.target.value)
     }
+}
+
+function onSearchablePick(value) {
+    emit('update:modelValue', value)
 }
 </script>
 
@@ -39,7 +58,22 @@ function onChange(e) {
             {{ label }}
             <span v-if="required" class="text-error">*</span>
         </label>
+
+        <!-- Long single-select → combobox with built-in search. -->
+        <SearchableSelect
+            v-if="useSearchable"
+            :model-value="modelValue"
+            :options="options"
+            :placeholder="placeholder"
+            :disabled="disabled"
+            :error="error"
+            :size="size === 'md' ? 'md' : size"
+            @update:model-value="onSearchablePick"
+        />
+
+        <!-- Native select for short lists / multi-select (faster, more familiar). -->
         <select
+            v-else
             :id="selectId"
             :value="modelValue"
             :required="required"
@@ -54,6 +88,7 @@ function onChange(e) {
                 {{ option.label }}
             </option>
         </select>
+
         <p v-if="error" class="mt-1.5 text-xs text-error">{{ error }}</p>
         <p v-else-if="helpText" class="mt-1.5 text-xs text-base-content/45">{{ helpText }}</p>
     </div>

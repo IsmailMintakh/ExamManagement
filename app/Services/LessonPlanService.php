@@ -49,26 +49,26 @@ class LessonPlanService
         $base = $this->template($in, $facts);
         $by = $facts ? 'reference' : 'template';
 
-        // English/Urdu handling.
-        if ($in['language'] === 'en') {
-            $base['content']['summary_ur'] = '';
-            $base['content']['key_points_ur'] = [];
-        } elseif ($in['language'] === 'ur') {
-            // If an Urdu Wikipedia article exists, prefer its real text for
-            // the summary/key points (more natural than machine-translation).
-            if (!empty($base['content']['summary_ur'])) {
-                $base['content']['summary'] = $base['content']['summary_ur'];
-                if (!empty($base['content']['key_points_ur'])) {
-                    $base['content']['key_points'] = $base['content']['key_points_ur'];
-                }
+        // Urdu mode: when we have a real Urdu Wikipedia intro, seed the
+        // Introduction with it before translating everything else. Also
+        // translate the topic / subject / class shown in the meta table so
+        // the Topic field reads "حضرت محمد" rather than English carry-over.
+        if ($in['language'] === 'ur') {
+            if (!empty($base['content']['summary_ur'] ?? '')) {
+                $base['content']['introduction'] = $base['content']['summary_ur'];
             }
-            $base['content']['summary_ur'] = '';
-            $base['content']['key_points_ur'] = [];
             $base = $this->toUrdu($base);
             $base['content']['is_urdu'] = true;
+            $in['topic']   = $this->tr($in['topic']   ?? '');
+            $in['subject'] = $this->tr($in['subject'] ?? '');
+            $in['class']   = $this->tr($in['class']   ?? '');
         }
+        // Strip the wikipedia-only carrier fields — they're not used by the
+        // PDF / page directly, only by the translation seed above.
+        unset($base['content']['summary_ur'], $base['content']['key_points_ur']);
 
-        // Teacher's own notes win — shown verbatim.
+        // Teacher's own notes carried through for reference (PDF / page may
+        // surface them under Content Knowledge).
         if ($in['notes'] !== '') {
             $base['content']['teacher_notes'] = $in['notes'];
         }
@@ -86,35 +86,17 @@ class LessonPlanService
     protected function toUrdu(array $plan): array
     {
         $plan['objectives'] = $this->trList($plan['objectives'] ?? []);
-        $plan['prior_knowledge'] = $this->tr($plan['prior_knowledge'] ?? '');
-        $plan['materials'] = $this->trList($plan['materials'] ?? []);
-        $plan['activities'] = $this->trList($plan['activities'] ?? []);
-        $plan['assessment'] = $this->trList($plan['assessment'] ?? []);
-        $plan['homework'] = $this->tr($plan['homework'] ?? '');
-        $plan['board_plan'] = $this->tr($plan['board_plan'] ?? '');
+        $plan['homework'] = $this->trList(is_array($plan['homework'] ?? null) ? $plan['homework'] : []);
 
         $c = $plan['content'] ?? [];
-        $c['summary'] = $this->tr($c['summary'] ?? '');
-        $c['key_points'] = $this->trList($c['key_points'] ?? []);
-        $c['example'] = $this->tr($c['example'] ?? '');
-        $c['misconception'] = $this->tr($c['misconception'] ?? '');
-        $c['real_life'] = $this->tr($c['real_life'] ?? '');
+        $c['introduction'] = $this->tr($c['introduction'] ?? '');
+        $c['definition'] = $this->tr($c['definition'] ?? '');
+        $c['characteristics'] = $this->trList($c['characteristics'] ?? []);
+        $c['examples'] = $this->trList($c['examples'] ?? []);
+        $c['class_activity'] = $this->tr($c['class_activity'] ?? '');
+        $c['teaching_methods'] = $this->trList($c['teaching_methods'] ?? []);
+        $c['teaching_aids'] = $this->trList($c['teaching_aids'] ?? []);
         $plan['content'] = $c;
-
-        if (!empty($plan['differentiation'])) {
-            $plan['differentiation']['support'] = $this->tr($plan['differentiation']['support'] ?? '');
-            $plan['differentiation']['challenge'] = $this->tr($plan['differentiation']['challenge'] ?? '');
-        }
-
-        foreach ($plan['vocabulary'] ?? [] as $i => $v) {
-            $plan['vocabulary'][$i]['term'] = $this->tr($v['term'] ?? '');
-            $plan['vocabulary'][$i]['meaning'] = $this->tr($v['meaning'] ?? '');
-        }
-        foreach ($plan['lesson_flow'] ?? [] as $i => $row) {
-            $plan['lesson_flow'][$i]['phase'] = $this->tr($row['phase'] ?? '');
-            $plan['lesson_flow'][$i]['teacher'] = $this->tr($row['teacher'] ?? '');
-            $plan['lesson_flow'][$i]['student'] = $this->tr($row['student'] ?? '');
-        }
 
         return $plan;
     }
@@ -334,6 +316,10 @@ class LessonPlanService
 
     protected function normalise(array $in): array
     {
+        // PHP 8.5 is stricter about undefined array keys. Coerce the language
+        // input to a defined value BEFORE the in_array check, otherwise the
+        // PDF endpoint (which doesn't post a language) blows up here.
+        $lang = $in['language'] ?? 'en';
         return [
             'topic'    => trim($in['topic'] ?? '') ?: 'Untitled topic',
             'subject'  => trim($in['subject'] ?? '') ?: 'General',
@@ -342,8 +328,7 @@ class LessonPlanService
             'medium'   => trim($in['medium'] ?? '') ?: 'English',
             'level'    => trim($in['level'] ?? '') ?: 'mixed-ability',
             'notes'    => trim($in['notes'] ?? ''),
-            'language' => in_array($in['language'] ?? 'en', ['en', 'ur', 'both'], true)
-                ? $in['language'] : 'en',
+            'language' => in_array($lang, ['en', 'ur', 'both'], true) ? $lang : 'en',
             'school'   => trim($in['school'] ?? ''),
         ];
     }
@@ -367,48 +352,56 @@ class LessonPlanService
 
     protected function viaClaude(array $in): ?array
     {
+        // Schema matches the official Schools Education Department
+        // Gilgit-Baltistan SMART LESSON PLAN: three sections, with the
+        // Content Knowledge section broken into the same subsections the
+        // printed form uses (Introduction, Definition, Characteristics,
+        // Examples, Class Activity, Teaching Method, Teaching Aids).
         $system = <<<SYS
-        You are an expert curriculum designer creating lesson plans for school
-        teachers in Pakistan. Produce a practical, classroom-ready plan.
+        You are an expert curriculum designer writing lesson plans for school
+        teachers in Pakistan, following the official Gilgit-Baltistan SMART
+        LESSON PLAN format (Schools Education Department).
+
         Respond with ONLY valid minified JSON (no markdown, no commentary)
         matching exactly this schema:
         {
-          "objectives": ["3-5 measurable SWBAT objectives"],
+          "objectives": [
+            "4 student learning outcomes — short, measurable, focused on the topic"
+          ],
           "content": {
-            "summary": "2-4 sentence accurate explanation OF THE ACTUAL TOPIC a teacher can read out",
-            "summary_ur": "the same summary translated into natural Urdu",
-            "key_points": ["5-8 specific factual teaching points about the topic"],
-            "key_points_ur": ["the key_points translated into Urdu, same order"],
-            "example": "a concrete worked example / illustration specific to the topic",
-            "misconception": "a common student misconception about this topic + the correction",
-            "real_life": "a real-life application/connection of the topic"
+            "introduction": "1-2 sentence intro to the topic for the teacher to open the lesson",
+            "definition": "the textbook definition of the topic in one clear sentence",
+            "characteristics": ["3-6 key characteristics / properties of the topic"],
+            "examples": ["3-5 concrete examples, each a short phrase"],
+            "class_activity": "one practical class activity students will do — one sentence",
+            "teaching_methods": ["3-5 methods, e.g. Lecture, Q&A, Group Activity, Demonstration"],
+            "teaching_aids": ["3-5 aids, e.g. Whiteboard, Marker, Textbook, Computer"]
           },
-          "prior_knowledge": "what students should already know",
-          "materials": ["items/resources needed"],
-          "vocabulary": [{"term":"","meaning":""}],
-          "lesson_flow": [{"phase":"","minutes":0,"teacher":"what the teacher does","student":"what students do"}],
-          "activities": ["1-3 concrete learning activities"],
-          "assessment": ["checks for understanding / questions"],
-          "homework": "a clear homework task",
-          "differentiation": {"support":"for struggling learners","challenge":"for advanced learners"},
-          "board_plan": "what to write on the board",
-          "references": ["textbook chapter / resources"]
+          "homework": [
+            "3-5 numbered homework tasks — specific, doable at home"
+          ]
         }
-        The sum of lesson_flow minutes must equal the total duration.
+
+        Rules:
+        - Write content that is FACTUALLY ACCURATE for the topic in the
+          given subject and class level. No filler like "Definition: state
+          the textbook definition" — write the actual definition.
+        - Keep each list item one line.
+        - When the language is Urdu, write every value in natural Urdu.
         SYS;
 
         $u = $in;
-        $user = "Create a lesson plan.\n"
+        $user = "Create a SMART LESSON PLAN.\n"
             . "Topic: {$u['topic']}\nSubject: {$u['subject']}\nClass/Grade: {$u['class']}\n"
             . "Lesson duration: {$u['duration']} minutes\nMedium of instruction: {$u['medium']}\n"
             . "Learner level: {$u['level']}\n"
             . ($u['notes'] !== '' ? "The teacher specifically wants this included: {$u['notes']}\n" : '')
             . match ($u['language']) {
-                'ur' => "Write the ENTIRE lesson plan in Urdu — every field (objectives, content, lesson_flow, etc.) in natural Urdu. Leave the *_ur fields empty.\n",
-                'both' => "Write the plan in English and ALSO fill every *_ur field with the Urdu translation.\n",
-                default => "Write the plan in English. Leave the *_ur fields empty.\n",
+                'ur' => "Write the ENTIRE plan in natural Urdu.\n",
+                'both' => "Write the plan in English (the printed form is English).\n",
+                default => "Write the plan in English.\n",
             }
-            . "Make the content accurate and specific to the subject. Return only the JSON.";
+            . "Return only the JSON.";
 
         $res = Http::withHeaders([
             'x-api-key' => config('services.anthropic.key'),
@@ -437,31 +430,25 @@ class LessonPlanService
         if (!is_array($json) || empty($json['objectives'])) {
             return null;
         }
+        // Homework may arrive as a string OR an array — normalise to array.
+        $hw = $json['homework'] ?? [];
+        if (is_string($hw)) {
+            $hw = array_values(array_filter(array_map('trim', preg_split('/\r?\n|;|·/u', $hw) ?: [])));
+        }
+
         return [
-            'objectives' => array_values((array) ($json['objectives'] ?? [])),
+            'objectives' => array_slice(array_values((array) ($json['objectives'] ?? [])), 0, 6),
             'content' => [
-                'summary' => (string) data_get($json, 'content.summary', ''),
-                'summary_ur' => (string) data_get($json, 'content.summary_ur', ''),
-                'key_points' => array_values((array) data_get($json, 'content.key_points', [])),
-                'key_points_ur' => array_values((array) data_get($json, 'content.key_points_ur', [])),
+                'introduction' => (string) data_get($json, 'content.introduction', ''),
+                'definition' => (string) data_get($json, 'content.definition', ''),
+                'characteristics' => array_values((array) data_get($json, 'content.characteristics', [])),
+                'examples' => array_values((array) data_get($json, 'content.examples', [])),
+                'class_activity' => (string) data_get($json, 'content.class_activity', ''),
+                'teaching_methods' => array_values((array) data_get($json, 'content.teaching_methods', [])),
+                'teaching_aids' => array_values((array) data_get($json, 'content.teaching_aids', [])),
                 'teacher_notes' => $in['notes'] ?? '',
-                'example' => (string) data_get($json, 'content.example', ''),
-                'misconception' => (string) data_get($json, 'content.misconception', ''),
-                'real_life' => (string) data_get($json, 'content.real_life', ''),
             ],
-            'prior_knowledge' => (string) ($json['prior_knowledge'] ?? ''),
-            'materials' => array_values((array) ($json['materials'] ?? [])),
-            'vocabulary' => array_values((array) ($json['vocabulary'] ?? [])),
-            'lesson_flow' => array_values((array) ($json['lesson_flow'] ?? [])),
-            'activities' => array_values((array) ($json['activities'] ?? [])),
-            'assessment' => array_values((array) ($json['assessment'] ?? [])),
-            'homework' => (string) ($json['homework'] ?? ''),
-            'differentiation' => [
-                'support' => (string) data_get($json, 'differentiation.support', ''),
-                'challenge' => (string) data_get($json, 'differentiation.challenge', ''),
-            ],
-            'board_plan' => (string) ($json['board_plan'] ?? ''),
-            'references' => array_values((array) ($json['references'] ?? [])),
+            'homework' => array_slice(array_values((array) $hw), 0, 6),
         ];
     }
 
@@ -476,14 +463,6 @@ class LessonPlanService
     {
         $t = $in['topic'];
         $s = $in['subject'];
-        $d = $in['duration'];
-
-        // Split the period into sensible phases (sums to $d).
-        $intro = max(5, (int) round($d * 0.12));
-        $recap = max(3, (int) round($d * 0.10));
-        $assess = max(4, (int) round($d * 0.12));
-        $close = max(3, (int) round($d * 0.08));
-        $dev = max(5, $d - $intro - $recap - $assess - $close);
 
         $hasFacts = is_array($facts) && !empty($facts['summary']);
         $definition = $facts['definition'] ?? '';
@@ -492,163 +471,275 @@ class LessonPlanService
         $examples = $facts['examples'] ?? [];
         $applications = $facts['applications'] ?? [];
 
-        // ── Build each plan field from real content where possible. ──
+        // ── Build the three official sections of the GB Smart Lesson Plan ──
+        // Everything below varies by SUBJECT type (Math vs Science vs CS vs
+        // Language vs History) AND uses the Wikipedia facts when we have
+        // them, so two different topics produce two different lesson plans.
 
-        $objectives = $hasFacts
-            ? array_values(array_filter([
-                "Define “{$t}” in their own words: ".$this->shortDef($definition).'',
-                "Identify the main features / components of “{$t}” described in the lesson.",
-                $examples ? "Give at least one example of “{$t}” and explain why it qualifies." : "Apply “{$t}” to solve a simple {$s} problem.",
-                $applications ? "Describe one real-life use or importance of “{$t}”." : "Relate “{$t}” to something they see in everyday life.",
-            ]))
-            : [
-                "Define and explain the key idea of “{$t}” in their own words.",
-                "Identify the main components / steps related to “{$t}”.",
-                "Apply the concept of “{$t}” to solve a simple {$s} problem or example.",
-                "Relate “{$t}” to a real-life situation relevant to their level.",
-            ];
+        $kind = $this->subjectKind($s);
+        $firstChar = $hasFacts && !empty($keyPoints) ? $this->shortDef($keyPoints[0]) : '';
+        $firstExample = $hasFacts && !empty($examples) ? $this->shortDef($examples[0]) : '';
+        $firstApp = $hasFacts && !empty($applications) ? $this->shortDef($applications[0]) : '';
 
-        $example = $hasFacts && $examples
-            ? $examples[0]
-            : "Solve/illustrate one clear example of “{$t}” on the board, narrating each step so students can copy the method.";
+        // 1. Student Learning Outcomes — four lines i/ii/iii/iv, each picks
+        //    a verb appropriate to the subject + (when possible) substitutes
+        //    a real fact pulled from Wikipedia so the outcome is concrete.
+        $objectives = [
+            $hasFacts && $definition
+                ? "Define {$t}: “" . $this->shortDef($definition, 140) . "”"
+                : $this->verb($kind, 'define') . " the term “{$t}” and write its meaning in their own words.",
 
-        $realLife = $hasFacts && $applications
-            ? $applications[0]
-            : "Connect “{$t}” to something students see in daily life so the concept feels concrete.";
+            $firstChar
+                ? $this->verb($kind, 'identify') . " the main features of “{$t}”, including: " . $firstChar
+                : $this->verb($kind, 'identify') . " the main features / components of “{$t}”.",
 
-        $misconception = $hasFacts && count($keyPoints) >= 2
-            ? "Students often confuse “{$t}” with related ideas. Correct this by re-reading: «".$keyPoints[1]."»"
-            : "Anticipate the usual mistake students make with “{$t}” (e.g. confusing it with a similar concept) and explicitly correct it.";
+            $firstExample
+                ? $this->verb($kind, 'apply') . " “{$t}” using examples like: " . $firstExample
+                : $this->verb($kind, 'apply') . " “{$t}” to a {$s} problem of the kind covered in the textbook.",
 
-        $boardPlan = $hasFacts
-            ? "Title: {$t}\nDefinition: ".$this->shortDef($definition)."\nKey points: ".implode(' • ', array_slice($keyPoints, 0, 3))
-            : "Title: {$t}  |  Objective  |  Key definition  |  Worked example  |  Summary points";
-
-        $vocabulary = [
-            ['term' => $t, 'meaning' => $hasFacts
-                ? $this->shortDef($definition)
-                : "Core concept introduced in this lesson — define clearly with one example."],
-        ];
-        // If we have applications text, surface one more vocab term from it.
-        if ($hasFacts && $applications) {
-            $vocabulary[] = [
-                'term' => 'Application',
-                'meaning' => $applications[0],
-            ];
-        } else {
-            $vocabulary[] = ['term' => 'Key term 2', 'meaning' => 'Supporting term the teacher should pre-select from the chapter.'];
-        }
-
-        $devTeacher = $hasFacts
-            ? "Explain {$t} step-by-step using the summary on the board: «"
-                .$this->shortDef($summary)
-                ."». Walk through "
-                .(count($keyPoints) >= 3 ? count($keyPoints) : 'the')
-                ." key points one at a time, modelling each on the board with examples."
-            : "Explain step-by-step with the board plan and visual aid; model 1–2 worked examples; check understanding frequently.";
-
-        $homework = $hasFacts
-            ? "Read the textbook section on “{$t}” and write a 5-sentence explanation that includes: (a) the definition, (b) two key points discussed in class, (c) one real-life example."
-            : "Read the textbook section on “{$t}” and complete the end-of-topic exercise; write 3 sentences explaining it in your own words.";
-
-        $activities = $hasFacts ? array_values(array_filter([
-            "Reading task: students read the summary «".$this->shortDef($summary)."» and underline the keywords.",
-            $examples ? "Example walk-through: discuss the example «".$examples[0]."» and ask students to think of one of their own." : null,
-            $applications ? "Group task: in pairs, write one sentence on why “{$t}” is important using «".$applications[0]."»." : "Group task: produce a labelled diagram / 3-point summary of “{$t}”.",
-        ])) : [
-            "Think–Pair–Share: students discuss one question about “{$t}” then report back.",
-            "Worked example walkthrough on the board, then a similar problem solved by a student.",
-            "Quick group task: produce a labelled diagram / 3-point summary of “{$t}”.",
+            $firstApp
+                ? $this->verb($kind, 'relate') . " “{$t}” to real life — e.g. " . $firstApp
+                : $this->verb($kind, 'relate') . " “{$t}” to something students see in everyday life.",
         ];
 
-        $assessment = $hasFacts ? array_values(array_filter([
-            "Oral question: \"In your own words, what is {$t}?\" Expect: ".$this->shortDef($definition),
-            count($keyPoints) ? "Written question: list any 2 key points about “{$t}” discussed today." : null,
-            $applications ? "MCQ-style: \"Which of these is a real-life use of {$t}?\" — accept variations of: ".$applications[0] : 'Exit ticket: each student writes one thing learned and one question.',
-        ])) : [
-            "Oral questions: “What is {$t}? Give one example.”",
-            "1–2 written practice questions graded for understanding.",
-            'Exit ticket: each student writes one thing learned and one question.',
-        ];
+        // 2. Content Knowledge — pulled from Wikipedia when available.
+        $introduction = $hasFacts
+            ? "Introduce “{$t}” in {$s}. " . $this->shortDef(explode('. ', $summary)[0] ?? $summary)
+            : "Introduce “{$t}” in {$s}. State the textbook definition and explain why the topic matters in this chapter.";
 
-        $references = [
-            "{$s} textbook — chapter covering “{$t}”",
-            'Teacher’s guide / scheme of work',
-        ];
-        if ($hasFacts) {
-            array_unshift($references, $facts['attribution']);
-        }
+        $definitionLine = $hasFacts && $definition
+            ? $this->shortDef($definition)
+            : "Write the precise textbook definition of “{$t}” on the board.";
+
+        $characteristics = $hasFacts && !empty($keyPoints)
+            ? array_slice(array_map(fn ($p) => $this->shortDef($p), $keyPoints), 0, 5)
+            : $this->fallbackCharacteristics($kind, $t);
+
+        $exampleList = $hasFacts && !empty($examples)
+            ? array_slice($examples, 0, 4)
+            : $this->fallbackExamples($kind, $t);
+
+        $classActivity = $this->classActivity($kind, $t, $firstExample);
+        $teachingMethods = $this->teachingMethods($kind);
+        $teachingAids = $this->teachingAids($kind, $s);
+
+        // 3. Homework — subject-specific verbs + Wikipedia facts when present.
+        $homework = $this->homework($kind, $t, $s, $hasFacts, $firstChar, $firstExample, $firstApp);
 
         return [
             'objectives' => $objectives,
             'content' => [
-                'summary' => $hasFacts
-                    ? $summary
-                    : "Introduce “{$t}” in {$s}: state its clear definition, why it matters, and where it fits in the chapter.",
-                'summary_ur' => $facts['summary_ur'] ?? '',
-                'key_points' => $hasFacts && $keyPoints
-                    ? array_slice($keyPoints, 0, 7)
-                    : [
-                        "Definition of “{$t}” — the precise meaning students must memorise.",
-                        "Main parts / steps / components that make up “{$t}”.",
-                        "How “{$t}” works or is carried out (process or reasoning).",
-                        "A worked example showing “{$t}” applied step by step.",
-                        "Why “{$t}” is important / where it is used.",
-                    ],
-                'key_points_ur' => $facts['points_ur'] ?? [],
+                'introduction' => $introduction,
+                'definition' => $definitionLine,
+                'characteristics' => $characteristics,
+                'examples' => $exampleList,
+                'class_activity' => $classActivity,
+                'teaching_methods' => $teachingMethods,
+                'teaching_aids' => $teachingAids,
                 'teacher_notes' => '',
-                'example' => $example,
-                'misconception' => $misconception,
-                'real_life' => $realLife,
+                // Urdu strings carried through for the Urdu-mode pipeline.
+                'summary_ur' => $facts['summary_ur'] ?? '',
+                'key_points_ur' => $facts['points_ur'] ?? [],
             ],
-            'prior_knowledge' => $hasFacts
-                ? "Recall the previous {$s} lesson; review terms needed to understand “{$t}”. Start with 2–3 quick questions about prerequisites that appear in the summary above."
-                : "Students should recall the previous {$s} lesson and basic terms that lead into “{$t}”. Begin with 2–3 quick questions to surface what they already know.",
-            'materials' => [
-                'Whiteboard / blackboard & markers or chalk',
-                "{$s} textbook (relevant chapter on “{$t}”)",
-                'Chart / diagram or visual aid for the topic',
-                'Notebook & worksheet for practice',
-            ],
-            'vocabulary' => $vocabulary,
-            'lesson_flow' => [
-                ['phase' => 'Introduction & motivation', 'minutes' => $intro,
-                 'teacher' => $hasFacts
-                    ? "Hook the class with this question: \"Have you ever heard of {$t}? What do you think it means?\". Then state the lesson objective."
-                    : "Hook the class with a question/real example about “{$t}”; state the lesson objective.",
-                 'student' => 'Respond to the hook, share ideas, note the objective.'],
-                ['phase' => 'Recall prior knowledge', 'minutes' => $recap,
-                 'teacher' => 'Ask quick questions linking the last lesson to today’s topic.',
-                 'student' => 'Answer orally; connect old and new ideas.'],
-                ['phase' => "Development — teaching “{$t}”", 'minutes' => $dev,
-                 'teacher' => $devTeacher,
-                 'student' => 'Listen, take notes, attempt guided examples, ask questions.'],
-                ['phase' => 'Assessment / practice', 'minutes' => $assess,
-                 'teacher' => 'Set short practice questions; circulate and give feedback.',
-                 'student' => 'Solve practice tasks individually or in pairs.'],
-                ['phase' => 'Closure & homework', 'minutes' => $close,
-                 'teacher' => 'Summarise key points, ask 2 recap questions, assign homework.',
-                 'student' => 'Recap aloud, note the homework.'],
-            ],
-            'activities' => $activities,
-            'assessment' => $assessment,
             'homework' => $homework,
-            'differentiation' => [
-                'support' => 'Provide a partially-filled notes sheet, pair weaker students with a peer, use a simpler example first.',
-                'challenge' => "Give an extension problem applying “{$t}” to an unfamiliar context or a short ‘explain why’ question.",
-            ],
-            'board_plan' => $boardPlan,
-            'references' => $references,
         ];
     }
 
-    /** Trim a long sentence to ~180 chars without breaking words. */
-    protected function shortDef(string $s): string
+    /** Bucket the subject name into a teaching kind so we can tailor verbs/aids. */
+    protected function subjectKind(string $subject): string
+    {
+        $s = strtolower($subject);
+        if (str_contains($s, 'computer') || str_contains($s, 'ict') || str_contains($s, 'tech')) return 'cs';
+        if (str_contains($s, 'math') || str_contains($s, 'algebra') || str_contains($s, 'geometry')) return 'math';
+        if (str_contains($s, 'science') || str_contains($s, 'biology') || str_contains($s, 'physics') || str_contains($s, 'chemistry')) return 'science';
+        if (str_contains($s, 'english') || str_contains($s, 'urdu') || str_contains($s, 'literature') || str_contains($s, 'language')) return 'language';
+        if (str_contains($s, 'history') || str_contains($s, 'social') || str_contains($s, 'civics') || str_contains($s, 'pak studies') || str_contains($s, 'geo')) return 'social';
+        if (str_contains($s, 'islam') || str_contains($s, 'quran') || str_contains($s, 'ethics')) return 'islamiyat';
+        return 'general';
+    }
+
+    /** Subject-aware verb for the SLO sentence — keeps each plan from sounding identical. */
+    protected function verb(string $kind, string $intent): string
+    {
+        $map = [
+            'define'   => [
+                'math' => 'State', 'cs' => 'Define', 'science' => 'Explain',
+                'language' => 'Explain the meaning of', 'social' => 'Describe',
+                'islamiyat' => 'Recall', 'general' => 'Define',
+            ],
+            'identify' => [
+                'math' => 'List the rules / steps of', 'cs' => 'Identify the components of',
+                'science' => 'Label the parts of', 'language' => 'Identify the key features of',
+                'social' => 'List the main events / facts of', 'islamiyat' => 'Recall the key teachings of',
+                'general' => 'Identify the main components of',
+            ],
+            'apply'    => [
+                'math' => 'Solve problems using', 'cs' => 'Trace / write a simple example of',
+                'science' => 'Demonstrate', 'language' => 'Use in their own sentences',
+                'social' => 'Explain with reference to', 'islamiyat' => 'Practise',
+                'general' => 'Apply',
+            ],
+            'relate'   => [
+                'math' => 'Show where', 'cs' => 'Find a real-life use of',
+                'science' => 'Connect', 'language' => 'Connect',
+                'social' => 'Connect', 'islamiyat' => 'Connect',
+                'general' => 'Connect',
+            ],
+        ];
+        return ($map[$intent][$kind] ?? $map[$intent]['general'] ?? 'Discuss');
+    }
+
+    /** Subject-appropriate "Teaching Aids" row. */
+    protected function teachingAids(string $kind, string $subject): array
+    {
+        $base = ['Whiteboard', 'Marker'];
+        return match ($kind) {
+            'cs'        => array_merge($base, ['Computer / Laptop', "{$subject} Textbook"]),
+            'science'   => array_merge($base, ['Chart / Diagram', 'Lab Apparatus (if available)', "{$subject} Textbook"]),
+            'math'      => array_merge($base, ['Calculator', 'Ruler / Geometry Set', "{$subject} Textbook"]),
+            'language'  => array_merge($base, ['Reading passage / Storybook', "{$subject} Textbook"]),
+            'social'    => array_merge($base, ['Map / Atlas', 'Timeline chart', "{$subject} Textbook"]),
+            'islamiyat' => array_merge($base, ["{$subject} Textbook", 'Quran / Hadith reference']),
+            default     => array_merge($base, ['Chart / Visual Aid', "{$subject} Textbook"]),
+        };
+    }
+
+    /** Teaching methods vary slightly per subject. */
+    protected function teachingMethods(string $kind): array
+    {
+        return match ($kind) {
+            'math', 'cs' => ['Lecture Method', 'Question & Answer', 'Worked Examples', 'Pair Practice'],
+            'science'    => ['Lecture Method', 'Demonstration', 'Question & Answer', 'Group Activity'],
+            'language'   => ['Reading Aloud', 'Question & Answer', 'Group Discussion', 'Recitation'],
+            'social'     => ['Lecture Method', 'Discussion', 'Story-telling', 'Group Activity'],
+            'islamiyat'  => ['Recitation', 'Explanation', 'Question & Answer', 'Group Discussion'],
+            default      => ['Lecture Method', 'Question & Answer', 'Group Activity', 'Demonstration'],
+        };
+    }
+
+    /** A topic-specific class activity sentence. */
+    protected function classActivity(string $kind, string $topic, string $example = ''): string
+    {
+        $ex = $example ? " For instance: «{$example}»" : '';
+        return match ($kind) {
+            'math'      => "Students will solve 2–3 short {$topic} problems on the board in pairs and explain their steps to the class.{$ex}",
+            'cs'        => "Students will write a step-by-step example of {$topic} in their notebooks and trace through it on the board.{$ex}",
+            'science'   => "Students will draw and label a diagram of {$topic}, then explain it to the class.{$ex}",
+            'language'  => "Students will read a short passage on {$topic} and answer 3 quick comprehension questions in pairs.{$ex}",
+            'social'    => "Students will work in groups to list the key facts about {$topic} and present them to the class.{$ex}",
+            'islamiyat' => "Students will recite / discuss key points related to {$topic} in pairs and share with the class.{$ex}",
+            default     => "Students will work in pairs to apply {$topic} to a short example and explain their reasoning.{$ex}",
+        };
+    }
+
+    /** Fallback characteristics when Wikipedia returns nothing usable. */
+    protected function fallbackCharacteristics(string $kind, string $t): array
+    {
+        return match ($kind) {
+            'math' => [
+                "Has a clear definition / formula",
+                "Follows a fixed set of steps or rules",
+                "Produces a verifiable answer",
+                "Can be checked using a worked example",
+            ],
+            'cs' => [
+                "Consists of clear, logical steps",
+                "Has a finite number of steps",
+                "Produces output for a given input",
+                "Can be written and tested",
+            ],
+            'science' => [
+                "Observable in the natural world",
+                "Has identifiable parts / stages",
+                "Can be demonstrated with an experiment",
+                "Follows predictable rules",
+            ],
+            'language' => [
+                "Has recognisable form and structure",
+                "Follows grammar / spelling rules",
+                "Carries a clear meaning in context",
+            ],
+            'social' => [
+                "Tied to a specific time and place",
+                "Has identifiable causes and effects",
+                "Affects people's daily lives",
+            ],
+            default => [
+                "Has a clear definition",
+                "Made up of identifiable parts or steps",
+                "Can be illustrated with an example",
+                "Has a practical use",
+            ],
+        };
+    }
+
+    /** Fallback examples scaffold when Wikipedia returned nothing usable. */
+    protected function fallbackExamples(string $kind, string $t): array
+    {
+        return match ($kind) {
+            'math'  => ["Worked example: solving a {$t} step by step", "Practice example: a {$t} problem from the textbook", "Quick example for student practice"],
+            'cs'    => ["Algorithm for {$t}: list the steps in order", "Pseudo-code example on the board", "Real-life {$t}: e.g. making tea step by step"],
+            'science' => ["Diagram example of {$t}", "A real-life example students can observe", "An experiment that demonstrates {$t}"],
+            default => ["A simple textbook example of {$t}", "A demonstrated example on the board", "A real-life example students see daily"],
+        };
+    }
+
+    /** Homework that's specific to the subject + uses Wikipedia facts when present. */
+    protected function homework(string $kind, string $t, string $s, bool $hasFacts, string $firstChar, string $firstExample, string $firstApp): array
+    {
+        $base = match ($kind) {
+            'math' => [
+                "Solve 5 problems on “{$t}” from the textbook exercise.",
+                "Show the steps of one worked example of “{$t}” in your notebook.",
+                "Make 2 of your own “{$t}” problems and solve them.",
+            ],
+            'cs' => [
+                "Write a step-by-step algorithm for “{$t}”.",
+                "Give 3 real-life examples of “{$t}” and explain each in one line.",
+                "List the main characteristics of “{$t}” from the textbook.",
+            ],
+            'science' => [
+                "Draw and label a neat diagram of “{$t}” in your notebook.",
+                "Write 5 sentences explaining the process / parts of “{$t}”.",
+                "Find one real-life example of “{$t}” around you and describe it.",
+            ],
+            'language' => [
+                "Read the textbook section on “{$t}” and answer the end-of-lesson questions.",
+                "Write a short paragraph (5–6 lines) using “{$t}”.",
+                "Find five new words from the lesson and write their meanings.",
+            ],
+            'social' => [
+                "Write a short note (5–7 lines) on “{$t}”.",
+                "List 3 causes and 3 effects related to “{$t}”.",
+                "Find one current event linked to “{$t}” and write 2 lines about it.",
+            ],
+            'islamiyat' => [
+                "Memorise the key teachings related to “{$t}”.",
+                "Write 3 lessons that we can apply from “{$t}” in daily life.",
+                "Read the textbook section on “{$t}” and prepare 2 questions.",
+            ],
+            default => [
+                "Read the textbook section on “{$t}” and write a 5-sentence summary.",
+                "List 3 important points about “{$t}” discussed in class.",
+                "Give one real-life example of “{$t}” and explain it briefly.",
+            ],
+        };
+
+        // If Wikipedia gave us a concrete application sentence, replace the
+        // last homework item with one that references it.
+        if ($firstApp) {
+            $base[count($base) - 1] = "Read this and write 2–3 sentences in your own words: «{$firstApp}»";
+        }
+        return $base;
+    }
+
+    /** Trim a long sentence without breaking words. */
+    protected function shortDef(string $s, int $max = 220): string
     {
         $s = trim(preg_replace('/\s+/u', ' ', $s));
-        if (mb_strlen($s) <= 220) {
+        if (mb_strlen($s) <= $max) {
             return $s;
         }
-        return rtrim(mb_substr($s, 0, 220), " ,.;:-").'…';
+        return rtrim(mb_substr($s, 0, $max), " ,.;:-").'…';
     }
 }

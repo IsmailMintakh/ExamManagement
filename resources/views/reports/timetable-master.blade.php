@@ -12,12 +12,11 @@
         'thu' => 'Thursday', 'fri' => 'Friday', 'sat' => 'Saturday',
     ];
 
-    // How many sections fit comfortably on one A3 landscape page?
-    // A3 landscape ~= 420mm wide, minus 12mm margins each side = 396mm.
-    // Slot column ~= 28mm; remaining 368mm. At 22mm per section, that's ~16
-    // sections per page. Chunk wider rosters into multiple pages of the
-    // same day so cells don't go microscopic.
-    $sectionChunks = $sections->chunk(16);
+    // Each stage's sections + its own bell schedule are rendered as a block.
+    // Within a stage, sections may still need to be chunked across pages if
+    // there are more than ~16. Stages are emitted in the declared order so
+    // ECD comes before Primary, etc.
+    $stageOrder = ['pre_primary', 'primary', 'middle', 'secondary', 'higher_secondary', ''];
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -82,101 +81,115 @@
 </head>
 <body>
 
-@foreach($days as $code => $label)
-    @foreach($sectionChunks as $chunkIndex => $chunk)
-        @php $isLastDay = $loop->parent->last && $loop->last; @endphp
-        <div @class(['page' => !$isLastDay])>
-            <div class="frame"><div class="frame-inner">
+{{-- ─── ONE BLOCK PER (STAGE × DAY × SECTION-CHUNK) ─── --}}
+@php $pageCounter = 0; @endphp
+@foreach($stageOrder as $stageKey)
+    @php
+        $stageSecs = $sectionsByStage->get($stageKey) ?? collect();
+        if ($stageSecs->isEmpty()) continue;
+        $stageSlots = $slotsByStage[$stageKey] ?? collect();
+        if ($stageSlots->isEmpty()) continue;
+        $stageLabel = $stageKey ? ($stageLabels[$stageKey] ?? $stageKey) : 'Other classes';
+        $sectionChunks = $stageSecs->chunk(16);
+    @endphp
+    @foreach($days as $code => $label)
+        @foreach($sectionChunks as $chunkIndex => $chunk)
+            @php $pageCounter++; @endphp
+            <div class="page">
+                <div class="frame"><div class="frame-inner">
 
-                <div class="hdr">
-                    <div class="hdr-logo">
-                        @if($logoPath)
-                            <img src="{{ $logoPath }}" alt="">
-                        @else
-                            <span class="logo-ph">{{ strtoupper(substr($school->name ?? 'S', 0, 1)) }}</span>
-                        @endif
+                    <div class="hdr">
+                        <div class="hdr-logo">
+                            @if($logoPath)
+                                <img src="{{ $logoPath }}" alt="">
+                            @else
+                                <span class="logo-ph">{{ strtoupper(substr($school->name ?? 'S', 0, 1)) }}</span>
+                            @endif
+                        </div>
+                        <div class="hdr-center">
+                            <div class="sch-tag">Master Timetable · {{ $stageLabel }}</div>
+                            <div class="sch-name">{{ $school->name }}</div>
+                            @if(!empty($school->address))
+                                <div class="sch-addr">{{ $school->address }}</div>
+                            @endif
+                        </div>
+                        <div class="hdr-right" style="text-align: right; font-size: 7pt; color: #64748b;">
+                            Page {{ $pageCounter }}
+                        </div>
                     </div>
-                    <div class="hdr-center">
-                        <div class="sch-tag">Master Timetable</div>
-                        <div class="sch-name">{{ $school->name }}</div>
-                        @if(!empty($school->address))
-                            <div class="sch-addr">{{ $school->address }}</div>
-                        @endif
-                    </div>
-                    <div class="hdr-right" style="text-align: right; font-size: 7pt; color: #64748b;">
-                        Page {{ $loop->parent->iteration }}.{{ $loop->iteration }}
-                    </div>
-                </div>
 
-                <div class="day-bar">{{ $label }}</div>
+                    <div class="day-bar">{{ $label }} · {{ $stageLabel }}</div>
 
-                @if($sectionChunks->count() > 1)
-                    <div class="chunk-info">
-                        Sections {{ $chunkIndex * 16 + 1 }}–{{ min($chunkIndex * 16 + $chunk->count(), $sections->count()) }} of {{ $sections->count() }}
-                    </div>
-                @endif
+                    @if($sectionChunks->count() > 1)
+                        <div class="chunk-info">
+                            Sections {{ $chunkIndex * 16 + 1 }}–{{ min($chunkIndex * 16 + $chunk->count(), $stageSecs->count()) }} of {{ $stageSecs->count() }}
+                        </div>
+                    @endif
 
-                <table class="master">
-                    <colgroup>
-                        <col style="width: 28mm;">
-                        @foreach($chunk as $sec)
-                            <col>
-                        @endforeach
-                    </colgroup>
-                    <thead>
-                        <tr>
-                            <th class="slot-h">Slot</th>
+                    <table class="master">
+                        <colgroup>
+                            <col style="width: 28mm;">
                             @foreach($chunk as $sec)
-                                <th class="sec-h">
-                                    <div class="cls">{{ $sec->schoolClass->name }}</div>
-                                    <div class="sec">Sec {{ $sec->name }}</div>
-                                </th>
+                                <col>
                             @endforeach
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach($slots as $slot)
-                            @php
-                                $isPeriod = $slot->type === 'period';
-                                $slotDays = $slot->weekdays ?: array_keys($days);
-                            @endphp
-                            <tr class="{{ $isPeriod ? '' : 'brk' }}">
-                                <td class="slot">
-                                    <div class="nm">{{ $slot->name }}</div>
-                                    <div class="tm">{{ substr($slot->starts_at, 0, 5) }}–{{ substr($slot->ends_at, 0, 5) }}</div>
-                                    @if(!$isPeriod)<div class="ty">{{ $slot->type }}</div>@endif
-                                </td>
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th class="slot-h">Slot</th>
                                 @foreach($chunk as $sec)
-                                    @php
-                                        $applies = in_array($code, $slotDays, true);
-                                        $entry = $applies ? ($entries[$code . '|' . $slot->id . '|' . $sec->id] ?? null) : null;
-                                    @endphp
-                                    @if(!$applies)
-                                        <td class="no-class">—</td>
-                                    @elseif(!$isPeriod)
-                                        <td class="brk-cell">{{ $slot->type }}</td>
-                                    @elseif($entry)
-                                        <td class="cell">
-                                            <div class="sub">{{ $entry->subject?->name ?? '—' }}</div>
-                                            <div class="tch">{{ $entry->teacher?->name ?? 'No teacher' }}</div>
-                                        </td>
-                                    @else
-                                        <td class="cell empty">—</td>
-                                    @endif
+                                    <th class="sec-h">
+                                        <div class="cls">{{ $sec->schoolClass->name }}</div>
+                                        <div class="sec">Sec {{ $sec->name }}</div>
+                                    </th>
                                 @endforeach
                             </tr>
-                        @endforeach
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            @foreach($stageSlots as $slot)
+                                @php
+                                    $isPeriod = $slot->type === 'period';
+                                    $slotDays = $slot->weekdays ?: array_keys($days);
+                                @endphp
+                                <tr class="{{ $isPeriod ? '' : 'brk' }}">
+                                    <td class="slot">
+                                        <div class="nm">{{ $slot->name }}</div>
+                                        <div class="tm">{{ substr($slot->starts_at, 0, 5) }}–{{ substr($slot->ends_at, 0, 5) }}</div>
+                                        @if(!$isPeriod)<div class="ty">{{ $slot->type }}</div>@endif
+                                    </td>
+                                    @foreach($chunk as $sec)
+                                        @php
+                                            $applies = in_array($code, $slotDays, true);
+                                            $entry = $applies ? ($entries[$code . '|' . $slot->id . '|' . $sec->id] ?? null) : null;
+                                            $subjLabel = $entry ? ($entry->subject?->code ?: \Illuminate\Support\Str::limit($entry->subject?->name ?? '—', 10, '…')) : null;
+                                            $tchLabel = $entry && $entry->teacher ? \Illuminate\Support\Str::limit($entry->teacher->name, 12, '…') : null;
+                                        @endphp
+                                        @if(!$applies)
+                                            <td class="no-class">—</td>
+                                        @elseif(!$isPeriod)
+                                            <td class="brk-cell">{{ $slot->type }}</td>
+                                        @elseif($entry)
+                                            <td class="cell">
+                                                <div class="sub" title="{{ $entry->subject?->name }}">{{ $subjLabel }}</div>
+                                                <div class="tch" title="{{ $entry->teacher?->name }}">{{ $tchLabel ?? 'No teacher' }}</div>
+                                            </td>
+                                        @else
+                                            <td class="cell empty">—</td>
+                                        @endif
+                                    @endforeach
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
 
-                <div class="legend">
-                    <span class="l-period">Period</span>
-                    <span class="l-break">Break / Lunch</span>
-                    <span class="l-empty">Empty</span>
-                </div>
+                    <div class="legend">
+                        <span class="l-period">Period</span>
+                        <span class="l-break">Break / Lunch</span>
+                        <span class="l-empty">Empty</span>
+                    </div>
 
-            </div></div>
-        </div>
+                </div></div>
+            </div>
+        @endforeach
     @endforeach
 @endforeach
 

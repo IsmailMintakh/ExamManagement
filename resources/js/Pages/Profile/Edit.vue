@@ -3,9 +3,10 @@ import AppLayout from '@/Layouts/AppLayout.vue'
 import DeleteUserForm from './Partials/DeleteUserForm.vue'
 import UpdatePasswordForm from './Partials/UpdatePasswordForm.vue'
 import UpdateProfileInformationForm from './Partials/UpdateProfileInformationForm.vue'
+import SignatureForm from './Partials/SignatureForm.vue'
 import PushNotificationManager from '@/Components/PushNotificationManager.vue'
 import { Head } from '@inertiajs/vue3'
-import { UserCircleIcon, KeyIcon, BellAlertIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { UserCircleIcon, KeyIcon, BellAlertIcon, TrashIcon, PencilSquareIcon } from '@heroicons/vue/24/outline'
 
 defineProps({
     mustVerifyEmail: { type: Boolean },
@@ -38,6 +39,21 @@ defineProps({
                         :status="status"
                         class="max-w-xl"
                     />
+                </div>
+            </section>
+
+            <!-- Digital Signature -->
+            <section class="surface">
+                <header class="surface-header">
+                    <h3>
+                        <span class="w-7 h-7 rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400 flex items-center justify-center">
+                            <PencilSquareIcon class="w-4 h-4" />
+                        </span>
+                        Digital Signature
+                    </h3>
+                </header>
+                <div class="surface-body">
+                    <SignatureForm />
                 </div>
             </section>
 

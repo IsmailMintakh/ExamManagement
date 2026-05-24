@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import PageHeader from '@/Components/PageHeader.vue'
 import TimetableSubnav from '@/Components/timetable/TimetableSubnav.vue'
 import { Head, router } from '@inertiajs/vue3'
@@ -79,11 +80,12 @@ function gapColor(pct) {
                 :subtitle="`Teacher load, adjustment fairness & coverage gaps · ${school?.name || ''}`"
                 :icon="ChartBarIcon" tone="violet">
                 <template #actions>
-                    <select v-if="allSchools.length"
-                        @change="switchSchool($event.target.value)" :value="currentSchoolId"
-                        class="select select-bordered select-sm rounded-lg text-sm">
-                        <option v-for="s in allSchools" :key="s.id" :value="s.id">{{ s.name }}</option>
-                    </select>
+                    <div v-if="allSchools.length" class="min-w-[200px]">
+                        <SearchableSelect :model-value="currentSchoolId" size="sm"
+                            :options="allSchools.map(s => ({ value: s.id, label: s.name }))"
+                            placeholder="Select school"
+                            @change="(v) => switchSchool(v)" />
+                    </div>
                 </template>
             </PageHeader>
 

@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import SchedulingSubnav from '@/Components/scheduling/SchedulingSubnav.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import { Head, useForm } from '@inertiajs/vue3'
@@ -88,10 +89,9 @@ function autoCapacity() {
                         <div class="lg:col-span-2 space-y-3">
                             <div v-if="schools.length > 1" class="form-control">
                                 <label class="label-text text-xs uppercase tracking-wider text-base-content/50 mb-1">School</label>
-                                <select v-model="form.school_id" class="select select-bordered select-sm">
-                                    <option :value="null">Select school</option>
-                                    <option v-for="s in schools" :key="s.id" :value="s.id">{{ s.name }}</option>
-                                </select>
+                                <SearchableSelect v-model="form.school_id" size="sm"
+                                    :options="[{ value: null, label: 'Select school' }, ...schools.map(s => ({ value: s.id, label: s.name }))]"
+                                    placeholder="Select school" />
                                 <p v-if="form.errors.school_id" class="text-error text-xs mt-1">{{ form.errors.school_id }}</p>
                             </div>
                             <div class="form-control">

@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import { Head, Link } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import {
@@ -55,10 +56,11 @@ function fmtPct(v) {
                 <!-- Session Filter -->
                 <div class="flex items-center gap-2">
                     <FunnelIcon class="h-4 w-4 text-base-content/50" />
-                    <select v-model="sessionFilter" class="select select-bordered select-sm">
-                        <option value="all">All Sessions</option>
-                        <option v-for="s in sessions" :key="s.id" :value="s.id">{{ s.name }}</option>
-                    </select>
+                    <div class="min-w-[180px]">
+                        <SearchableSelect v-model="sessionFilter" size="sm"
+                            :options="[{ value: 'all', label: 'All Sessions' }, ...sessions.map(s => ({ value: s.id, label: s.name }))]"
+                            placeholder="All Sessions" />
+                    </div>
                 </div>
             </div>
 

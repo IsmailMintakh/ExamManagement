@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import Pagination from '@/Components/Pagination.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
 import EmptyState from '@/Components/EmptyState.vue'
@@ -104,10 +105,9 @@ function deleteUser() {
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 block">Role</label>
-                                <select v-model="role" class="select select-bordered select-sm w-full text-sm">
-                                    <option value="">All roles</option>
-                                    <option v-for="r in roles" :key="r.name || r" :value="r.name || r">{{ formatStatus(r.name || r) }}</option>
-                                </select>
+                                <SearchableSelect v-model="role" size="sm"
+                                    :options="[{ value: '', label: 'All roles' }, ...(roles || []).map(r => ({ value: r.name || r, label: formatStatus(r.name || r) }))]"
+                                    placeholder="All roles" />
                             </div>
                             <div>
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 block">Status</label>

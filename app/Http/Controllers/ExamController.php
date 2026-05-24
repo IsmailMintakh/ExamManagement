@@ -123,6 +123,7 @@ class ExamController extends Controller
             'teachers' => $this->teachersForUser($user),
             'isSuperAdmin' => $user->isSuperAdmin(),
             'currentSchoolId' => $user->school_id,
+            'defaultTermWeights' => Exam::DEFAULT_TERM_WEIGHTS,
         ]);
     }
 
@@ -139,6 +140,64 @@ class ExamController extends Controller
             ->get(['id', 'name', 'school_id']);
     }
 
+    /**
+     * Derive accurate exam-level total_marks / passing_marks / passing_percentage
+     * from the per-subject inputs.
+     *
+     * Per-subject marks are the source of truth for grading. The exam-level
+     * total / passing are stored as the per-class TYPICAL totals (mode of
+     * per-class sums) rather than the sum across all classes — because each
+     * class is graded against only its own subjects. A 7-subject Class 8 is
+     * out of 700, not the 2100 union across 3 classes.
+     */
+    private function reconcileExamMarks(array $data): array
+    {
+        $subjects = $data['subjects'] ?? [];
+        if (!empty($subjects)) {
+            $perClassTotal = [];
+            $perClassPass = [];
+            $perSubjectPcts = [];
+            foreach ($subjects as $s) {
+                $cid = (int) ($s['school_class_id'] ?? 0);
+                $t = (float) ($s['total_marks'] ?? 0);
+                $p = (float) ($s['passing_marks'] ?? 0);
+                if ($cid > 0) {
+                    $perClassTotal[$cid] = ($perClassTotal[$cid] ?? 0) + $t;
+                    $perClassPass[$cid]  = ($perClassPass[$cid]  ?? 0) + $p;
+                }
+                if ($t > 0) {
+                    $perSubjectPcts[] = round(($p / $t) * 100, 2);
+                }
+            }
+
+            // Pick the mode of per-class sums — what a typical class is
+            // graded out of. With uniform subject counts/marks the mode is
+            // unambiguous; with variance the most-common stays representative.
+            $modeOf = function (array $vals) {
+                if (empty($vals)) return null;
+                $counts = array_count_values(array_map('strval', array_map(fn ($v) => (string) $v, $vals)));
+                arsort($counts);
+                return (float) array_key_first($counts);
+            };
+            $modeTotal = $modeOf(array_values($perClassTotal));
+            $modePass  = $modeOf(array_values($perClassPass));
+            if ($modeTotal !== null) $data['total_marks'] = $modeTotal;
+            if ($modePass !== null)  $data['passing_marks'] = $modePass;
+
+            if (!empty($perSubjectPcts)) {
+                $counts = array_count_values(array_map('strval', $perSubjectPcts));
+                arsort($counts);
+                $data['passing_percentage'] = (float) array_key_first($counts);
+            }
+        }
+
+        // Final fallbacks when no subjects were provided.
+        $data['total_marks'] = $data['total_marks'] ?? 100;
+        $data['passing_marks'] = $data['passing_marks'] ?? 33;
+        $data['passing_percentage'] = $data['passing_percentage'] ?? 33;
+        return $data;
+    }
+
     public function store(StoreExamRequest $request): RedirectResponse
     {
         $data = $request->validated();
@@ -147,10 +206,12 @@ class ExamController extends Controller
         $data['created_by'] = $request->user()->id;
         $data['status'] = 'draft';
 
-        // Ensure numeric fields default to 0 when left blank
-        $data['total_marks'] = $data['total_marks'] ?? 100;
-        $data['passing_marks'] = $data['passing_marks'] ?? 33;
-        $data['passing_percentage'] = $data['passing_percentage'] ?? 33;
+        // Exam-level marks: when the admin maps per-subject totals, those are
+        // the source of truth. Re-derive total_marks / passing_marks /
+        // passing_percentage from them so the summary doesn't show stale 33%
+        // when the user typed 40 on every row.
+        $data = $this->reconcileExamMarks($data);
+
         $data['grace_marks'] = $data['grace_marks'] ?? 0;
         $data['grace_marks_max_subjects'] = $data['grace_marks_max_subjects'] ?? 0;
         $data['min_subjects_to_pass'] = $data['min_subjects_to_pass'] ?? null;
@@ -313,6 +374,7 @@ class ExamController extends Controller
             'teachers' => $this->teachersForUser($user),
             'isSuperAdmin' => $user->isSuperAdmin(),
             'currentSchoolId' => $user->school_id,
+            'defaultTermWeights' => Exam::DEFAULT_TERM_WEIGHTS,
         ]);
     }
 
@@ -325,6 +387,12 @@ class ExamController extends Controller
             'exam_type_id' => ['required', 'exists:exam_types,id'],
             'academic_session_id' => ['required', 'exists:academic_sessions,id'],
             'grading_scale_id' => ['nullable', 'exists:grading_scales,id'],
+            'term' => ['nullable', 'in:first,second,final'],
+            'combine_previous_terms' => ['boolean'],
+            'term_weights' => ['nullable', 'array'],
+            'term_weights.first' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'term_weights.second' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'term_weights.final' => ['nullable', 'integer', 'min:0', 'max:100'],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
             'description' => ['nullable', 'string', 'max:1000'],
@@ -358,11 +426,26 @@ class ExamController extends Controller
             'subjects.*.exam_date.before_or_equal' => 'Each subject paper date must fall on or before the exam end date.',
         ]);
 
+        // Combine-previous-terms guard: only valid on final-term exam +
+        // weights must sum to 100.
+        if (!empty($validated['combine_previous_terms']) && ($validated['term'] ?? null) !== 'final') {
+            return back()->withInput()->withErrors([
+                'combine_previous_terms' => 'Only the final-term exam can combine previous terms.',
+            ]);
+        }
+        if (!empty($validated['combine_previous_terms'])) {
+            $w = $validated['term_weights'] ?? [];
+            $sum = (int) ($w['first'] ?? 0) + (int) ($w['second'] ?? 0) + (int) ($w['final'] ?? 0);
+            if ($sum !== 100) {
+                return back()->withInput()->withErrors([
+                    'term_weights' => "Term weights must add up to 100 (currently {$sum}).",
+                ]);
+            }
+        }
+
         $validated['slug'] = Str::slug($validated['name']);
 
-        $validated['total_marks'] = $validated['total_marks'] ?? 100;
-        $validated['passing_marks'] = $validated['passing_marks'] ?? 33;
-        $validated['passing_percentage'] = $validated['passing_percentage'] ?? 33;
+        $validated = $this->reconcileExamMarks($validated);
         $validated['grace_marks'] = $validated['grace_marks'] ?? 0;
         $validated['grace_marks_max_subjects'] = $validated['grace_marks_max_subjects'] ?? 0;
         $validated['min_subjects_to_pass'] = $validated['min_subjects_to_pass'] ?? null;

@@ -11,6 +11,8 @@ const props = defineProps({
     schools: Array,
     subjects: Array,
     prerequisites: Object,
+    stages: { type: Object, default: () => ({}) },
+    stageDescriptions: { type: Object, default: () => ({}) },
 })
 
 const isEdit = !!props.schoolClass
@@ -19,9 +21,12 @@ const form = useForm({
     school_id: props.schoolClass?.school_id || '',
     name: props.schoolClass?.name || '',
     numeric_name: props.schoolClass?.numeric_name || '',
+    stage: props.schoolClass?.stage || '',
     sort_order: props.schoolClass?.sort_order || 0,
     subject_ids: props.schoolClass?.subjects?.map(s => s.id) || [],
 })
+
+const stageDescription = computed(() => props.stageDescriptions?.[form.stage] || '')
 
 const searchSubject = ref('')
 
@@ -73,7 +78,16 @@ function submit() {
                             <FormInput v-model="form.name" label="Class Name" :error="form.errors.name" required placeholder="e.g., Class 10" />
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <FormSelect v-model="form.stage" label="Educational stage" :error="form.errors.stage"
+                                    :options="Object.entries(stages).map(([v, l]) => ({ value: v, label: l }))"
+                                    placeholder="— Select stage —" />
+                                <p v-if="stageDescription" class="text-xs text-base-content/55 mt-1">{{ stageDescription }}</p>
+                                <p v-else class="text-xs text-base-content/40 mt-1">Groups classes for per-stage bell schedules (Pre-primary, Primary, Middle, Secondary, Higher Secondary).</p>
+                            </div>
                             <FormInput v-model.number="form.numeric_name" label="Numeric Name" type="number" :error="form.errors.numeric_name" placeholder="e.g., 10" />
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <FormInput v-model.number="form.sort_order" label="Sort Order" type="number" :error="form.errors.sort_order" placeholder="0" />
                         </div>
                     </div>

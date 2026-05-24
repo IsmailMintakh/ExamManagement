@@ -106,8 +106,7 @@
     <div class="cover-title">Academic Timetable Booklet</div>
     <div class="cover-meta">
         <strong>Generated:</strong> {{ now()->format('l, d F Y · h:i A') }}<br>
-        <strong>Total Sections:</strong> {{ $sections->count() }}<br>
-        <strong>Total Periods:</strong> {{ $slots->where('type', 'period')->count() }} per day
+        <strong>Total Sections:</strong> {{ $sections->count() }}
     </div>
 
     <div class="summary-box">
@@ -123,7 +122,12 @@
 
 {{-- ─── ONE PAGE PER SECTION ─── --}}
 @foreach($sections as $sec)
-    @php $entries = $entriesBySection->get($sec->id, collect()); @endphp
+    @php
+        $entries = $entriesBySection->get($sec->id, collect());
+        // Each section uses its stage's own bell schedule — Nursery gets 4
+        // periods, Class 10 gets 8, etc. Falls back to school default.
+        $slots = $slotsBySection[$sec->id] ?? collect();
+    @endphp
     <div class="page">
         <div class="frame"><div class="frame-inner">
 
@@ -175,9 +179,16 @@
                                 @elseif(!$isPeriod)
                                     <td class="brk-cell">{{ $slot->type }}</td>
                                 @elseif($entry)
+                                    @php
+                                        $subjLabel = $entry->subject?->code
+                                            ?: \Illuminate\Support\Str::limit($entry->subject?->name ?? '—', 12, '…');
+                                        $tchLabel = $entry->teacher?->name
+                                            ? \Illuminate\Support\Str::limit($entry->teacher->name, 14, '…')
+                                            : 'No teacher';
+                                    @endphp
                                     <td class="cell">
-                                        <div class="sub">{{ $entry->subject?->name ?? '—' }}</div>
-                                        <div class="tch">{{ $entry->teacher?->name ?? 'No teacher' }}</div>
+                                        <div class="sub" title="{{ $entry->subject?->name }}">{{ $subjLabel }}</div>
+                                        <div class="tch" title="{{ $entry->teacher?->name }}">{{ $tchLabel }}</div>
                                     </td>
                                 @else
                                     <td class="free">free</td>

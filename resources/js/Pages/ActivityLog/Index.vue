@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import Pagination from '@/Components/Pagination.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import { Head, router } from '@inertiajs/vue3'
@@ -88,17 +89,15 @@ function formatSubjectType(type) {
                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                             <div>
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 block">Log Name</label>
-                                <select v-model="logName" class="select select-bordered select-sm w-full text-sm">
-                                    <option value="">All logs</option>
-                                    <option v-for="n in logNames" :key="n" :value="n">{{ n }}</option>
-                                </select>
+                                <SearchableSelect v-model="logName" size="sm"
+                                    :options="[{ value: '', label: 'All logs' }, ...(logNames || []).map(n => ({ value: n, label: n }))]"
+                                    placeholder="All logs" />
                             </div>
                             <div>
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 block">Subject Type</label>
-                                <select v-model="subjectType" class="select select-bordered select-sm w-full text-sm">
-                                    <option value="">All types</option>
-                                    <option v-for="s in subjectTypes" :key="s.value" :value="s.value">{{ s.label }}</option>
-                                </select>
+                                <SearchableSelect v-model="subjectType" size="sm"
+                                    :options="[{ value: '', label: 'All types' }, ...(subjectTypes || []).map(s => ({ value: s.value, label: s.label }))]"
+                                    placeholder="All types" />
                             </div>
                             <div>
                                 <label class="text-[11px] font-bold uppercase tracking-wider text-base-content/60 mb-1.5 block">From</label>

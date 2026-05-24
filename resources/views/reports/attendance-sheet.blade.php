@@ -59,6 +59,8 @@
         .foot { display: table; width: 100%; margin-top: 12px; padding-top: 8px; border-top: 1px dashed #94a3b8; }
         .foot-cell { display: table-cell; width: 50%; padding: 0 8px; vertical-align: bottom; font-size: 8.5pt; color: #475569; }
         .foot-cell .sig-line { border-top: 1px solid #334155; margin-top: 55px; padding-top: 3px; font-weight: bold; color: #1a1a1a; }
+        .sig-img { height: 34px; max-width: 150px; display: block; margin-bottom: -6px; }
+        .sig-name { font-size: 8.5pt; color: #475569; font-weight: normal; }
         .foot-cell .role { font-size: 7.5pt; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; }
         .pgnum { font-size: 7.5pt; color: #94a3b8; text-align: right; margin-top: 4px; }
     </style>
@@ -159,9 +161,21 @@
                     &nbsp;&nbsp;&nbsp; Present: <span style="display:inline-block;min-width:60px;border-bottom:1px solid #1a1a1a;">&nbsp;</span>
                     &nbsp;&nbsp;&nbsp; Absent: <span style="display:inline-block;min-width:60px;border-bottom:1px solid #1a1a1a;">&nbsp;</span>
                 </div>
+                @php
+                    $ct = $section?->classTeacher;
+                    $sigPath = $ct?->signaturePath();
+                @endphp
                 <div class="foot">
                     <div class="foot-cell">
-                        <div class="sig-line">Class Teacher / Subject Teacher</div>
+                        @if ($sigPath)
+                            <img src="{{ $sigPath }}" alt="" class="sig-img" />
+                        @endif
+                        <div class="sig-line">
+                            Class Teacher / Subject Teacher
+                            @if ($ct?->name)
+                                <div class="sig-name">{{ $ct->name }}</div>
+                            @endif
+                        </div>
                     </div>
                     <div class="foot-cell" style="text-align:right">
                         <div class="sig-line" style="margin-left:40%">Submitted Date</div>

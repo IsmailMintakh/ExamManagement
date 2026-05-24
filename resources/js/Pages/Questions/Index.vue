@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import Pagination from '@/Components/Pagination.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
 import EmptyState from '@/Components/EmptyState.vue'
@@ -183,17 +184,21 @@ const subjectName = computed(() => (id) => props.subjects?.find(s => s.id == id)
                         </div>
                         <div>
                             <label class="text-[12px] font-semibold text-base-content/75">Subject</label>
-                            <select v-model="filters.subject_id" @change="applyFilters" class="select select-bordered select-sm w-full mt-1.5">
-                                <option value="">All</option>
-                                <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
-                            </select>
+                            <div class="mt-1.5">
+                                <SearchableSelect v-model="filters.subject_id" size="sm"
+                                    :options="[{ value: '', label: 'All' }, ...subjects.map(s => ({ value: s.id, label: s.name }))]"
+                                    placeholder="All"
+                                    @change="applyFilters" />
+                            </div>
                         </div>
                         <div>
                             <label class="text-[12px] font-semibold text-base-content/75">Class</label>
-                            <select v-model="filters.school_class_id" @change="applyFilters" class="select select-bordered select-sm w-full mt-1.5">
-                                <option value="">All</option>
-                                <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.name }}</option>
-                            </select>
+                            <div class="mt-1.5">
+                                <SearchableSelect v-model="filters.school_class_id" size="sm"
+                                    :options="[{ value: '', label: 'All' }, ...classes.map(c => ({ value: c.id, label: c.name }))]"
+                                    placeholder="All"
+                                    @change="applyFilters" />
+                            </div>
                         </div>
                         <div>
                             <label class="text-[12px] font-semibold text-base-content/75">Type</label>

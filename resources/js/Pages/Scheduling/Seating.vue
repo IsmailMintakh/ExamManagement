@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import SchedulingSubnav from '@/Components/scheduling/SchedulingSubnav.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
@@ -131,12 +132,9 @@ function openPdf() {
                     <div class="grid grid-cols-1 lg:grid-cols-4 gap-3 items-end">
                         <div class="form-control">
                             <label class="label-text text-xs uppercase tracking-wider text-base-content/50 mb-1">Room</label>
-                            <select v-model="selectedRoomId" class="select select-bordered select-sm">
-                                <option value="">Select a room…</option>
-                                <option v-for="r in rooms" :key="r.id" :value="r.id">
-                                    {{ r.name }} ({{ r.rows }}×{{ r.cols }} = {{ r.rows * r.cols }})
-                                </option>
-                            </select>
+                            <SearchableSelect v-model="selectedRoomId" size="sm"
+                                :options="rooms.map(r => ({ value: r.id, label: `${r.name} (${r.rows}×${r.cols} = ${r.rows * r.cols})` }))"
+                                placeholder="Select a room…" />
                         </div>
                         <div class="form-control">
                             <label class="label-text text-xs uppercase tracking-wider text-base-content/50 mb-1">Order</label>

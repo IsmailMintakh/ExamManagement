@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import PageHeader from '@/Components/PageHeader.vue'
 import TimetableSubnav from '@/Components/timetable/TimetableSubnav.vue'
 import { Head, router } from '@inertiajs/vue3'
@@ -17,7 +18,19 @@ const props = defineProps({
     entries: { type: Object, default: () => ({}) },
     allSchools: { type: Array, default: () => [] },
     currentSchoolId: Number,
+    stageBlocks: { type: Array, default: () => [] },
 })
+
+// ─── Stage scope ───
+// One tab per stage that actually has sections. Each tab swaps the matrix
+// to that stage's bell schedule (4 periods for Pre-Primary, 8 for higher
+// stages, etc.) instead of cramming every stage's slots into one mega-grid.
+const activeStage = ref(props.stageBlocks?.[0]?.key ?? '')
+const activeBlock = computed(() =>
+    props.stageBlocks.find(b => b.key === activeStage.value) || props.stageBlocks[0] || null
+)
+const activeSlots = computed(() => activeBlock.value?.slots || props.slots)
+const activeSections = computed(() => activeBlock.value?.sections || props.sections)
 
 const DAYS = [
     { code: 'mon', label: 'Monday' },
@@ -51,10 +64,10 @@ function slotApplies(slot, day) {
 }
 function isPeriod(s) { return s.type === 'period' }
 
-// Class filter options derived from sections.
+// Class filter options derived from the ACTIVE stage's sections.
 const classOptions = computed(() => {
     const seen = new Map()
-    for (const s of props.sections) {
+    for (const s of activeSections.value) {
         if (!seen.has(s.school_class_id)) {
             seen.set(s.school_class_id, { id: s.school_class_id, name: s.class_name })
         }
@@ -62,9 +75,10 @@ const classOptions = computed(() => {
     return [...seen.values()]
 })
 
-// Filter visible sections by class filter + search (matching class+section labels).
+// Filter visible sections by class filter + search (matching class+section labels),
+// scoped to the active stage.
 const visibleSections = computed(() => {
-    return props.sections.filter(s => {
+    return activeSections.value.filter(s => {
         if (filterClass.value && String(s.school_class_id) !== String(filterClass.value)) return false
         if (search.value) {
             const q = search.value.toLowerCase()
@@ -134,13 +148,13 @@ function heatColor(e) {
     return 'bg-sky-500/10 ring-sky-500/30'
 }
 
-// Per-day stats for the badge on the day pills.
+// Per-day stats for the badge on the day pills (scoped to active stage).
 function statsForDay(dayCode) {
     let filled = 0, total = 0
-    for (const slot of props.slots) {
+    for (const slot of activeSlots.value) {
         if (!isPeriod(slot)) continue
         if (!slotApplies(slot, dayCode)) continue
-        for (const sec of props.sections) {
+        for (const sec of activeSections.value) {
             total++
             const e = entry(dayCode, slot.id, sec.id)
             if (e?.teacher_id) filled++
@@ -151,6 +165,8 @@ function statsForDay(dayCode) {
 
 // Detect within-day teacher conflicts (same teacher in two sections at the
 // same slot). Returns Set of "<teacher_id>|<slotId>" keys with conflicts.
+// Conflict detection runs across the WHOLE school (not just the active
+// stage) because a teacher could be double-booked across stages too.
 const conflictsToday = computed(() => {
     const seen = {}
     const conflicts = new Set()
@@ -196,11 +212,12 @@ function switchSchool(id) {
                 :subtitle="`Every class & section side-by-side · ${school?.name || ''} · ${sections.length} section${sections.length === 1 ? '' : 's'}`"
                 :icon="Squares2X2Icon" tone="violet">
                 <template #actions>
-                    <select v-if="allSchools.length" :value="currentSchoolId"
-                        @change="switchSchool($event.target.value)"
-                        class="select select-bordered select-sm rounded-lg text-sm">
-                        <option v-for="s in allSchools" :key="s.id" :value="s.id">{{ s.name }}</option>
-                    </select>
+                    <div v-if="allSchools.length" class="min-w-[200px]">
+                        <SearchableSelect :model-value="currentSchoolId" size="sm"
+                            :options="allSchools.map(s => ({ value: s.id, label: s.name }))"
+                            placeholder="Select school"
+                            @change="(v) => switchSchool(v)" />
+                    </div>
                     <a :href="route('timetable.routine.pdf', { school_id: school?.id })" target="_blank"
                         class="btn btn-primary btn-sm rounded-lg gap-1.5">
                         <PrinterIcon class="w-4 h-4" /> Wall-chart
@@ -217,6 +234,25 @@ function switchSchool(id) {
             </PageHeader>
 
             <TimetableSubnav :school-id="school?.id" />
+
+            <!-- Stage tabs — each stage has its own bell schedule (Pre-Primary 4,
+                 Primary 6, Middle/High 7-8) so the matrix shows only that
+                 stage's slots instead of one P1-P17 mega-grid. -->
+            <div v-if="stageBlocks?.length > 1"
+                class="flex items-center gap-1 overflow-x-auto rounded-2xl border border-base-300 bg-base-100 p-1">
+                <button v-for="b in stageBlocks" :key="b.key"
+                    @click="activeStage = b.key"
+                    type="button"
+                    class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                    :class="activeStage === b.key
+                        ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300 ring-1 ring-violet-500/30'
+                        : 'text-base-content/60 hover:bg-base-200 hover:text-base-content'">
+                    {{ b.label }}
+                    <span class="badge badge-xs badge-ghost tabular-nums">
+                        {{ b.sections.length }} sec · {{ b.slots.filter(s => s.type === 'period').length }} periods
+                    </span>
+                </button>
+            </div>
 
             <!-- Day pills -->
             <div class="flex gap-1.5 overflow-x-auto pb-1">
@@ -240,18 +276,21 @@ function switchSchool(id) {
                         <AdjustmentsHorizontalIcon class="w-4 h-4" />
                         <span class="text-[11px] uppercase tracking-wider font-bold">Filter</span>
                     </div>
-                    <select v-model="filterClass" class="select select-bordered select-xs rounded-lg text-xs">
-                        <option value="">All classes</option>
-                        <option v-for="c in classOptions" :key="c.id" :value="c.id">{{ c.name }}</option>
-                    </select>
-                    <select v-model="teacherFilter" class="select select-bordered select-xs rounded-lg text-xs">
-                        <option value="">All teachers (highlight one)</option>
-                        <option v-for="t in distinctTeachers" :key="t.id" :value="t.id">{{ t.name }}</option>
-                    </select>
-                    <select v-model="subjectFilter" class="select select-bordered select-xs rounded-lg text-xs">
-                        <option value="">All subjects (highlight one)</option>
-                        <option v-for="s in distinctSubjects" :key="s.id" :value="s.id">{{ s.name }}</option>
-                    </select>
+                    <div class="w-40">
+                        <SearchableSelect v-model="filterClass" size="xs"
+                            :options="[{ value: '', label: 'All classes' }, ...classOptions.map(c => ({ value: c.id, label: c.name }))]"
+                            placeholder="All classes" />
+                    </div>
+                    <div class="w-52">
+                        <SearchableSelect v-model="teacherFilter" size="xs"
+                            :options="[{ value: '', label: 'All teachers (highlight one)' }, ...distinctTeachers.map(t => ({ value: t.id, label: t.name }))]"
+                            placeholder="All teachers" />
+                    </div>
+                    <div class="w-52">
+                        <SearchableSelect v-model="subjectFilter" size="xs"
+                            :options="[{ value: '', label: 'All subjects (highlight one)' }, ...distinctSubjects.map(s => ({ value: s.id, label: s.name }))]"
+                            placeholder="All subjects" />
+                    </div>
                     <div class="relative flex-1 min-w-[160px]">
                         <MagnifyingGlassIcon class="w-3.5 h-3.5 text-base-content/40 absolute left-2 top-1/2 -translate-y-1/2" />
                         <input v-model="search" type="text" placeholder="Search class/section…"
@@ -303,7 +342,7 @@ function switchSchool(id) {
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="slot in slots" :key="slot.id"
+                            <tr v-for="slot in activeSlots" :key="slot.id"
                                 :class="!isPeriod(slot) ? 'bg-amber-500/5' : ''">
                                 <td class="px-2 py-1.5 sticky left-0 z-10 border-b border-r border-base-300 align-top"
                                     :class="!isPeriod(slot) ? 'bg-amber-500/10' : 'bg-base-100'">

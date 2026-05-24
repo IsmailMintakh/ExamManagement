@@ -69,6 +69,10 @@ class ResultProcessingService
 
             $totalStudents = $students->count();
 
+            // Resolve prior-term exams once (for combine-mode). NULL when this
+            // exam isn't a final-term combine or the prior terms don't exist.
+            $combineCtx = $this->resolveTermCombination($exam);
+
             foreach ($students as $student) {
                 $studentMarks = $allMarks->get($student->id, collect());
 
@@ -82,6 +86,14 @@ class ResultProcessingService
                     $sectionId,
                     $totalStudents
                 );
+
+                // If admin enabled "combine previous terms" on this final-term
+                // exam, blend in the student's 1st + 2nd term percentages and
+                // overwrite the result totals so the final card shows the
+                // year-end aggregate.
+                if ($combineCtx) {
+                    $this->applyTermCombination($result, $student, $exam, $gradingScale, $combineCtx);
+                }
 
                 $results->push($result);
             }
@@ -229,6 +241,123 @@ class ResultProcessingService
             'status' => 'generated',
             'generated_by' => auth()->id(),
             'generated_at' => now(),
+        ]);
+    }
+
+    /**
+     * Resolve the prior-term exam IDs + the weight set for a final-term
+     * exam that wants to combine. Returns null when this isn't a combine
+     * exam or when either prior-term exam is missing for this session.
+     */
+    protected function resolveTermCombination(Exam $exam): ?array
+    {
+        if ($exam->term !== 'final' || !$exam->combine_previous_terms) {
+            return null;
+        }
+        $weights = $exam->term_weights ?: Exam::DEFAULT_TERM_WEIGHTS;
+        $sum = (int) ($weights['first'] ?? 0) + (int) ($weights['second'] ?? 0) + (int) ($weights['final'] ?? 0);
+        if ($sum !== 100) return null;
+
+        $priors = Exam::where('academic_session_id', $exam->academic_session_id)
+            ->whereIn('term', ['first', 'second'])
+            ->where('id', '!=', $exam->id)
+            ->orderByDesc('created_at')
+            ->get(['id', 'term']);
+        $firstId = $priors->firstWhere('term', 'first')?->id;
+        $secondId = $priors->firstWhere('term', 'second')?->id;
+        if (!$firstId || !$secondId) return null;
+
+        return [
+            'first_exam_id' => $firstId,
+            'second_exam_id' => $secondId,
+            'weights' => $weights,
+        ];
+    }
+
+    /**
+     * Overwrite a final-term result with the weighted aggregate of the same
+     * student's 1st + 2nd term results plus this final term. The blend
+     * happens at the *percentage* level (since the three exams can have
+     * different total marks), then percentages are converted back to marks
+     * out of each subject's total so the rest of the system stays consistent.
+     */
+    protected function applyTermCombination(
+        Result $finalResult,
+        Student $student,
+        Exam $finalExam,
+        ?GradingScale $gradingScale,
+        array $ctx
+    ): void {
+        $first = Result::where('exam_id', $ctx['first_exam_id'])
+            ->where('student_id', $student->id)
+            ->first();
+        $second = Result::where('exam_id', $ctx['second_exam_id'])
+            ->where('student_id', $student->id)
+            ->first();
+
+        if (!$first || !$second) {
+            return; // student didn't sit one of the prior terms — leave final marks as-is
+        }
+
+        $weights = $ctx['weights'];
+        $firstBySubj = collect($first->subject_results ?? [])->keyBy('subject_id');
+        $secondBySubj = collect($second->subject_results ?? [])->keyBy('subject_id');
+
+        $combined = [];
+        $totalMarks = 0.0;
+        $obtainedMarks = 0.0;
+        $passed = 0;
+        $failed = 0;
+
+        foreach ($finalResult->subject_results ?? [] as $row) {
+            $sid = $row['subject_id'];
+            $pctFinal = (float) ($row['percentage'] ?? 0);
+            $pctFirst = (float) ($firstBySubj[$sid]['percentage'] ?? 0);
+            $pctSecond = (float) ($secondBySubj[$sid]['percentage'] ?? 0);
+
+            $combinedPct = round(
+                ($pctFirst * $weights['first']
+                    + $pctSecond * $weights['second']
+                    + $pctFinal * $weights['final']) / 100,
+                2
+            );
+            $subjectTotal = (float) ($row['total_marks'] ?? 0);
+            $combinedMarks = round(($combinedPct / 100) * $subjectTotal, 2);
+            $isPassed = !($row['is_absent'] ?? false) && $combinedMarks >= (float) ($row['passing_marks'] ?? 0);
+
+            $combined[] = array_merge($row, [
+                'percentage' => $combinedPct,
+                'effective_marks' => $combinedMarks,
+                'marks_obtained' => $combinedMarks,
+                'grace_marks' => 0,           // grace is reset — combined isn't a fresh exam
+                'is_passed' => $isPassed,
+                'combined_from' => [
+                    'first' => $pctFirst,
+                    'second' => $pctSecond,
+                    'final' => $pctFinal,
+                    'weights' => $weights,
+                ],
+            ]);
+
+            $totalMarks += $subjectTotal;
+            $obtainedMarks += $combinedMarks;
+            $isPassed ? $passed++ : $failed++;
+        }
+
+        $combinedPercentage = $totalMarks > 0 ? round(($obtainedMarks / $totalMarks) * 100, 2) : 0;
+        [$grade, $gradePoint] = $this->calculateGrade($combinedPercentage, $gradingScale);
+        $aggPassed = $this->determinePassStatus($finalExam, $combined, $passed, $failed, $combinedPercentage);
+
+        $finalResult->update([
+            'subject_results' => $combined,
+            'total_marks' => $totalMarks,
+            'obtained_marks' => $obtainedMarks,
+            'percentage' => $combinedPercentage,
+            'grade' => $grade,
+            'grade_point' => $gradePoint,
+            'subjects_passed' => $passed,
+            'subjects_failed' => $failed,
+            'is_passed' => $aggPassed,
         ]);
     }
 
@@ -386,52 +515,52 @@ class ResultProcessingService
      */
     public function applyGraceMarks(array $subjectResults, Exam $exam): array
     {
-        $graceMarksAvailable = (float) $exam->grace_marks;
-        $maxSubjects = $exam->grace_marks_max_subjects ?? count($subjectResults);
+        $graceRemaining = (float) $exam->grace_marks;
+        $maxSubjects = $exam->grace_marks_max_subjects ?: count($subjectResults);
 
-        if ($graceMarksAvailable <= 0) {
+        if ($graceRemaining <= 0) {
             return $subjectResults;
         }
 
-        // Identify failed, non-absent subjects and calculate the deficit
-        $failedIndices = [];
+        // Identify every failed, non-absent subject + how many marks short.
+        $failed = [];
         foreach ($subjectResults as $index => $sr) {
             if (!$sr['is_passed'] && !$sr['is_absent']) {
-                $deficit = $sr['passing_marks'] - $sr['effective_marks'];
-                if ($deficit > 0 && $deficit <= $graceMarksAvailable) {
-                    $failedIndices[] = [
-                        'index' => $index,
-                        'deficit' => $deficit,
-                    ];
+                $deficit = (float) $sr['passing_marks'] - (float) $sr['effective_marks'];
+                if ($deficit > 0) {
+                    $failed[] = ['index' => $index, 'deficit' => $deficit];
                 }
             }
         }
-
-        if (empty($failedIndices)) {
+        if (empty($failed)) {
             return $subjectResults;
         }
 
-        // Sort by deficit ascending so we help subjects closest to passing first
-        usort($failedIndices, fn ($a, $b) => $a['deficit'] <=> $b['deficit']);
+        // Help the subjects closest to passing first.
+        usort($failed, fn ($a, $b) => $a['deficit'] <=> $b['deficit']);
 
-        // Limit to max subjects
-        $failedIndices = array_slice($failedIndices, 0, $maxSubjects);
+        $applied = 0;
+        foreach ($failed as $item) {
+            if ($applied >= $maxSubjects) break;
+            if ($graceRemaining <= 0) break;
+            // Only apply if the deficit fits in what's left — partial grace
+            // wouldn't make the student pass, so it'd be wasted marks.
+            if ($item['deficit'] > $graceRemaining) {
+                continue;
+            }
 
-        foreach ($failedIndices as $item) {
             $i = $item['index'];
-            $deficit = $item['deficit'];
-
-            $subjectResults[$i]['grace_marks'] += $deficit;
-            $subjectResults[$i]['effective_marks'] += $deficit;
+            $subjectResults[$i]['grace_marks'] += $item['deficit'];
+            $subjectResults[$i]['effective_marks'] += $item['deficit'];
             $subjectResults[$i]['is_passed'] = true;
-
-            // Recalculate subject percentage
             if ($subjectResults[$i]['total_marks'] > 0) {
                 $subjectResults[$i]['percentage'] = round(
                     ($subjectResults[$i]['effective_marks'] / $subjectResults[$i]['total_marks']) * 100,
                     2
                 );
             }
+            $graceRemaining -= $item['deficit'];
+            $applied++;
         }
 
         return $subjectResults;

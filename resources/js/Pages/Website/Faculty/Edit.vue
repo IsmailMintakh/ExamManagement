@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import FormInput from '@/Components/FormInput.vue'
 import FormTextarea from '@/Components/FormTextarea.vue'
 import FileUpload from '@/Components/FileUpload.vue'
@@ -72,10 +73,9 @@ function save() {
                                 placeholder="Senior English Teacher" :error="form.errors.designation" />
                             <div>
                                 <label class="mb-1.5 flex items-center gap-1 text-[12px] font-semibold text-base-content/75">Department</label>
-                                <select v-model="form.department" class="select select-bordered w-full text-sm">
-                                    <option value="">— None —</option>
-                                    <option v-for="d in departments" :key="d" :value="d">{{ d }}</option>
-                                </select>
+                                <SearchableSelect v-model="form.department" size="sm"
+                                    :options="[{ value: '', label: '— None —' }, ...(departments || []).map(d => ({ value: d, label: d }))]"
+                                    placeholder="— None —" />
                             </div>
                             <FormInput v-model="form.qualification" label="Qualification"
                                 placeholder="MA English (Punjab University), B.Ed" :error="form.errors.qualification" />

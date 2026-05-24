@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import { computed, ref } from 'vue'
 import {
@@ -82,10 +83,11 @@ function switchTo(studentId) {
                     </p>
                 </div>
                 <div v-if="sessions.length > 1">
-                    <select v-model="sessionFilter" class="select select-bordered select-sm">
-                        <option value="">All sessions</option>
-                        <option v-for="s in sessions" :key="s.id" :value="s.id">{{ s.name }}</option>
-                    </select>
+                    <div class="min-w-[180px]">
+                        <SearchableSelect v-model="sessionFilter" size="sm"
+                            :options="[{ value: '', label: 'All sessions' }, ...sessions.map(s => ({ value: s.id, label: s.name }))]"
+                            placeholder="All sessions" />
+                    </div>
                 </div>
             </div>
 

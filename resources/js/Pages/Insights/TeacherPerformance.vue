@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import { Head } from '@inertiajs/vue3'
 import { computed, ref } from 'vue'
@@ -353,14 +354,16 @@ function deltaToneClass(tone) {
                             class="input input-bordered input-sm w-full pl-10 rounded-xl" />
                     </div>
                     <div class="flex flex-wrap gap-2">
-                        <select v-model="subjectFilter" class="select select-bordered select-sm rounded-xl">
-                            <option value="">All Subjects</option>
-                            <option v-for="s in subjects" :key="s" :value="s">{{ s }}</option>
-                        </select>
-                        <select v-model="classFilter" class="select select-bordered select-sm rounded-xl">
-                            <option value="">All Classes</option>
-                            <option v-for="c in classes" :key="c" :value="c">{{ c }}</option>
-                        </select>
+                        <div class="w-44">
+                            <SearchableSelect v-model="subjectFilter" size="sm"
+                                :options="[{ value: '', label: 'All Subjects' }, ...subjects.map(s => ({ value: s, label: s }))]"
+                                placeholder="All Subjects" />
+                        </div>
+                        <div class="w-44">
+                            <SearchableSelect v-model="classFilter" size="sm"
+                                :options="[{ value: '', label: 'All Classes' }, ...classes.map(c => ({ value: c, label: c }))]"
+                                placeholder="All Classes" />
+                        </div>
                         <select v-model="tierFilter" class="select select-bordered select-sm rounded-xl">
                             <option value="all">All Tiers</option>
                             <option value="excellent">Excellent (≥80%)</option>

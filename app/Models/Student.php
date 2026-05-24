@@ -167,7 +167,13 @@ class Student extends Model
      */
     public function getPhotoUrlAttribute(): ?string
     {
-        return $this->photo ? \Illuminate\Support\Facades\Storage::disk('public')->url($this->photo) : null;
+        if (!$this->photo) return null;
+        // Build against the CURRENT request host instead of APP_URL so the
+        // image still loads after a domain change (Storage::url() bakes in
+        // whatever was in APP_URL when the cache was warmed — which was the
+        // old `bhssno1skd.skardutech.com` for this project).
+        $prefix = trim(env('FILESYSTEM_PUBLIC_URL_PREFIX', '/uploads'), '/');
+        return url($prefix.'/'.ltrim($this->photo, '/'));
     }
 
     public function scopeActive($query)

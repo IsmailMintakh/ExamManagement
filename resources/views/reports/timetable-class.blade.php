@@ -134,9 +134,16 @@
                     @elseif(!$isPeriod)
                         <td class="brk-cell">{{ $slot->type }}</td>
                     @elseif($entry)
+                        @php
+                            $subjLabel = $entry->subject?->code
+                                ?: \Illuminate\Support\Str::limit($entry->subject?->name ?? '—', 14, '…');
+                            $tchLabel = $entry->teacher
+                                ? \Illuminate\Support\Str::limit($entry->teacher->name, 16, '…')
+                                : 'No teacher';
+                        @endphp
                         <td class="cell">
-                            <div class="sub">{{ $entry->subject?->name ?? '—' }}</div>
-                            <div class="tch">{{ $entry->teacher?->name ?? 'No teacher' }}</div>
+                            <div class="sub" title="{{ $entry->subject?->name }}">{{ $subjLabel }}</div>
+                            <div class="tch" title="{{ $entry->teacher?->name }}">{{ $tchLabel }}</div>
                         </td>
                     @else
                         <td class="free">free</td>

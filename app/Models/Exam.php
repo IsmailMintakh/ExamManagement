@@ -15,6 +15,7 @@ class Exam extends Model
 
     protected $fillable = [
         'name', 'slug', 'exam_type_id', 'academic_session_id', 'grading_scale_id',
+        'term', 'combine_previous_terms', 'term_weights',
         'start_date', 'end_date', 'description',
         'total_marks', 'passing_marks', 'passing_percentage',
         'min_subjects_to_pass', 'main_subjects_must_pass', 'all_subjects_must_pass',
@@ -24,6 +25,9 @@ class Exam extends Model
         'status', 'marks_entry_deadline', 'is_locked', 'created_by',
         'exam_controller_id', 'results_published_at',
     ];
+
+    /** Default weights used when admin enables combine but leaves them blank. */
+    public const DEFAULT_TERM_WEIGHTS = ['first' => 25, 'second' => 25, 'final' => 50];
 
     protected function casts(): array
     {
@@ -43,6 +47,8 @@ class Exam extends Model
             'passing_rules' => 'array',
             'combination_rules' => 'array',
             'applicable_class_ids' => 'array',
+            'combine_previous_terms' => 'boolean',
+            'term_weights' => 'array',
         ];
     }
 

@@ -166,148 +166,103 @@ const LEVELS = [
                             <input type="hidden" name="section" :value="form.section" />
                             <input type="hidden" name="students_count" :value="form.students_count" />
                             <input type="hidden" name="lesson_date" :value="form.lesson_date" />
+                            <input type="hidden" name="language" :value="plan.language || form.language || 'en'" />
                             <button type="submit" class="btn btn-outline btn-xs rounded-lg gap-1.5">
-                                <PrinterIcon class="w-3.5 h-3.5" /> PDF
+                                <PrinterIcon class="w-3.5 h-3.5" /> Download
                             </button>
                         </form>
                     </header>
 
                     <div class="p-4 space-y-5 text-sm" :dir="urduPrimary ? 'rtl' : 'ltr'" :lang="urduPrimary ? 'ur' : 'en'"
                         :class="urduPrimary ? 'leading-7' : ''">
-                        <!-- Objectives -->
+                        <!-- Official GB Schools Education Department format —
+                             three sections: Outcomes / Content Knowledge / Homework. -->
+
+                        <!-- 1. Student Learning Outcomes -->
                         <section>
                             <h3 class="font-bold text-[13px] mb-1.5 flex items-center gap-1.5">
-                                <CheckCircleIcon class="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> Learning objectives
+                                <CheckCircleIcon class="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                                1. Student Learning Outcomes
+                                <span class="font-normal text-[11px] text-base-content/55">(Focus on subject and topics)</span>
                             </h3>
-                            <ul class="list-disc ml-5 space-y-1 text-base-content/75">
-                                <li v-for="(o, i) in plan.objectives" :key="i">{{ o }}</li>
-                            </ul>
-                        </section>
-
-                        <!-- Teacher's own notes (verbatim, top priority) -->
-                        <section v-if="plan.content?.teacher_notes"
-                            class="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3.5">
-                            <h3 class="font-bold text-[13px] mb-1">Teacher's notes <span class="text-base-content/45 font-normal">· استاد کے نوٹس</span></h3>
-                            <p class="text-base-content/80 whitespace-pre-line">{{ plan.content.teacher_notes }}</p>
-                        </section>
-
-                        <!-- Content / subject matter (English + Urdu) -->
-                        <section v-if="plan.content" class="rounded-lg border border-violet-500/20 bg-violet-500/[0.04] p-3.5">
-                            <h3 class="font-bold text-[13px] mb-1.5 flex items-center gap-1.5">
-                                <SparklesIcon class="w-4 h-4 text-violet-600 dark:text-violet-400" />
-                                Topic content <span class="text-base-content/45 font-normal">· موضوع کا مواد</span>
-                            </h3>
-                            <div :dir="urduPrimary ? 'rtl' : 'ltr'" :lang="urduPrimary ? 'ur' : 'en'"
-                                :class="urduPrimary ? 'leading-7' : ''">
-                                <p v-if="plan.content.summary" class="text-base-content/75 mb-2">{{ plan.content.summary }}</p>
-                                <ul v-if="plan.content.key_points?.length"
-                                    class="list-disc space-y-1 text-base-content/75"
-                                    :class="urduPrimary ? 'mr-5' : 'ml-5'">
-                                    <li v-for="(k, i) in plan.content.key_points" :key="i">{{ k }}</li>
-                                </ul>
-                            </div>
-
-                            <!-- Urdu version -->
-                            <div v-if="plan.content.summary_ur || plan.content.key_points_ur?.length"
-                                class="mt-3 pt-3 border-t border-violet-500/15" dir="rtl" lang="ur">
-                                <p class="text-[11px] font-bold text-violet-600 dark:text-violet-400 mb-1">اردو</p>
-                                <p v-if="plan.content.summary_ur" class="text-base-content/75 mb-2 leading-7">{{ plan.content.summary_ur }}</p>
-                                <ul v-if="plan.content.key_points_ur?.length" class="list-disc mr-5 space-y-1 text-base-content/75 leading-7">
-                                    <li v-for="(k, i) in plan.content.key_points_ur" :key="i">{{ k }}</li>
-                                </ul>
-                            </div>
-
-                            <p v-if="plan.content.example" class="mt-2 text-base-content/70"><strong>Example:</strong> {{ plan.content.example }}</p>
-                            <p v-if="plan.content.misconception" class="mt-1.5 text-base-content/70"><strong>Common misconception:</strong> {{ plan.content.misconception }}</p>
-                            <p v-if="plan.content.real_life" class="mt-1.5 text-base-content/70"><strong>Real-life link:</strong> {{ plan.content.real_life }}</p>
-                        </section>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <section v-if="plan.prior_knowledge">
-                                <h3 class="font-bold text-[13px] mb-1">Prior knowledge</h3>
-                                <p class="text-base-content/70">{{ plan.prior_knowledge }}</p>
-                            </section>
-                            <section v-if="plan.materials?.length">
-                                <h3 class="font-bold text-[13px] mb-1">Materials</h3>
-                                <ul class="list-disc ml-5 space-y-0.5 text-base-content/70">
-                                    <li v-for="(m, i) in plan.materials" :key="i">{{ m }}</li>
-                                </ul>
-                            </section>
-                        </div>
-
-                        <!-- Lesson flow -->
-                        <section v-if="plan.lesson_flow?.length">
-                            <h3 class="font-bold text-[13px] mb-1.5 flex items-center gap-1.5">
-                                <ClockIcon class="w-4 h-4 text-sky-600 dark:text-sky-400" /> Lesson flow
-                            </h3>
-                            <div class="rounded-lg border border-base-300 overflow-hidden">
-                                <table class="w-full text-[12px]">
-                                    <thead class="bg-base-200/50 text-[10px] uppercase tracking-wider text-base-content/55">
-                                        <tr>
-                                            <th class="text-left px-3 py-2 font-bold">Phase</th>
-                                            <th class="text-center px-2 py-2 font-bold w-14">Min</th>
-                                            <th class="text-left px-3 py-2 font-bold">Teacher</th>
-                                            <th class="text-left px-3 py-2 font-bold">Students</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-base-300">
-                                        <tr v-for="(p, i) in plan.lesson_flow" :key="i">
-                                            <td class="px-3 py-2 font-semibold">{{ p.phase }}</td>
-                                            <td class="px-2 py-2 text-center tabular-nums">{{ p.minutes }}</td>
-                                            <td class="px-3 py-2 text-base-content/70">{{ p.teacher }}</td>
-                                            <td class="px-3 py-2 text-base-content/70">{{ p.student }}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </section>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <section v-if="plan.activities?.length">
-                                <h3 class="font-bold text-[13px] mb-1">Activities</h3>
-                                <ul class="list-disc ml-5 space-y-1 text-base-content/70">
-                                    <li v-for="(a, i) in plan.activities" :key="i">{{ a }}</li>
-                                </ul>
-                            </section>
-                            <section v-if="plan.assessment?.length">
-                                <h3 class="font-bold text-[13px] mb-1">Assessment / checks</h3>
-                                <ul class="list-disc ml-5 space-y-1 text-base-content/70">
-                                    <li v-for="(a, i) in plan.assessment" :key="i">{{ a }}</li>
-                                </ul>
-                            </section>
-                        </div>
-
-                        <section v-if="plan.vocabulary?.length">
-                            <h3 class="font-bold text-[13px] mb-1">Key vocabulary</h3>
-                            <ul class="space-y-0.5 text-base-content/70">
-                                <li v-for="(w, i) in plan.vocabulary" :key="i">
-                                    <span class="font-semibold">{{ w.term }}</span> — {{ w.meaning }}
+                            <ol class="space-y-1 text-base-content/80" :class="urduPrimary ? 'mr-6' : 'ml-6'">
+                                <li v-for="(o, i) in plan.objectives" :key="i" class="flex gap-2">
+                                    <span class="font-bold text-base-content/55 w-5 shrink-0">{{ ['i','ii','iii','iv','v','vi'][i] || (i+1) }}.</span>
+                                    <span>{{ o }}</span>
                                 </li>
-                            </ul>
+                            </ol>
                         </section>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <section v-if="plan.differentiation">
-                                <h3 class="font-bold text-[13px] mb-1">Differentiation</h3>
-                                <p class="text-base-content/70"><strong>Support:</strong> {{ plan.differentiation.support }}</p>
-                                <p class="text-base-content/70 mt-1"><strong>Challenge:</strong> {{ plan.differentiation.challenge }}</p>
-                            </section>
-                            <section v-if="plan.homework">
-                                <h3 class="font-bold text-[13px] mb-1">Homework</h3>
-                                <p class="text-base-content/70">{{ plan.homework }}</p>
-                            </section>
-                        </div>
+                        <!-- 2. Content Knowledge -->
+                        <section v-if="plan.content" class="rounded-lg border border-violet-500/20 bg-violet-500/[0.04] p-3.5 space-y-3">
+                            <h3 class="font-bold text-[13px] flex items-center gap-1.5">
+                                <SparklesIcon class="w-4 h-4 text-violet-600 dark:text-violet-400" />
+                                2. Content Knowledge
+                            </h3>
 
-                        <section v-if="plan.board_plan">
-                            <h3 class="font-bold text-[13px] mb-1">Board plan</h3>
-                            <p class="text-base-content/70 font-mono text-[12px] bg-base-200/40 rounded-lg px-3 py-2">{{ plan.board_plan }}</p>
+                            <div v-if="plan.content.introduction">
+                                <p class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-0.5">Introduction</p>
+                                <p class="text-base-content/80">{{ plan.content.introduction }}</p>
+                            </div>
+
+                            <div v-if="plan.content.definition">
+                                <p class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-0.5">Definition</p>
+                                <p class="text-base-content/80">{{ plan.content.definition }}</p>
+                            </div>
+
+                            <div v-if="plan.content.characteristics?.length">
+                                <p class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-0.5">Characteristics</p>
+                                <ul class="list-disc space-y-0.5 text-base-content/80" :class="urduPrimary ? 'mr-5' : 'ml-5'">
+                                    <li v-for="(c, i) in plan.content.characteristics" :key="i">{{ c }}</li>
+                                </ul>
+                            </div>
+
+                            <div v-if="plan.content.examples?.length">
+                                <p class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-0.5">Examples</p>
+                                <ol class="list-decimal space-y-0.5 text-base-content/80" :class="urduPrimary ? 'mr-5' : 'ml-5'">
+                                    <li v-for="(e, i) in plan.content.examples" :key="i">{{ e }}</li>
+                                </ol>
+                            </div>
+
+                            <div v-if="plan.content.class_activity">
+                                <p class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-0.5">Class Activity</p>
+                                <p class="text-base-content/80">{{ plan.content.class_activity }}</p>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div v-if="plan.content.teaching_methods?.length">
+                                    <p class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-0.5">Teaching Method</p>
+                                    <ul class="list-disc space-y-0.5 text-base-content/80" :class="urduPrimary ? 'mr-5' : 'ml-5'">
+                                        <li v-for="(m, i) in plan.content.teaching_methods" :key="i">{{ m }}</li>
+                                    </ul>
+                                </div>
+                                <div v-if="plan.content.teaching_aids?.length">
+                                    <p class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-0.5">Teaching Aids</p>
+                                    <ul class="list-disc space-y-0.5 text-base-content/80" :class="urduPrimary ? 'mr-5' : 'ml-5'">
+                                        <li v-for="(a, i) in plan.content.teaching_aids" :key="i">{{ a }}</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div v-if="plan.content.teacher_notes"
+                                class="rounded-md border border-amber-500/30 bg-amber-500/[0.06] p-2.5 mt-2">
+                                <p class="text-[11px] font-bold text-amber-700 dark:text-amber-300 mb-0.5">Teacher's note</p>
+                                <p class="text-[12px] text-base-content/75 whitespace-pre-line">{{ plan.content.teacher_notes }}</p>
+                            </div>
                         </section>
 
-                        <section v-if="plan.references?.length">
-                            <h3 class="font-bold text-[13px] mb-1">References</h3>
-                            <ul class="list-disc ml-5 space-y-0.5 text-base-content/60 text-[12px]">
-                                <li v-for="(r, i) in plan.references" :key="i">{{ r }}</li>
-                            </ul>
+                        <!-- 3. Homework -->
+                        <section v-if="plan.homework">
+                            <h3 class="font-bold text-[13px] mb-1.5 flex items-center gap-1.5">
+                                <ClipboardDocumentListIcon class="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                                3. Homework
+                            </h3>
+                            <ol class="list-decimal space-y-1 text-base-content/80" :class="urduPrimary ? 'mr-6' : 'ml-6'">
+                                <template v-if="Array.isArray(plan.homework)">
+                                    <li v-for="(h, i) in plan.homework" :key="i">{{ h }}</li>
+                                </template>
+                                <li v-else>{{ plan.homework }}</li>
+                            </ol>
                         </section>
                     </div>
                 </div>

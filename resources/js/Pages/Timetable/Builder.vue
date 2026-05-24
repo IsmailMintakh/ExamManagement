@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import PageHeader from '@/Components/PageHeader.vue'
 import TimetableSubnav from '@/Components/timetable/TimetableSubnav.vue'
 import { Head, Link, useForm, router } from '@inertiajs/vue3'
@@ -18,6 +19,7 @@ const props = defineProps({
     assignments: { type: Array, default: () => [] },
     subjects: { type: Array, default: () => [] },
     teachers: { type: Array, default: () => [] },
+    teacherBusy: { type: Object, default: () => ({}) },
 })
 
 const ALL_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat']
@@ -71,6 +73,32 @@ function clearSlot(slotId) {
 const filledCount = computed(() =>
     periodSlots.value.filter(s => routine[s.id]).length
 )
+
+// ─── Teacher conflict detection ───
+// Returns the section label ("Class 8 · A") where this slot's teacher is
+// already busy at the same period in another section — or null if free.
+function conflictFor(slotId) {
+    const v = routine[slotId]
+    if (!v) return null
+    const [, teacherId] = v.split(':').map(Number)
+    return props.teacherBusy?.[teacherId + '|' + slotId] || null
+}
+// Per-slot conflict map (computed once per change) for the template.
+const conflicts = computed(() => {
+    const out = {}
+    for (const s of periodSlots.value) {
+        const label = conflictFor(s.id)
+        if (label) out[s.id] = label
+    }
+    return out
+})
+const hasConflicts = computed(() => Object.keys(conflicts.value).length > 0)
+
+// Mark options inside a slot's dropdown as "busy elsewhere" so the user can
+// avoid them upfront. Returns a label or null per option key.
+function optionConflictForSlot(option, slotId) {
+    return props.teacherBusy?.[option.teacher_id + '|' + slotId] || null
+}
 
 // ─── Auto-fill (whole section) ───
 const generating = ref(false)
@@ -160,10 +188,12 @@ function save() {
                     <Link :href="route('timetable.section', section.id)" class="btn btn-ghost btn-sm rounded-lg gap-1.5">
                         <EyeIcon class="w-4 h-4" /> View
                     </Link>
-                    <button @click="save" :disabled="form.processing || section.timetable_locked"
-                        class="btn btn-primary btn-sm rounded-lg gap-2">
+                    <button @click="save"
+                        :disabled="form.processing || section.timetable_locked || hasConflicts"
+                        class="btn btn-primary btn-sm rounded-lg gap-2"
+                        :title="hasConflicts ? 'Fix teacher conflicts before saving' : ''">
                         <CheckIcon class="w-4 h-4" />
-                        {{ form.processing ? 'Saving…' : 'Save routine' }}
+                        {{ form.processing ? 'Saving…' : hasConflicts ? 'Fix conflicts to save' : 'Save routine' }}
                     </button>
                 </template>
             </PageHeader>
@@ -223,6 +253,21 @@ function save() {
                 {{ form.errors.entries }}
             </p>
 
+            <!-- Aggregate conflict banner -->
+            <div v-if="hasConflicts"
+                class="rounded-xl border border-error/40 bg-error/5 p-3 flex items-start gap-2.5">
+                <XCircleIcon class="w-5 h-5 text-error shrink-0 mt-0.5" />
+                <div class="text-xs">
+                    <p class="font-bold text-error">
+                        {{ Object.keys(conflicts).length }} teacher conflict{{ Object.keys(conflicts).length === 1 ? '' : 's' }} — fix before saving
+                    </p>
+                    <p class="text-base-content/70 mt-0.5">
+                        One teacher can't be in two sections at the same period. The rows below in red
+                        show where the chosen teacher is already assigned somewhere else.
+                    </p>
+                </div>
+            </div>
+
             <!-- Routine list -->
             <div v-if="assignments.length" class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden divide-y divide-base-300">
                 <div v-for="slot in slots" :key="slot.id"
@@ -246,13 +291,25 @@ function save() {
 
                     <!-- Period picker -->
                     <template v-else>
-                        <select v-model="routine[slot.id]"
-                            :disabled="section.timetable_locked"
-                            class="select select-bordered select-sm rounded-lg flex-1 text-sm disabled:opacity-60"
-                            :class="routine[slot.id] ? 'border-emerald-500/40 bg-emerald-500/5' : ''">
-                            <option value="">— Free period —</option>
-                            <option v-for="o in optionList" :key="o.key" :value="o.key">{{ o.label }}</option>
-                        </select>
+                        <div class="flex-1 min-w-0">
+                            <SearchableSelect v-model="routine[slot.id]"
+                                :disabled="section.timetable_locked"
+                                size="sm"
+                                placeholder="— Free period —"
+                                :options="[
+                                    { value: '', label: '— Free period —' },
+                                    ...optionList.map(o => ({
+                                        value: o.key,
+                                        label: o.label,
+                                        sublabel: optionConflictForSlot(o, slot.id) ? `busy in ${optionConflictForSlot(o, slot.id)}` : '',
+                                    })),
+                                ]" />
+                            <p v-if="conflicts[slot.id]"
+                                class="mt-1 text-[11px] text-error flex items-center gap-1">
+                                <XCircleIcon class="w-3.5 h-3.5 shrink-0" />
+                                Teacher already in <strong>{{ conflicts[slot.id] }}</strong> at this period — pick a different teacher.
+                            </p>
+                        </div>
                         <button v-if="routine[slot.id]" type="button"
                             @click="clearSlot(slot.id)"
                             :disabled="section.timetable_locked"

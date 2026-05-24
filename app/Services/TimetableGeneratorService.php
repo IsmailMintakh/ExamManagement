@@ -55,18 +55,23 @@ class TimetableGeneratorService
             return $this->summary($school, error: 'No active academic session configured.');
         }
 
-        $periodSlots = TimeSlot::where('school_id', $school->id)
+        // Per-stage period slots. A class with stage=primary uses primary's
+        // slots; if primary has none, it falls back to the school-wide
+        // default (stage IS NULL). Cached by stage to avoid N queries.
+        $allSlots = TimeSlot::where('school_id', $school->id)
             ->where('type', 'period')
             ->ordered()
             ->get();
-        if ($periodSlots->isEmpty()) {
+        if ($allSlots->isEmpty()) {
             return $this->summary($school, error: 'No bell schedule (period slots) configured for this school.');
         }
+        $slotsByStage = $allSlots->groupBy('stage'); // string|null → Collection
+        $defaultSlots = $slotsByStage->get('') ?? $slotsByStage->get(null) ?? collect();
 
         $sections = Section::query()
             ->whereHas('schoolClass', fn ($q) => $q->where('school_id', $school->id))
             ->when($sectionIds, fn ($q) => $q->whereIn('id', $sectionIds))
-            ->with('schoolClass:id,name,sort_order')
+            ->with('schoolClass:id,name,sort_order,stage')
             ->active()
             ->get()
             ->sortBy(fn ($s) => sprintf('%05d-%s', $s->schoolClass?->sort_order ?? 999, $s->name))
@@ -106,7 +111,7 @@ class TimetableGeneratorService
         $created = 0;
 
         DB::transaction(function () use (
-            $sections, $targetIds, $sessionId, $periodSlots, &$busy, &$results, &$created
+            $sections, $targetIds, $sessionId, $slotsByStage, $defaultSlots, &$busy, &$results, &$created
         ) {
             TimetableEntry::forSession($sessionId)
                 ->whereIn('section_id', $targetIds)
@@ -114,6 +119,16 @@ class TimetableGeneratorService
 
             foreach ($sections as $sec) {
                 if (!in_array($sec->id, $targetIds, true)) {
+                    continue;
+                }
+                // Pick the bell schedule for this section's stage; fall back to
+                // the school-wide default if the stage has none configured.
+                $stage = $sec->schoolClass?->stage;
+                $periodSlots = ($stage && $slotsByStage->has($stage))
+                    ? $slotsByStage->get($stage)
+                    : $defaultSlots;
+                if ($periodSlots->isEmpty()) {
+                    $results[] = $this->row($sec, 'no bell schedule for this stage and no default');
                     continue;
                 }
                 $results[] = $this->buildSection(

@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import SchedulingSubnav from '@/Components/scheduling/SchedulingSubnav.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import { Head, Link, router, useForm } from '@inertiajs/vue3'
@@ -109,26 +110,21 @@ function openPdf() {
                             <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
                                 <div class="form-control md:col-span-2">
                                     <label class="label-text text-xs uppercase tracking-wider text-base-content/50 mb-1">Session</label>
-                                    <select v-model="form.exam_schedule_id" class="select select-bordered select-sm">
-                                        <option value="">Select session</option>
-                                        <option v-for="s in schedules" :key="s.id" :value="s.id">
-                                            {{ s.exam_date }} · {{ s.start_time }} · {{ s.subject_name }} ({{ s.class_name }})
-                                        </option>
-                                    </select>
+                                    <SearchableSelect v-model="form.exam_schedule_id" size="sm"
+                                        :options="schedules.map(s => ({ value: s.id, label: `${s.exam_date} · ${s.start_time} · ${s.subject_name} (${s.class_name})` }))"
+                                        placeholder="Select session" />
                                 </div>
                                 <div class="form-control">
                                     <label class="label-text text-xs uppercase tracking-wider text-base-content/50 mb-1">Room</label>
-                                    <select v-model="form.exam_room_id" class="select select-bordered select-sm">
-                                        <option value="">Select room</option>
-                                        <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}</option>
-                                    </select>
+                                    <SearchableSelect v-model="form.exam_room_id" size="sm"
+                                        :options="rooms.map(r => ({ value: r.id, label: r.name }))"
+                                        placeholder="Select room" />
                                 </div>
                                 <div class="form-control">
                                     <label class="label-text text-xs uppercase tracking-wider text-base-content/50 mb-1">Teacher</label>
-                                    <select v-model="form.user_id" class="select select-bordered select-sm">
-                                        <option value="">Select teacher</option>
-                                        <option v-for="t in teachers" :key="t.id" :value="t.id">{{ t.name }}</option>
-                                    </select>
+                                    <SearchableSelect v-model="form.user_id" size="sm"
+                                        :options="teachers.map(t => ({ value: t.id, label: t.name }))"
+                                        placeholder="Select teacher" />
                                 </div>
                                 <div class="form-control">
                                     <label class="label-text text-xs uppercase tracking-wider text-base-content/50 mb-1">Role</label>

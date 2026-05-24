@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import SchedulingSubnav from '@/Components/scheduling/SchedulingSubnav.vue'
 import EmptyState from '@/Components/EmptyState.vue'
 import { Head, Link } from '@inertiajs/vue3'
@@ -99,12 +100,14 @@ function downloadBulk() {
                         </div>
                     </div>
                     <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
-                        <select v-model="bulkClassId" class="select select-sm select-bordered min-w-[200px]">
-                            <option value="">All classes ({{ totalStudents }} students)</option>
-                            <option v-for="c in classes" :key="c.id" :value="c.id">
-                                {{ c.name }} ({{ c.sections.reduce((a, s) => a + (s.students_count || 0), 0) }} students)
-                            </option>
-                        </select>
+                        <div class="min-w-[200px]">
+                            <SearchableSelect v-model="bulkClassId" size="sm"
+                                :options="[
+                                    { value: '', label: `All classes (${totalStudents} students)` },
+                                    ...classes.map(c => ({ value: c.id, label: `${c.name} (${c.sections.reduce((a, s) => a + (s.students_count || 0), 0)} students)` })),
+                                ]"
+                                placeholder="All classes" />
+                        </div>
                         <button @click="downloadBulk" :disabled="bulkDownloading || !totalStudents"
                             class="btn btn-primary btn-sm gap-2 whitespace-nowrap">
                             <DocumentArrowDownIcon class="h-4 w-4" />

@@ -55,16 +55,73 @@ class SubstitutionController extends Controller
 
         $absences = TeacherAbsence::where('absent_on', $date->toDateString())
             ->whereIn('user_id', $teachers->pluck('id'))
-            ->get(['user_id', 'reason', 'from_time', 'was_backdated']);
+            ->get(['user_id', 'reason', 'from_time', 'absent_slot_ids', 'was_backdated']);
         $absentSet = $absences->keyBy('user_id');
 
         $schoolId = $user->isSuperAdmin() ? $teachers->first()?->school_id : $user->school_id;
-        $todaySlots = $schoolId
+
+        // All period slots for the school, tagged with stage so the picker
+        // can show "Class 9 · P1 (Middle)" instead of unlabelled rows.
+        $allPeriodSlots = $schoolId
             ? \App\Models\TimeSlot::where('school_id', $schoolId)
                 ->where('type', 'period')
+                ->orderBy('stage')
                 ->orderBy('starts_at')
-                ->get(['id', 'name', 'starts_at', 'ends_at'])
+                ->get(['id', 'name', 'stage', 'starts_at', 'ends_at'])
             : collect();
+        $slotsByStage = $allPeriodSlots->groupBy(fn ($s) => $s->stage ?: '');
+
+        // Generic "today's slots" — falls back to school-wide default when
+        // no stage-specific bell schedule exists.
+        $todaySlots = $allPeriodSlots->where('stage', null)->values();
+        if ($todaySlots->isEmpty()) {
+            $todaySlots = $allPeriodSlots;
+        }
+
+        // For each teacher, derive the stage(s) they teach and the slot
+        // list relevant to those stages. Picker uses this when the admin
+        // ticks "Pick periods" so a Class 9 teacher sees Class 9's bell
+        // schedule, not Nursery's. Also surfaces the stage(s) as badges.
+        $teacherStageMap = \DB::table('timetable_entries')
+            ->join('school_classes', 'school_classes.id', '=', 'timetable_entries.school_class_id')
+            ->whereIn('timetable_entries.teacher_id', $teachers->pluck('id'))
+            ->whereNotNull('school_classes.stage')
+            ->select('timetable_entries.teacher_id', 'school_classes.stage')
+            ->distinct()
+            ->get()
+            ->groupBy('teacher_id')
+            ->map(fn ($rows) => $rows->pluck('stage')->unique()->values()->all())
+            ->all();
+
+        $teacherSlotsMap = [];
+        foreach ($teachers as $t) {
+            $stages = $teacherStageMap[$t->id] ?? [];
+            $slots = collect();
+            foreach ($stages as $stg) {
+                $slots = $slots->merge($slotsByStage->get($stg) ?? []);
+            }
+            // If the teacher's stage has no specific slots, fall back to
+            // school default (NULL-stage) rows.
+            if ($slots->isEmpty()) {
+                $slots = $slotsByStage->get('') ?? $allPeriodSlots;
+            }
+            $teacherSlotsMap[$t->id] = $slots
+                ->unique('id')
+                ->sortBy('starts_at')
+                ->values()
+                ->map(fn ($s) => [
+                    'id' => $s->id,
+                    'name' => $s->name,
+                    'stage' => $s->stage,
+                    'starts_at' => substr($s->starts_at, 0, 5),
+                    'ends_at' => substr($s->ends_at, 0, 5),
+                ])
+                ->all();
+        }
+
+        // School-level setting that the page uses for its policy toggle.
+        $school = $schoolId ? \App\Models\School::find($schoolId) : null;
+        $coverStagePolicy = $school?->cover_stage_policy ?: 'strict';
 
         $assignments = SubstitutionAssignment::where('date', $date->toDateString())
             ->with([
@@ -81,6 +138,39 @@ class SubstitutionController extends Controller
             ))
             ->get();
 
+        // ── Fairness audit ── how many covers each teacher has taken in
+        // the current month. Surfaced on the page so admin can spot if a
+        // particular teacher is getting overloaded vs the rest.
+        $monthStart = $date->copy()->startOfMonth()->toDateString();
+        $monthEnd = $date->copy()->endOfMonth()->toDateString();
+        $monthlyCoverCounts = SubstitutionAssignment::query()
+            ->whereIn('status', ['suggested', 'confirmed'])
+            ->whereBetween('date', [$monthStart, $monthEnd])
+            ->whereIn('substitute_teacher_id', $teachers->pluck('id'))
+            ->selectRaw('substitute_teacher_id, COUNT(*) as cnt')
+            ->groupBy('substitute_teacher_id')
+            ->pluck('cnt', 'substitute_teacher_id')
+            ->all();
+        // Mirror map — teachers whose classes have been covered for them.
+        $monthlyAbsenceCounts = SubstitutionAssignment::query()
+            ->whereIn('status', ['suggested', 'confirmed'])
+            ->whereBetween('date', [$monthStart, $monthEnd])
+            ->whereIn('original_teacher_id', $teachers->pluck('id'))
+            ->selectRaw('original_teacher_id, COUNT(*) as cnt')
+            ->groupBy('original_teacher_id')
+            ->pluck('cnt', 'original_teacher_id')
+            ->all();
+
+        $fairnessRows = $teachers->map(fn ($t) => [
+            'id' => $t->id,
+            'name' => $t->name,
+            'covers_taken' => (int) ($monthlyCoverCounts[$t->id] ?? 0),
+            'covered_for' => (int) ($monthlyAbsenceCounts[$t->id] ?? 0),
+        ])->sortByDesc('covers_taken')->values();
+        $coversTotal = array_sum($monthlyCoverCounts);
+        $teachersWithCovers = collect($monthlyCoverCounts)->filter()->count();
+        $coversAvg = $teachersWithCovers > 0 ? round($coversTotal / max($teachers->count(), 1), 1) : 0;
+
         return Inertia::render('Timetable/ClassAdjustments', [
             'date' => $date->toDateString(),
             'today' => Carbon::today()->toDateString(),
@@ -92,13 +182,19 @@ class SubstitutionController extends Controller
                 'from_time' => $absentSet->get($t->id)?->from_time
                     ? substr($absentSet->get($t->id)->from_time, 0, 5)
                     : null,
+                'absent_slot_ids' => $absentSet->get($t->id)?->absent_slot_ids ?? [],
                 'was_backdated' => (bool) $absentSet->get($t->id)?->was_backdated,
+                'stages' => $teacherStageMap[$t->id] ?? [],
+                'slots' => $teacherSlotsMap[$t->id] ?? [],
             ]),
             'todaySlots' => $todaySlots->map(fn ($s) => [
                 'id' => $s->id,
                 'name' => $s->name,
+                'stage' => $s->stage,
                 'starts_at' => substr($s->starts_at, 0, 5),
             ])->values(),
+            'stageLabels' => \App\Models\SchoolClass::STAGES,
+            'coverStagePolicy' => $coverStagePolicy,
             'assignments' => $assignments->map(fn ($a) => [
                 'id' => $a->id,
                 'time_slot' => $a->timetableEntry?->timeSlot?->name,
@@ -115,6 +211,12 @@ class SubstitutionController extends Controller
                 'notes' => $a->notes,
                 'score_breakdown' => $a->score_breakdown,
             ]),
+            'fairness' => [
+                'month_label' => $date->copy()->format('F Y'),
+                'rows' => $fairnessRows,
+                'avg' => $coversAvg,
+                'total' => $coversTotal,
+            ],
         ]);
     }
 
@@ -132,26 +234,40 @@ class SubstitutionController extends Controller
             'date' => ['required', 'date'],
             'reason' => ['nullable', 'string', 'max:200'],
             'from_time' => ['nullable', 'date_format:H:i'],
+            // Per-period absence: cover ONLY these time-slot ids. When provided
+            // this wins over from_time (the picker lets admin tick e.g.
+            // periods 3 & 4 only because the teacher took 1, 2, 5, 6 herself).
+            'absent_slot_ids' => ['nullable', 'array'],
+            'absent_slot_ids.*' => ['integer', 'exists:time_slots,id'],
             'action' => ['nullable', 'in:toggle,update'],
         ]);
         $action = $validated['action'] ?? 'toggle';
+        $slotIds = $validated['absent_slot_ids'] ?? null;
+        if ($slotIds === []) {
+            $slotIds = null; // normalise empty array → null (full day)
+        }
 
         $existing = TeacherAbsence::where('user_id', $validated['user_id'])
             ->where('absent_on', $validated['date'])
             ->first();
 
+        $modeLabel = function () use ($slotIds, $validated) {
+            if ($slotIds !== null) return 'absent for ' . count($slotIds) . ' selected period(s)';
+            if (!empty($validated['from_time'])) return 'partial-day absence from ' . $validated['from_time'];
+            return 'full-day absence';
+        };
+
         if ($existing && $action === 'update') {
             $existing->update([
                 'reason' => $validated['reason'] ?? $existing->reason,
-                'from_time' => $validated['from_time'] ?? null,
+                'from_time' => $slotIds ? null : ($validated['from_time'] ?? null),
+                'absent_slot_ids' => $slotIds,
             ]);
             SubstitutionAssignment::where('date', $validated['date'])
                 ->where('original_teacher_id', $validated['user_id'])
                 ->where('status', 'suggested')
                 ->delete();
-            $msg = $validated['from_time']
-                ? 'Updated — partial-day absence from ' . $validated['from_time'] . '.'
-                : 'Updated — full-day absence.';
+            $msg = 'Updated — ' . $modeLabel() . '.';
         } elseif ($existing) {
             $existing->delete();
             SubstitutionAssignment::where('date', $validated['date'])
@@ -168,18 +284,47 @@ class SubstitutionController extends Controller
                 'academic_session_id' => \App\Models\AcademicSession::currentSession()?->id,
                 'absent_on' => $validated['date'],
                 'reason' => $validated['reason'] ?? null,
-                'from_time' => $validated['from_time'] ?? null,
+                'from_time' => $slotIds ? null : ($validated['from_time'] ?? null),
+                'absent_slot_ids' => $slotIds,
                 'was_backdated' => $wasBackdated,
                 'marked_by' => $user->id,
             ]);
-            $msg = $validated['from_time']
-                ? 'Marked absent from ' . $validated['from_time'] . '.'
-                : 'Marked absent (full day).';
+            $msg = 'Marked ' . $modeLabel() . '.';
             if ($wasBackdated) $msg .= ' (back-dated entry)';
         }
 
         return redirect()->route('timetable.adjustments', ['date' => $validated['date']])
             ->with('success', $msg);
+    }
+
+    /**
+     * POST /timetable/adjustments/policy — flip the school's
+     * cross-stage cover policy (strict ↔ open).
+     */
+    public function updatePolicy(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        if (!$user->isSuperAdmin() && !$user->isSchoolAdmin()) abort(403);
+
+        $validated = $request->validate([
+            'policy' => ['required', 'in:strict,open'],
+            'school_id' => ['nullable', 'exists:schools,id'],
+            'date' => ['nullable', 'date'],
+        ]);
+
+        $schoolId = $user->isSuperAdmin()
+            ? ($validated['school_id'] ?? $user->school_id)
+            : $user->school_id;
+        $school = \App\Models\School::findOrFail($schoolId);
+        $school->update(['cover_stage_policy' => $validated['policy']]);
+
+        $label = $validated['policy'] === 'strict'
+            ? 'Strict — Pre-Primary/Primary teachers won\'t be picked to cover Middle/Secondary/Higher classes.'
+            : 'Open — any qualified colleague can cover any stage.';
+
+        return redirect()
+            ->route('timetable.adjustments', ['date' => $validated['date'] ?? null])
+            ->with('success', 'Adjustment policy updated. ' . $label);
     }
 
     /** POST /timetable/adjustments/generate — run the engine. */

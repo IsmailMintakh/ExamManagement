@@ -14,6 +14,7 @@ import {
     SparklesIcon, ExclamationTriangleIcon, Squares2X2Icon,
     LifebuoyIcon, QuestionMarkCircleIcon, TrophyIcon,
     GlobeAltIcon, PhotoIcon, NewspaperIcon, EnvelopeIcon,
+    ShieldExclamationIcon,
 } from '@heroicons/vue/24/outline'
 import ThemeToggle from '@/Components/ThemeToggle.vue'
 import Toast from '@/Components/Toast.vue'
@@ -135,11 +136,14 @@ const menuGroups = computed(() => {
     const isAdminish = hasRole('super-admin') || hasRole('school-admin')
     const isTeacher = hasRole('class-teacher') || hasRole('subject-teacher')
     if (isTeacher && !isAdminish) {
-        // Data-driven flags (set by the backend) — more accurate than role
-        // names: a class teacher only sees "My Class" if actually assigned a
-        // section, and "Marks Entry" only if they have subject assignments.
+        // Gate "My Class" on the ACTUAL section assignment, not on the role
+        // alone. The class-teacher role can exist on a user who isn't currently
+        // assigned as class_teacher_id of any active section (e.g. the role
+        // was granted but the assignment was moved to someone else). Showing
+        // "My Class" to those users dumps them on a 403 page. The middleware
+        // (HandleInertiaRequests) already computes this boolean by checking
+        // Section::where('class_teacher_id', user.id)->active()->exists().
         const isClassTeacher = !!user.value?.isClassTeacher
-        const teachesSubjects = !!user.value?.teachesSubjects
 
         // ── My Class (class-teacher hub) — each tab is a direct sidebar
         //    link via ?tab= so the whole hub is reachable in one click. ──
@@ -155,11 +159,11 @@ const menuGroups = computed(() => {
             )
         }
 
-        // ── Teaching (subject-teacher work: enter your own subjects) ──
-        const teachItems = []
-        if (teachesSubjects) {
-            teachItems.push({ label: 'Marks Entry', href: '/marks', icon: DocumentTextIcon })
-        }
+        // ── Teaching (every teacher gets the same set regardless of
+        //    current subject assignments). Pages enforce access internally. ──
+        const teachItems = [
+            { label: 'Marks Entry', href: '/marks', icon: DocumentTextIcon },
+        ]
         if (hasPerm('exams.view')) teachItems.push({ label: 'Exams', href: '/exams', icon: ClipboardDocumentListIcon })
         teachItems.push({ label: 'Smart Lesson Plan', href: '/lesson-plan', icon: SparklesIcon })
         if (hasPerm('questions.view')) teachItems.push({ label: 'Question Bank', href: '/questions', icon: QuestionMarkCircleIcon })
@@ -194,10 +198,13 @@ const menuGroups = computed(() => {
     })
 
     const workflowItems = []
-    // Class teachers get a prominent "My Class" entry at the top
-    if (hasRole('class-teacher')) workflowItems.push({ label: 'My Class', href: '/my-class', icon: AcademicCapIcon })
+    // Class teachers get a prominent "My Class" entry at the top — but only
+    // if they're actually assigned to a section. Role alone isn't enough;
+    // the page itself enforces an assignment check and would 403.
+    if (user.value?.isClassTeacher) workflowItems.push({ label: 'My Class', href: '/my-class', icon: AcademicCapIcon })
     if (hasPerm('exams.view')) workflowItems.push({ label: 'Exams', href: '/exams', icon: ClipboardDocumentListIcon })
     if (hasPerm('marks.view') || hasPerm('marks.enter')) workflowItems.push({ label: 'Marks Entry', href: '/marks', icon: DocumentTextIcon })
+    if (hasRole('super-admin') || hasRole('school-admin')) workflowItems.push({ label: 'Marks Progress', href: '/marks/progress', icon: ClipboardDocumentCheckIcon })
     if (hasPerm('results.view')) workflowItems.push({ label: 'Results', href: '/results', icon: ChartBarIcon })
     if (hasPerm('results.review')) workflowItems.push({ label: 'Result Review', href: '/result-review', icon: CheckBadgeIcon })
     if (hasPerm('supplementary.view')) workflowItems.push({ label: 'Supplementary', href: '/supplementary', icon: ArrowPathIcon })
@@ -273,6 +280,7 @@ const menuGroups = computed(() => {
     if (hasPerm('archive.view')) sysItems.push({ label: 'Archive', href: '/archive', icon: ArchiveBoxIcon })
     if (hasPerm('activity.view')) sysItems.push({ label: 'Activity Log', href: '/activity-log', icon: ClockIcon })
     if (hasPerm('settings.view')) sysItems.push({ label: 'Settings', href: '/settings', icon: Cog6ToothIcon })
+    if (hasRole('super-admin')) sysItems.push({ label: 'Data Cleanup', href: '/admin/data-cleanup', icon: ShieldExclamationIcon })
     sysItems.push({ label: 'Help & Docs', href: '/help', icon: LifebuoyIcon })
     groups.push({ label: 'System', items: sysItems })
 

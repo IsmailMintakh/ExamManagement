@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import SearchableSelect from '@/Components/SearchableSelect.vue'
 import { Head, Link, useForm } from '@inertiajs/vue3'
 import { ref, computed, watch } from 'vue'
 import {
@@ -99,12 +100,11 @@ function submit() {
                         <span class="badge badge-primary">1</span>
                         Choose Exam
                     </h2>
-                    <select v-model="form.exam_id" required class="select select-bordered w-full mt-2">
-                        <option value="">Select an exam...</option>
-                        <option v-for="e in exams" :key="e.id" :value="e.id">
-                            {{ e.name }} ({{ e.exam_type?.name || '—' }})
-                        </option>
-                    </select>
+                    <div class="mt-2">
+                        <SearchableSelect v-model="form.exam_id"
+                            :options="exams.map(e => ({ value: e.id, label: `${e.name} (${e.exam_type?.name || '—'})` }))"
+                            placeholder="Select an exam..." />
+                    </div>
                     <div v-if="form.errors.exam_id" class="text-error text-sm mt-1">{{ form.errors.exam_id }}</div>
                 </div>
             </div>

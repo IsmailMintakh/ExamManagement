@@ -34,6 +34,8 @@
         .sign-cell.right { text-align: right; }
         .sign-line { border-top: 1px solid #1a1a1a; padding-top: 3px; font-weight: bold;
                      display: inline-block; min-width: 60%; margin-top: 60px; }
+        .sig-img { height: 36px; max-width: 160px; display: block; margin-bottom: -8px; }
+        .sig-name { font-size: 9px; color: #444; font-weight: normal; }
     </style>
 </head>
 <body>
@@ -84,9 +86,26 @@
                     <span>Present: <span class="blank">&nbsp;</span></span>
                     <span>Absent: <span class="blank">&nbsp;</span></span>
                 </div>
+                @php
+                    // Pull the class teacher off the section (eager-loaded
+                    // in ReportController::awardList). When they've uploaded
+                    // a signature image we drop it above the printed name
+                    // so the page is auto-signed.
+                    $sec = optional($results->first())->section;
+                    $ct = $sec?->classTeacher;
+                    $sigPath = $ct?->signaturePath();
+                @endphp
                 <div class="sign-block">
                     <div class="sign-cell">
-                        <div class="sign-line">Class Teacher / Subject Teacher</div>
+                        @if ($sigPath)
+                            <img src="{{ $sigPath }}" alt="" class="sig-img" />
+                        @endif
+                        <div class="sign-line">
+                            Class Teacher / Subject Teacher
+                            @if ($ct?->name)
+                                <div class="sig-name">{{ $ct->name }}</div>
+                            @endif
+                        </div>
                     </div>
                     <div class="sign-cell right">
                         <div class="sign-line">Submitted Date</div>

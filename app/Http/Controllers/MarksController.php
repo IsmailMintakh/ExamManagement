@@ -86,7 +86,21 @@ class MarksController extends Controller
             ->groupBy('section_id')
             ->pluck('cnt', 'section_id');
 
-        $exams = $examsRaw->map(function ($exam) use ($isAdmin, $teacherAssignments, $allSections, $submissionsMap, $studentCountMap) {
+        // For admin view: pre-load all subject-teacher assignments for the
+        // classes/sections in scope so each row carries the responsible
+        // teacher's name. Lets DDO/Principal filter "by teacher" on the page.
+        $adminTeacherMap = collect();
+        if ($isAdmin) {
+            $adminTeacherMap = SubjectTeacher::query()
+                ->whereIn('school_class_id', $classIds)
+                ->where('is_active', true)
+                ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+                ->with('user:id,name')
+                ->get()
+                ->keyBy(fn ($st) => "{$st->subject_id}|{$st->school_class_id}|{$st->section_id}");
+        }
+
+        $exams = $examsRaw->map(function ($exam) use ($isAdmin, $teacherAssignments, $allSections, $submissionsMap, $studentCountMap, $adminTeacherMap) {
             $assignments = [];
 
             foreach ($exam->examSubjects as $es) {
@@ -102,14 +116,20 @@ class MarksController extends Controller
                     }
 
                     $submission = $submissionsMap->get("{$exam->id}-{$es->subject_id}-{$sec->id}");
+                    $teacherCell = $isAdmin
+                        ? $adminTeacherMap->get("{$es->subject_id}|{$es->school_class_id}|{$sec->id}")
+                        : null;
 
                     $assignments[] = [
                         'id' => $es->id . '-' . $sec->id,
                         'subject_id' => $es->subject_id,
                         'subject_name' => $es->subject?->name,
+                        'class_id' => $es->school_class_id,
                         'class_name' => $es->schoolClass?->name,
                         'section_id' => $sec->id,
                         'section_name' => $sec->name,
+                        'teacher_id' => $teacherCell?->user_id,
+                        'teacher_name' => $teacherCell?->user?->name,
                         'student_count' => (int) ($studentCountMap[$sec->id] ?? 0),
                         'status' => $submission?->status,
                     ];
@@ -130,6 +150,7 @@ class MarksController extends Controller
 
         return Inertia::render('Marks/Index', [
             'exams' => $exams,
+            'isAdmin' => $isAdmin,
         ]);
     }
 
