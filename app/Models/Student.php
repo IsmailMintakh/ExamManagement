@@ -64,6 +64,21 @@ class Student extends Model
                     return;
                 }
 
+                // Also skip when the SELECT list contains a raw aggregate —
+                // e.g. selectRaw('MAX(CAST(admission_no AS UNSIGNED)) as mx').
+                // Eloquent only flags $q->aggregate for ->max()/->count() etc;
+                // bare selectRaw aggregates slip through, and MySQL then rejects
+                // mixing aggregate columns with non-aggregate ORDER BY
+                // (ER_MIX_OF_GROUP_FUNC_AND_FIELDS — error 1140).
+                foreach ((array) $q->columns as $col) {
+                    $sql = $col instanceof \Illuminate\Contracts\Database\Query\Expression
+                        ? (string) $col->getValue($q->getGrammar())
+                        : (is_string($col) ? $col : '');
+                    if ($sql !== '' && preg_match('/\b(MIN|MAX|SUM|AVG|COUNT)\s*\(/i', $sql)) {
+                        return;
+                    }
+                }
+
                 $isRollNoCol = fn ($o) => isset($o['column'])
                     && in_array($o['column'], ['roll_no', 'students.roll_no'], true);
 
