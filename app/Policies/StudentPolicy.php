@@ -37,6 +37,9 @@ class StudentPolicy
     {
         if (!$user->hasPermissionTo('students.delete')) return false;
         if ($user->hasRole('school-admin')) return $user->school_id === $student->school_id;
+        if ($user->hasRole('class-teacher')) {
+            return $user->classSections->pluck('id')->contains($student->section_id);
+        }
         return false;
     }
     public function import(User $user): bool { return $user->hasPermissionTo('students.import'); }
