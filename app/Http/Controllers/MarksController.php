@@ -117,7 +117,7 @@ class MarksController extends Controller
                 ->keyBy(fn ($st) => "{$st->subject_id}|{$st->school_class_id}|{$st->section_id}");
         }
 
-        $exams = $examsRaw->map(function ($exam) use ($isAdmin, $teacherAssignments, $allSections, $submissionsMap, $studentCountMap, $adminTeacherMap) {
+        $exams = $examsRaw->map(function ($exam) use ($isAdmin, $teacherAssignments, $classTeacherSectionIds, $allSections, $submissionsMap, $studentCountMap, $adminTeacherMap) {
             $assignments = [];
 
             foreach ($exam->examSubjects as $es) {

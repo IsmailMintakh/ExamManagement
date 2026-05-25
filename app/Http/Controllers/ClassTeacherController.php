@@ -24,23 +24,21 @@ use Inertia\Response;
 class ClassTeacherController extends Controller
 {
     /**
-     * Guard: load the sections this user is responsible for, abort if none.
-     * Returns the Section collection (eager-loaded with schoolClass + school).
+     * Load the sections this user leads. Returns the Section collection
+     * (eager-loaded with schoolClass + school) or an empty collection — the
+     * caller is expected to render an empty state, not a 403. We used to
+     * abort(403) here, but that's a harsh dead-end for users whose
+     * assignment was removed mid-year or whose old bookmark survives the
+     * sidebar's no-longer-showing-the-link state.
      */
     protected function mySections($user)
     {
         if (!$user) abort(403);
 
-        $sections = Section::with(['schoolClass.school'])
+        return Section::with(['schoolClass.school'])
             ->where('class_teacher_id', $user->id)
             ->active()
             ->get();
-
-        if ($sections->isEmpty()) {
-            abort(403, 'You are not currently assigned as a class teacher to any section.');
-        }
-
-        return $sections;
     }
 
     /**
@@ -50,6 +48,26 @@ class ClassTeacherController extends Controller
     {
         $user = $request->user();
         $sections = $this->mySections($user);
+
+        // No section yet — render the same Vue page in "empty state" mode so
+        // the user sees an actionable explanation instead of a 403 wall.
+        if ($sections->isEmpty()) {
+            return Inertia::render('ClassTeacher/Index', [
+                'sections' => [],
+                'activeSection' => null,
+                'students' => [],
+                'marksStatus' => [],
+                'latestResults' => [],
+                'sectionTeam' => [],
+                'stats' => null,
+                'currentSession' => null,
+                'mySubjectStatus' => [],
+                'myRecentResults' => [],
+                'availableExams' => [],
+                'timetable' => ['has_schedule' => false, 'slots' => [], 'entries' => []],
+                'unassigned' => true,
+            ]);
+        }
 
         $activeSectionId = $request->integer('section') ?: $sections->first()->id;
         $section = $sections->firstWhere('id', $activeSectionId) ?? $sections->first();

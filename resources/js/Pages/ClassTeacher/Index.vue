@@ -27,6 +27,10 @@ const props = defineProps({
     myRecentResults: { type: Array, default: () => [] },
     availableExams: { type: Array, default: () => [] },
     timetable: { type: Object, default: () => ({ has_schedule: false, slots: [], entries: {} }) },
+    // True when the user holds the class-teacher role but has no active
+    // section assignment — show a friendly empty state instead of the
+    // (now-removed) hard 403.
+    unassigned: { type: Boolean, default: false },
 })
 
 // ─── Timetable view ───
@@ -247,6 +251,23 @@ watch(() => usePage().url, () => { activeTab.value = tabFromUrl() })
     <AppLayout :breadcrumbs="[{ label: 'My Class' }]">
         <div class="space-y-4 max-w-[1500px] mx-auto">
 
+            <!-- Unassigned state — class-teacher role but no active section yet -->
+            <div v-if="unassigned" class="rounded-2xl border border-base-300 bg-base-100 p-8 text-center max-w-2xl mx-auto mt-8">
+                <div class="w-16 h-16 mx-auto rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-4">
+                    <ExclamationTriangleIcon class="w-8 h-8" />
+                </div>
+                <h2 class="text-lg font-bold mb-2">No class assignment yet</h2>
+                <p class="text-sm text-base-content/70 mb-5">
+                    You haven't been assigned as the class teacher of any active section.
+                    Ask your school administrator (Principal / DDO) to assign you to a section
+                    from <span class="font-semibold">Academic → Sections</span>.
+                </p>
+                <Link href="/dashboard" class="btn btn-primary btn-sm">
+                    Back to Dashboard
+                </Link>
+            </div>
+
+            <template v-else>
             <PageHeader
                 :title="`${activeSection?.class_name ?? 'My Class'}${activeSection?.name ? ' — ' + activeSection.name : ''}`"
                 :subtitle="`${activeSection?.school_name ?? ''}${currentSession ? ' · ' + currentSession.name : ''} · Monitoring view (read-only) — subject teachers enter the marks`"
@@ -794,6 +815,7 @@ watch(() => usePage().url, () => { activeTab.value = tabFromUrl() })
                 </div>
             </section>
             </div><!-- /team -->
+            </template><!-- /v-else for unassigned state -->
 
         </div>
     </AppLayout>
