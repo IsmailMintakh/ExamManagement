@@ -24,18 +24,30 @@ class MarksController extends Controller
 {
     /**
      * The single source of truth for "may this user enter/edit marks for
-     * this (subject, section)". Admins (super / school) may always; everyone
-     * else needs an active SubjectTeacher assignment. Being a class teacher
-     * grants NO marks-entry access — they monitor read-only via /my-class.
+     * this (subject, section)". Three avenues:
+     *  1. Super / school admin — always.
+     *  2. Subject teacher with an active SubjectTeacher row for the pair.
+     *  3. Class teacher of the section — many schools want the class teacher
+     *     to be able to fill in marks for any subject in their section (e.g.
+     *     when the subject teacher is absent or hasn't been assigned yet).
+     *     The class-teacher role is seeded with `marks.enter`, so honoring
+     *     section assignment here keeps the policy and the role consistent.
      */
     protected function canEnterMarks($user, int $subjectId, int $sectionId): bool
     {
         if ($user->isSuperAdmin() || $user->isSchoolAdmin()) {
             return true;
         }
-        return SubjectTeacher::where('user_id', $user->id)
+
+        $isSubjectTeacher = SubjectTeacher::where('user_id', $user->id)
             ->where('subject_id', $subjectId)
             ->where('section_id', $sectionId)
+            ->where('is_active', true)
+            ->exists();
+        if ($isSubjectTeacher) return true;
+
+        return Section::where('id', $sectionId)
+            ->where('class_teacher_id', $user->id)
             ->where('is_active', true)
             ->exists();
     }
@@ -45,15 +57,20 @@ class MarksController extends Controller
         $user = $request->user();
         $currentSession = AcademicSession::currentSession();
 
-        // Marks entry is gated purely by SubjectTeacher assignment — being a
-        // class teacher does NOT grant entry to your section's other subjects.
-        // (A class teacher who also teaches subjects still gets those here via
-        // their own assignment rows.) Loaded by assignment, not by role flag.
+        // What can this user enter?
+        //   - Subject teachers: their (subject, section) pairs.
+        //   - Class teachers: every subject in the section(s) they lead — the
+        //     class teacher is responsible for getting all marks entered for
+        //     their section and can fill in for absent subject teachers.
+        // canEnterMarks() applies the same two-avenue rule on the entry page.
         $isAdmin = $user->isSuperAdmin() || $user->isSchoolAdmin();
         $teacherAssignments = $isAdmin ? collect() : SubjectTeacher::where('user_id', $user->id)
             ->where('is_active', true)
             ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
             ->get();
+        $classTeacherSectionIds = $isAdmin ? collect() : Section::where('class_teacher_id', $user->id)
+            ->active()
+            ->pluck('id');
 
         $examsRaw = Exam::query()
             ->where('status', 'marks_entry')
@@ -107,12 +124,14 @@ class MarksController extends Controller
                 $sections = $allSections->get($es->school_class_id, collect());
 
                 foreach ($sections as $sec) {
-                    // Non-admins only see (subject, section) pairs they are
-                    // assigned to teach. No class-teacher section-wide access.
+                    // Non-admins see (subject, section) pairs either assigned
+                    // to them as subject teacher OR every subject in any
+                    // section they lead as class teacher.
                     if (!$isAdmin) {
-                        $hasAccess = $teacherAssignments->where('subject_id', $es->subject_id)
+                        $isMySubject = $teacherAssignments->where('subject_id', $es->subject_id)
                             ->where('section_id', $sec->id)->isNotEmpty();
-                        if (!$hasAccess) continue;
+                        $isMySection = $classTeacherSectionIds->contains($sec->id);
+                        if (!$isMySubject && !$isMySection) continue;
                     }
 
                     $submission = $submissionsMap->get("{$exam->id}-{$es->subject_id}-{$sec->id}");
