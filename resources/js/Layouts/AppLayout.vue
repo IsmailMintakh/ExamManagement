@@ -162,6 +162,7 @@ const menuGroups = computed(() => {
         // ── Teaching (every teacher gets the same set regardless of
         //    current subject assignments). Pages enforce access internally. ──
         const teachItems = [
+            { label: 'My Subjects', href: '/my-subjects', icon: BookOpenIcon },
             { label: 'Marks Entry', href: '/marks', icon: DocumentTextIcon },
         ]
         if (hasPerm('exams.view')) teachItems.push({ label: 'Exams', href: '/exams', icon: ClipboardDocumentListIcon })

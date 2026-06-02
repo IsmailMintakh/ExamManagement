@@ -111,6 +111,8 @@ class ExamController extends Controller
                 ->with('warning', 'Add at least one class — you map exam papers to classes.');
         }
 
+        $classes = $this->mergeTaughtSubjectsIntoCurriculum($classes);
+
         $gradingScales = GradingScale::where('is_active', true)->with('entries')->get();
 
         return Inertia::render('Exams/Create', [
@@ -125,6 +127,56 @@ class ExamController extends Controller
             'currentSchoolId' => $user->school_id,
             'defaultTermWeights' => Exam::DEFAULT_TERM_WEIGHTS,
         ]);
+    }
+
+    /**
+     * The exam Create form uses `class.subjects` (the class_subjects pivot)
+     * to decide which subjects auto-tick when an admin picks a class. But
+     * historically TeacherAssignment rows (subject_teachers) were created
+     * without also seeding class_subjects, so a subject can be actively
+     * TAUGHT in a class while missing from the curriculum pivot — and then
+     * silently disappears from the exam form (e.g. Drawing on Class 8).
+     *
+     * We close that gap here: any (subject, class) pair that has an active
+     * SubjectTeacher row is treated as part of the class curriculum for the
+     * purpose of this form, so it shows up alongside the explicit pivot.
+     */
+    private function mergeTaughtSubjectsIntoCurriculum($classes)
+    {
+        $classIds = $classes->pluck('id');
+        if ($classIds->isEmpty()) return $classes;
+
+        $taughtPairs = \DB::table('subject_teachers')
+            ->whereIn('school_class_id', $classIds)
+            ->where('is_active', true)
+            ->select('school_class_id', 'subject_id')
+            ->distinct()
+            ->get();
+
+        $extraSubjectIds = $taughtPairs->pluck('subject_id')->unique();
+        if ($extraSubjectIds->isEmpty()) return $classes;
+
+        $extraSubjects = Subject::whereIn('id', $extraSubjectIds)
+            ->where('is_active', true)
+            ->get()
+            ->keyBy('id');
+
+        $pairsByClass = $taughtPairs->groupBy('school_class_id');
+
+        foreach ($classes as $cls) {
+            $existingIds = collect($cls->subjects ?? [])->pluck('id')->all();
+            $extraForClass = $pairsByClass->get($cls->id, collect())
+                ->pluck('subject_id')
+                ->reject(fn ($sid) => in_array($sid, $existingIds, true))
+                ->map(fn ($sid) => $extraSubjects->get($sid))
+                ->filter()
+                ->values();
+            if ($extraForClass->isNotEmpty()) {
+                $cls->setRelation('subjects', $cls->subjects->concat($extraForClass));
+            }
+        }
+
+        return $classes;
     }
 
     /**
@@ -342,9 +394,18 @@ class ExamController extends Controller
         );
     }
 
-    public function edit(Exam $exam): Response
+    public function edit(Exam $exam): Response|RedirectResponse
     {
         $this->authorize('update', $exam);
+
+        // Once results are published, the exam is effectively frozen for
+        // grading purposes — letting an admin add/remove subjects after
+        // students have seen their marks would silently shift percentages.
+        // Block the edit form (and the corresponding update endpoint below).
+        if ($exam->isResultsPublished()) {
+            return redirect()->route('exams.show', $exam)
+                ->with('warning', 'This exam is locked because results have been published. Unpublish results first to edit it.');
+        }
 
         $user = request()->user();
         $exam->load(['examSubjects', 'schools']);
@@ -360,6 +421,7 @@ class ExamController extends Controller
         $classes = SchoolClass::active()->ordered()
             ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
             ->with(['sections', 'subjects'])->get();
+        $classes = $this->mergeTaughtSubjectsIntoCurriculum($classes);
 
         $subjects = Subject::active()->ordered()->get();
 
@@ -381,6 +443,12 @@ class ExamController extends Controller
     public function update(Request $request, Exam $exam): RedirectResponse
     {
         $this->authorize('update', $exam);
+
+        if ($exam->isResultsPublished()) {
+            return back()->withErrors([
+                'name' => 'Cannot edit an exam after its results have been published. Unpublish first.',
+            ])->withInput();
+        }
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],

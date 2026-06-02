@@ -91,8 +91,35 @@ class TeacherAssignmentController extends Controller
         }
 
         SubjectTeacher::create($validated);
+        $this->syncCurriculum([(int) $validated['school_class_id'] => [(int) $validated['subject_id']]]);
 
         return redirect()->back()->with('success', 'Teacher assigned successfully.');
+    }
+
+    /**
+     * Mirror new (class, subject) tuples into class_subjects so the exam
+     * Create form (which reads its curriculum from the pivot) auto-ticks
+     * everything that's actually being taught. Idempotent — uses upsert.
+     */
+    private function syncCurriculum(array $pairsByClass): void
+    {
+        $rows = [];
+        foreach ($pairsByClass as $classId => $subjectIds) {
+            foreach (array_unique($subjectIds) as $sid) {
+                $rows[] = [
+                    'school_class_id' => $classId,
+                    'subject_id' => (int) $sid,
+                    'is_active' => true,
+                ];
+            }
+        }
+        if (!empty($rows)) {
+            \DB::table('class_subjects')->upsert(
+                $rows,
+                ['school_class_id', 'subject_id'],
+                ['is_active'],
+            );
+        }
     }
 
     /**
@@ -155,6 +182,13 @@ class TeacherAssignmentController extends Controller
                 );
             }
         });
+
+        // Keep class_subjects curriculum in sync with what's actually taught.
+        $pairsByClass = collect($data['assignments'])
+            ->groupBy('school_class_id')
+            ->map(fn ($rows) => $rows->pluck('subject_id')->all())
+            ->all();
+        $this->syncCurriculum($pairsByClass);
 
         return redirect()->back()->with('success',
             'Saved '.$wanted->count().' assignment(s) for this teacher.');

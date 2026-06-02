@@ -165,7 +165,7 @@ const statusColors = {
                             </div>
                         </Link>
                         <div class="flex items-stretch border-t border-base-200 bg-base-200/30">
-                            <Link v-if="exam.status === 'draft' && can('exams.edit')"
+                            <Link v-if="!exam.results_published_at && can('exams.edit')"
                                     :href="route('exams.edit', exam.id)"
                                     class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 text-[12px] font-semibold text-base-content/65 active:bg-base-300/50">
                                 <PencilSquareIcon class="w-4 h-4" /> Edit
@@ -260,7 +260,7 @@ const statusColors = {
                                         <Link :href="route('exams.show', exam.id)" class="btn btn-ghost btn-xs btn-square" title="View">
                                             <EyeIcon class="w-4 h-4" />
                                         </Link>
-                                        <Link v-if="exam.status === 'draft' && can('exams.edit')" :href="route('exams.edit', exam.id)"
+                                        <Link v-if="!exam.results_published_at && can('exams.edit')" :href="route('exams.edit', exam.id)"
                                               class="btn btn-ghost btn-xs btn-square" title="Edit">
                                             <PencilSquareIcon class="w-4 h-4" />
                                         </Link>

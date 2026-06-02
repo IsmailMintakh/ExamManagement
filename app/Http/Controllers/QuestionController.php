@@ -47,6 +47,39 @@ class QuestionController extends Controller
     }
 
     /**
+     * Subjects + classes available to this user as filter / picker options.
+     * Admins (super / school) see everything in scope. Teachers see ONLY
+     * what they're assigned to teach via SubjectTeacher — otherwise the
+     * Question Bank dropdowns leak every subject in the school, which the
+     * user can't action anyway.
+     */
+    protected function pickerData($user): array
+    {
+        $isAdmin = $user->isSuperAdmin() || $user->isSchoolAdmin();
+        if ($isAdmin) {
+            return [
+                'subjects' => Subject::active()->orderBy('name')->get(['id', 'name', 'code']),
+                'classes'  => SchoolClass::query()
+                    ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+                    ->active()->ordered()->get(['id', 'name', 'school_id']),
+            ];
+        }
+        $assignments = \App\Models\SubjectTeacher::where('user_id', $user->id)
+            ->where('is_active', true)
+            ->get(['subject_id', 'school_class_id']);
+        return [
+            'subjects' => Subject::active()
+                ->whereIn('id', $assignments->pluck('subject_id')->unique())
+                ->orderBy('name')
+                ->get(['id', 'name', 'code']),
+            'classes'  => SchoolClass::query()
+                ->whereIn('id', $assignments->pluck('school_class_id')->unique())
+                ->active()->ordered()
+                ->get(['id', 'name', 'school_id']),
+        ];
+    }
+
+    /**
      * Resolve the source param. Whitelisted values only — anything else
      * collapses to the default so users can't break the query with garbage.
      */
@@ -97,10 +130,7 @@ class QuestionController extends Controller
                 'all' => $this->scopeForUser(Question::query(), $user, 'all')->count(),
             ];
 
-        $subjects = Subject::active()->orderBy('name')->get(['id', 'name', 'code']);
-        $classes = SchoolClass::query()
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
-            ->active()->ordered()->get(['id', 'name', 'school_id']);
+        ['subjects' => $subjects, 'classes' => $classes] = $this->pickerData($user);
 
         return Inertia::render('Questions/Index', [
             'questions' => $questions,
@@ -122,10 +152,7 @@ class QuestionController extends Controller
     {
         $user = $request->user();
 
-        $subjects = Subject::active()->orderBy('name')->get(['id', 'name', 'code']);
-        $classes = SchoolClass::query()
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
-            ->active()->ordered()->get(['id', 'name', 'school_id']);
+        ['subjects' => $subjects, 'classes' => $classes] = $this->pickerData($user);
 
         // Topic suggestions span the union of own + library so the autocomplete
         // is useful even when a teacher hasn't authored anything yet.
@@ -175,10 +202,7 @@ class QuestionController extends Controller
         $this->authorizeAccess($question, 'edit');
         $user = $request->user();
 
-        $subjects = Subject::active()->orderBy('name')->get(['id', 'name', 'code']);
-        $classes = SchoolClass::query()
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
-            ->active()->ordered()->get(['id', 'name', 'school_id']);
+        ['subjects' => $subjects, 'classes' => $classes] = $this->pickerData($user);
 
         // Topic suggestions span the union of own + library so the autocomplete
         // is useful even when a teacher hasn't authored anything yet.
@@ -225,10 +249,7 @@ class QuestionController extends Controller
     {
         $user = $request->user();
 
-        $subjects = Subject::active()->orderBy('name')->get(['id', 'name', 'code']);
-        $classes = SchoolClass::query()
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
-            ->active()->ordered()->get(['id', 'name', 'school_id']);
+        ['subjects' => $subjects, 'classes' => $classes] = $this->pickerData($user);
 
         return Inertia::render('Questions/Import', [
             'subjects' => $subjects,

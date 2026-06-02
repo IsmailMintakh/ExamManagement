@@ -112,6 +112,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Class Teacher hub ("My Class" — see students, marks status, results for own section)
     Route::get('my-class', [ClassTeacherController::class, 'index'])->name('class-teacher.index');
 
+    // "My Subjects" — every (subject, class, section) the teacher is assigned to
+    // for the current session, with student counts + marks progress per row.
+    Route::get('my-subjects', [\App\Http\Controllers\MySubjectsController::class, 'index'])
+        ->name('my-subjects.index');
+
     // ─── Timetable + substitution ───
     Route::prefix('timetable')->name('timetable.')->group(function () {
         Route::get('/', [TimetableController::class, 'index'])->name('index');
@@ -507,4 +512,25 @@ Route::model('transfer', StudentTransfer::class);
 // Bind scheduling params
 Route::model('room', \App\Models\ExamRoom::class);
 Route::model('invigilator', \App\Models\ExamInvigilator::class);
+
+// One-shot prod fix: re-sync role permissions + clear caches. Requires
+// being logged in as super-admin so it can't be triggered by anyone. Delete
+// this route after running it once. Hit /admin/sync-permissions in browser.
+Route::middleware(['auth'])->get('admin/sync-permissions', function () {
+    abort_unless(auth()->user()?->hasRole('super-admin'), 403);
+    \Artisan::call('db:seed', ['--class' => 'RolePermissionSeeder', '--force' => true]);
+    \Artisan::call('permission:cache-reset');
+    \Artisan::call('optimize:clear');
+    $u = auth()->user();
+    return response()->json([
+        'ok' => true,
+        'seeder_output' => \Artisan::output(),
+        'your_user' => [
+            'name' => $u->name,
+            'roles' => $u->getRoleNames(),
+            'permissions' => $u->getAllPermissions()->pluck('name')->sort()->values(),
+        ],
+    ]);
+});
+
 require __DIR__.'/auth.php';
