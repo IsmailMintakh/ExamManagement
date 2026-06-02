@@ -408,7 +408,18 @@ class ExamController extends Controller
         }
 
         $user = request()->user();
-        $exam->load(['examSubjects', 'schools']);
+        $exam->load(['schools']);
+        // Eager-load each exam_subject with a count of marks already entered,
+        // so the form can lock down rows that already have data and signal
+        // to the admin that they can't be removed or have their totals
+        // changed via this edit screen.
+        $exam->setRelation('examSubjects', $exam->examSubjects()->get()->map(function ($es) use ($exam) {
+            $es->marks_count = \App\Models\Mark::where('exam_id', $exam->id)
+                ->where('subject_id', $es->subject_id)
+                ->where('school_class_id', $es->school_class_id)
+                ->count();
+            return $es;
+        }));
 
         $examTypes = ExamType::active()->orderBy('sort_order')->get();
         $sessions = AcademicSession::active()->orderByDesc('start_date')->get();
@@ -543,21 +554,86 @@ class ExamController extends Controller
             $exam->schools()->sync($schoolIds);
         }
 
-        $exam->examSubjects()->delete();
-        foreach ($subjects as $subjectData) {
-            ExamSubject::create([
-                'exam_id' => $exam->id,
-                'subject_id' => $subjectData['subject_id'],
-                'school_class_id' => $subjectData['school_class_id'],
-                'total_marks' => $subjectData['total_marks'],
-                'passing_marks' => $subjectData['passing_marks'],
-                'exam_date' => $subjectData['exam_date'] ?? null,
-                'start_time' => $subjectData['start_time'] ?? null,
-                'end_time' => $subjectData['end_time'] ?? null,
-            ]);
+        // Non-destructive sync of exam subjects. The original code did
+        // $exam->examSubjects()->delete() + recreate, which silently broke
+        // the link to any Mark rows already entered for those subjects —
+        // marks reference (exam_id, subject_id, section_id) but the
+        // exam_subject_id on each mark would point at a freshly-deleted
+        // ExamSubject id. So instead we:
+        //   - update existing (subject, class) rows in place (preserves their PK)
+        //   - create rows that are new in the submitted payload
+        //   - delete rows the admin un-ticked, but ONLY when no marks exist
+        //     for them. Rows with marks are silently retained and reported
+        //     so the admin sees "kept N subjects that already have marks".
+        $existingRows = $exam->examSubjects()
+            ->get(['id', 'subject_id', 'school_class_id', 'total_marks', 'passing_marks', 'exam_date', 'start_time', 'end_time'])
+            ->keyBy(fn ($r) => $r->subject_id.'-'.$r->school_class_id);
+
+        // (subject_id, school_class_id) pairs that already have marks entered.
+        // Marks for a paper are scoped through the section, so we join through
+        // sections to get the class. A simpler proxy: marks themselves carry
+        // school_class_id directly.
+        $markedPairs = \App\Models\Mark::where('exam_id', $exam->id)
+            ->selectRaw('subject_id, school_class_id')
+            ->distinct()
+            ->get()
+            ->map(fn ($r) => $r->subject_id.'-'.$r->school_class_id)
+            ->flip();
+
+        $added = 0; $updated = 0; $protectedRows = 0;
+        foreach ($subjects as $row) {
+            $key = $row['subject_id'].'-'.$row['school_class_id'];
+            $existing = $existingRows->get($key);
+            $hasMarks = $markedPairs->has($key);
+
+            if ($existing) {
+                // Existing row stays at the same primary key — no orphaned marks.
+                // When marks already exist we leave the marks-bearing fields
+                // (total_marks / passing_marks) alone so changing them doesn't
+                // invalidate students' existing percentages. Schedule fields
+                // (exam_date / times) are always safe to refresh.
+                $payload = [
+                    'exam_date' => $row['exam_date'] ?? null,
+                    'start_time' => $row['start_time'] ?? null,
+                    'end_time' => $row['end_time'] ?? null,
+                ];
+                if (!$hasMarks) {
+                    $payload['total_marks'] = $row['total_marks'];
+                    $payload['passing_marks'] = $row['passing_marks'];
+                }
+                $existing->update($payload);
+                $updated++;
+                $existingRows->forget($key);
+            } else {
+                ExamSubject::create([
+                    'exam_id' => $exam->id,
+                    'subject_id' => $row['subject_id'],
+                    'school_class_id' => $row['school_class_id'],
+                    'total_marks' => $row['total_marks'],
+                    'passing_marks' => $row['passing_marks'],
+                    'exam_date' => $row['exam_date'] ?? null,
+                    'start_time' => $row['start_time'] ?? null,
+                    'end_time' => $row['end_time'] ?? null,
+                ]);
+                $added++;
+            }
         }
 
-        return redirect()->route('exams.index')->with('success', 'Exam updated successfully.');
+        // Rows left in $existingRows were un-ticked by the admin. Delete the
+        // ones that are safe; protect any with marks already entered.
+        foreach ($existingRows as $key => $row) {
+            if ($markedPairs->has($key)) {
+                $protectedRows++;
+                continue;
+            }
+            $row->delete();
+        }
+
+        $msg = 'Exam updated.';
+        if ($added > 0)          $msg .= " Added {$added} new subject".($added === 1 ? '' : 's').'.';
+        if ($protectedRows > 0)  $msg .= " Kept {$protectedRows} subject".($protectedRows === 1 ? '' : 's')." with existing marks (cannot be removed via edit).";
+
+        return redirect()->route('exams.index')->with('success', $msg);
     }
 
     public function destroy(Exam $exam): RedirectResponse

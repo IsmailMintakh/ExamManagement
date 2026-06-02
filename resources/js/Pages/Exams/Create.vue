@@ -8,6 +8,7 @@ import {
     BuildingOfficeIcon, AcademicCapIcon, Cog6ToothIcon, EyeIcon,
     SparklesIcon, BoltIcon, PlusIcon, TrashIcon, ExclamationTriangleIcon,
     InformationCircleIcon, XCircleIcon, CheckIcon, BookmarkIcon, BeakerIcon,
+    LockClosedIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -62,6 +63,12 @@ const form = useForm({
         total_marks: es.total_marks,
         passing_marks: es.passing_marks,
         exam_date: es.exam_date || '',
+        // Carried for the UI only: locks the row when marks have already
+        // been entered for this (subject, class), so the admin can't bump
+        // total_marks / passing_marks (which would silently invalidate
+        // students' existing percentages) or un-tick to remove the row.
+        // The controller enforces the same on the server.
+        marks_count: es.marks_count || 0,
     })) || [],
 })
 
@@ -1070,6 +1077,20 @@ function submit() {
                         <p class="text-xs text-base-content/45 mt-1">Use the bulk apply above to map subjects to classes.</p>
                     </div>
 
+                    <!-- Edit-mode safety notice: surfaces when at least one row
+                         is locked because marks have already been entered. -->
+                    <div v-if="form.subjects.some(s => s.marks_count > 0)"
+                         class="mx-4 mt-3 rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 flex items-start gap-2 text-xs">
+                        <LockClosedIcon class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                        <p class="text-amber-900 dark:text-amber-200 leading-relaxed">
+                            <span class="font-bold">Some subjects are locked.</span>
+                            Marks have already been entered for them, so total / passing marks and
+                            removal are disabled. You can still
+                            <span class="font-semibold">add new subjects below</span> — existing marks
+                            stay intact.
+                        </p>
+                    </div>
+
                     <!-- Bulk-edit toolbar — tick rows, set marks, apply -->
                     <div v-if="form.subjects.length" class="px-4 py-2.5 bg-violet-500/5 border-y border-violet-500/20 flex flex-wrap items-center gap-2 text-xs">
                         <span class="text-[10px] uppercase tracking-wider font-bold text-violet-700 dark:text-violet-300">
@@ -1134,33 +1155,54 @@ function submit() {
                             </thead>
                             <tbody class="divide-y divide-base-200">
                                 <tr v-for="(row, i) in form.subjects" :key="i"
-                                    :class="editSelected.has(i) ? 'bg-violet-500/10' : 'hover:bg-base-200/30'">
+                                    :class="[
+                                        editSelected.has(i) ? 'bg-violet-500/10' : 'hover:bg-base-200/30',
+                                        row.marks_count > 0 ? 'bg-amber-500/5' : '',
+                                    ]"
+                                    :title="row.marks_count > 0 ? `Locked — ${row.marks_count} marks already entered. Total/passing marks and removal are disabled to protect existing results.` : ''">
                                     <td class="px-3 py-2 text-center">
                                         <input type="checkbox" :checked="editSelected.has(i)"
                                             @change="toggleEditRow(i)"
+                                            :disabled="row.marks_count > 0"
                                             class="checkbox checkbox-xs checkbox-primary" />
                                     </td>
                                     <td class="px-4 py-2">
                                         <SearchableSelect v-model="row.school_class_id"
                                             :options="availableClasses.map(c => ({ value: c.id, label: c.name }))"
-                                            placeholder="—" size="xs" />
+                                            placeholder="—" size="xs"
+                                            :disabled="row.marks_count > 0" />
                                     </td>
                                     <td class="px-3 py-2">
-                                        <SearchableSelect v-model="row.subject_id"
-                                            :options="subjectsForClass(row.school_class_id).map(s => ({ value: s.id, label: s.name }))"
-                                            placeholder="—" size="xs" />
+                                        <div class="flex items-center gap-1.5">
+                                            <SearchableSelect v-model="row.subject_id"
+                                                :options="subjectsForClass(row.school_class_id).map(s => ({ value: s.id, label: s.name }))"
+                                                placeholder="—" size="xs"
+                                                :disabled="row.marks_count > 0"
+                                                class="flex-1" />
+                                            <span v-if="row.marks_count > 0"
+                                                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-bold tabular-nums whitespace-nowrap">
+                                                <LockClosedIcon class="w-2.5 h-2.5" />
+                                                {{ row.marks_count }} marks
+                                            </span>
+                                        </div>
                                     </td>
                                     <td class="px-3 py-2">
                                         <input v-model.number="row.total_marks" type="number" min="1"
-                                            class="input input-bordered input-xs rounded-lg w-full text-right font-mono" />
+                                            :disabled="row.marks_count > 0"
+                                            class="input input-bordered input-xs rounded-lg w-full text-right font-mono"
+                                            :class="row.marks_count > 0 ? 'opacity-60' : ''" />
                                     </td>
                                     <td class="px-3 py-2">
                                         <input v-model.number="row.passing_marks" type="number" min="0"
-                                            class="input input-bordered input-xs rounded-lg w-full text-right font-mono" />
+                                            :disabled="row.marks_count > 0"
+                                            class="input input-bordered input-xs rounded-lg w-full text-right font-mono"
+                                            :class="row.marks_count > 0 ? 'opacity-60' : ''" />
                                     </td>
                                     <td class="px-2 py-2 text-right">
                                         <button type="button" @click="removeSubjectRow(i)"
-                                            class="btn btn-ghost btn-xs btn-square text-rose-500">
+                                            :disabled="row.marks_count > 0"
+                                            :title="row.marks_count > 0 ? 'Cannot remove — marks already entered' : 'Remove this subject'"
+                                            class="btn btn-ghost btn-xs btn-square text-rose-500 disabled:text-base-content/30">
                                             <XCircleIcon class="w-4 h-4" />
                                         </button>
                                     </td>
