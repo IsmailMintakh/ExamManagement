@@ -647,6 +647,68 @@ class ExamController extends Controller
     }
 
     /**
+     * Append-only endpoint for the "Add Missing Subject" flow on the Edit
+     * Exam screen. Designed for the case where one or two subjects were
+     * accidentally omitted at creation time. Guarantees:
+     *   - Existing ExamSubject rows are NEVER touched (no update, no delete).
+     *   - Existing Mark rows are NEVER touched (PKs stay stable).
+     *   - Silently skips any (subject, class) pair that already exists on
+     *     the exam, so re-submitting the same payload is a no-op.
+     *   - Refuses once results are published — at that point grades have
+     *     been seen by students and the exam structure is frozen.
+     */
+    public function addMissingSubjects(Request $request, Exam $exam): RedirectResponse
+    {
+        $this->authorize('update', $exam);
+
+        if ($exam->isResultsPublished()) {
+            return back()->withErrors([
+                'subjects' => 'Cannot add subjects after results have been published. Unpublish first.',
+            ]);
+        }
+
+        $data = $request->validate([
+            'subjects' => ['required', 'array', 'min:1'],
+            'subjects.*.subject_id' => ['required', 'exists:subjects,id'],
+            'subjects.*.school_class_id' => ['required', 'exists:school_classes,id'],
+            'subjects.*.total_marks' => ['required', 'numeric', 'min:1'],
+            'subjects.*.passing_marks' => ['required', 'numeric', 'min:0'],
+            'subjects.*.exam_date' => ['nullable', 'date'],
+        ]);
+
+        $added = 0;
+        $alreadyOnExam = 0;
+        foreach ($data['subjects'] as $row) {
+            $exists = ExamSubject::where('exam_id', $exam->id)
+                ->where('subject_id', $row['subject_id'])
+                ->where('school_class_id', $row['school_class_id'])
+                ->exists();
+            if ($exists) {
+                $alreadyOnExam++;
+                continue;
+            }
+            ExamSubject::create([
+                'exam_id' => $exam->id,
+                'subject_id' => $row['subject_id'],
+                'school_class_id' => $row['school_class_id'],
+                'total_marks' => $row['total_marks'],
+                'passing_marks' => $row['passing_marks'],
+                'exam_date' => $row['exam_date'] ?? null,
+            ]);
+            $added++;
+        }
+
+        $msg = $added > 0
+            ? "Exam Updated Successfully — added {$added} new subject".($added === 1 ? '' : 's').'.'
+            : 'Exam Updated Successfully — no new subjects were added (all were already on the exam).';
+        if ($alreadyOnExam > 0 && $added > 0) {
+            $msg .= " ({$alreadyOnExam} already on the exam, skipped.)";
+        }
+
+        return back()->with('success', $msg);
+    }
+
+    /**
      * Bulk delete — only draft exams. Each is policy-authorized individually.
      */
     public function bulkDelete(Request $request): RedirectResponse

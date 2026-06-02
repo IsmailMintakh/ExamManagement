@@ -1,7 +1,7 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
 import SearchableSelect from '@/Components/SearchableSelect.vue'
-import { Head, useForm, Link } from '@inertiajs/vue3'
+import { Head, useForm, Link, router } from '@inertiajs/vue3'
 import { ref, computed, watch } from 'vue'
 import {
     ArrowLeftIcon, ArrowRightIcon, CheckCircleIcon, ClipboardDocumentListIcon,
@@ -441,6 +441,97 @@ function addSubjectRow() {
 }
 function removeSubjectRow(i) { form.subjects.splice(i, 1) }
 function clearAllSubjects() { form.subjects = [] }
+
+// ─── "Add Missing Subject" quick-add modal ───
+// Only available on the Edit Exam screen (props.exam exists). Append-only:
+// posts to a dedicated endpoint that uses firstOrCreate semantics, so it
+// physically cannot overwrite existing ExamSubject rows or disturb any Mark
+// data. Designed for the "we accidentally omitted a subject during creation"
+// case — admin picks a class, ticks one or more missing subjects, saves.
+const showAddMissingModal = ref(false)
+const addMissingClassId = ref(null)
+const addMissingPicks = ref({}) // { subjectId: { ticked, total_marks, passing_marks, exam_date } }
+const addMissingBusy = ref(false)
+
+function openAddMissingModal() {
+    addMissingClassId.value = null
+    addMissingPicks.value = {}
+    showAddMissingModal.value = true
+}
+function closeAddMissingModal() {
+    showAddMissingModal.value = false
+}
+
+// Subjects already on this exam for the selected class — shown read-only.
+const addMissingExistingForClass = computed(() => {
+    if (!addMissingClassId.value) return []
+    const cid = Number(addMissingClassId.value)
+    return form.subjects
+        .filter(s => Number(s.school_class_id) === cid)
+        .map(s => ({
+            subject: subjectMap.value[s.subject_id],
+            total_marks: s.total_marks,
+            passing_marks: s.passing_marks,
+            marks_count: s.marks_count || 0,
+        }))
+        .filter(r => r.subject)
+})
+
+// Subjects assigned to the selected class (via class_subjects pivot) but NOT
+// already on this exam — the actual "missing" candidates the admin can tick.
+const addMissingCandidates = computed(() => {
+    if (!addMissingClassId.value) return []
+    const cls = (props.classes || []).find(c => Number(c.id) === Number(addMissingClassId.value))
+    if (!cls?.subjects) return []
+    const alreadyOnExam = new Set(
+        form.subjects
+            .filter(s => Number(s.school_class_id) === Number(addMissingClassId.value))
+            .map(s => Number(s.subject_id))
+    )
+    return cls.subjects.filter(s => !alreadyOnExam.has(s.id))
+})
+
+function ensurePickRow(subjectId) {
+    if (!addMissingPicks.value[subjectId]) {
+        addMissingPicks.value[subjectId] = {
+            ticked: false,
+            total_marks: form.total_marks || 100,
+            passing_marks: form.passing_marks || 33,
+            exam_date: '',
+        }
+    }
+    return addMissingPicks.value[subjectId]
+}
+
+const addMissingTickedCount = computed(() =>
+    Object.values(addMissingPicks.value).filter(p => p.ticked).length
+)
+
+function submitAddMissing() {
+    if (!props.exam?.id) return
+    const payload = {
+        subjects: addMissingCandidates.value
+            .filter(s => addMissingPicks.value[s.id]?.ticked)
+            .map(s => ({
+                subject_id: s.id,
+                school_class_id: Number(addMissingClassId.value),
+                total_marks: Number(addMissingPicks.value[s.id].total_marks) || 100,
+                passing_marks: Number(addMissingPicks.value[s.id].passing_marks) || 33,
+                exam_date: addMissingPicks.value[s.id].exam_date || null,
+            })),
+    }
+    if (!payload.subjects.length) return
+    addMissingBusy.value = true
+    router.post(route('exams.add-missing-subjects', props.exam.id), payload, {
+        preserveScroll: true,
+        onSuccess: () => {
+            closeAddMissingModal()
+            // Stay on the edit form — Inertia re-renders with the new exam
+            // data automatically via the back() redirect from the controller.
+        },
+        onFinish: () => { addMissingBusy.value = false },
+    })
+}
 
 // Helpers
 const subjectMap = computed(() => Object.fromEntries((props.subjects || []).map(s => [s.id, s])))
@@ -1060,7 +1151,14 @@ function submit() {
                             Paper dates &amp; times are set on the
                             <span class="font-semibold">Scheduling → Date Sheet</span> page after saving.
                         </p>
-                        <div class="flex gap-2">
+                        <div class="flex gap-2 flex-wrap">
+                            <!-- Edit-only quick path: add a subject that was
+                                 missed at creation, without touching anything
+                                 else on the exam. -->
+                            <button v-if="exam?.id" type="button" @click="openAddMissingModal"
+                                class="btn btn-primary btn-xs gap-1">
+                                <PlusIcon class="w-3.5 h-3.5" /> Add Missing Subject
+                            </button>
                             <button type="button" @click="addSubjectRow" class="btn btn-ghost btn-xs gap-1">
                                 <PlusIcon class="w-3.5 h-3.5" /> Add row
                             </button>
@@ -1537,6 +1635,139 @@ function submit() {
             </div>
 
             </form>
+        </div>
+
+        <!-- ═══════════ Add Missing Subject Modal ═══════════ -->
+        <!-- Append-only flow for editing an existing exam: pick a class, see
+             what's already there, tick the ones that were missed, set marks,
+             save. Backend uses firstOrCreate so re-clicking is idempotent.
+             Cannot affect existing marks because it never updates or deletes
+             any ExamSubject row. -->
+        <div v-if="showAddMissingModal"
+             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+             @click.self="closeAddMissingModal">
+            <div class="bg-base-100 rounded-2xl border border-base-300 shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+                <header class="px-5 py-4 border-b border-base-200 flex items-center gap-3 bg-gradient-to-r from-primary/5 to-violet-500/5">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-violet-600 text-white flex items-center justify-center shadow-md">
+                        <PlusIcon class="w-5 h-5" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <h2 class="font-bold text-base">Add Missing Subject</h2>
+                        <p class="text-[11px] text-base-content/55">
+                            Append a subject that was omitted at creation —
+                            existing marks stay untouched.
+                        </p>
+                    </div>
+                    <button type="button" @click="closeAddMissingModal"
+                            class="btn btn-ghost btn-sm btn-square">
+                        <XCircleIcon class="w-5 h-5" />
+                    </button>
+                </header>
+
+                <div class="px-5 py-4 space-y-4 overflow-y-auto">
+                    <!-- Class picker -->
+                    <div>
+                        <label class="block text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-1.5">
+                            Class
+                        </label>
+                        <SearchableSelect v-model="addMissingClassId"
+                            :options="(availableClasses || []).map(c => ({ value: c.id, label: c.name }))"
+                            placeholder="Pick a class…" size="sm" />
+                    </div>
+
+                    <div v-if="addMissingClassId">
+                        <!-- Already on the exam (read-only) -->
+                        <div class="mb-4">
+                            <p class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-2">
+                                Already on this exam · {{ addMissingExistingForClass.length }}
+                            </p>
+                            <div v-if="addMissingExistingForClass.length"
+                                 class="rounded-xl border border-base-200 divide-y divide-base-200 bg-base-200/30">
+                                <div v-for="row in addMissingExistingForClass" :key="row.subject.id"
+                                     class="px-3 py-2 flex items-center gap-2 text-xs">
+                                    <CheckCircleIcon class="w-4 h-4 text-emerald-500 shrink-0" />
+                                    <span class="font-medium flex-1">{{ row.subject.name }}</span>
+                                    <span class="text-base-content/55 tabular-nums">{{ row.total_marks }} / {{ row.passing_marks }}</span>
+                                    <span v-if="row.marks_count > 0"
+                                          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[10px] font-bold tabular-nums">
+                                        <LockClosedIcon class="w-2.5 h-2.5" />
+                                        {{ row.marks_count }} marks
+                                    </span>
+                                </div>
+                            </div>
+                            <p v-else class="text-[11px] text-base-content/45 italic">
+                                No subjects on this exam for this class yet.
+                            </p>
+                        </div>
+
+                        <!-- Missing subjects (tickable) -->
+                        <div>
+                            <p class="text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-2">
+                                Missing · {{ addMissingCandidates.length }}
+                                <span class="text-[10px] text-base-content/45 normal-case font-normal">— from the class curriculum</span>
+                            </p>
+                            <div v-if="addMissingCandidates.length"
+                                 class="rounded-xl border border-base-300 divide-y divide-base-200">
+                                <label v-for="s in addMissingCandidates" :key="s.id"
+                                       class="block px-3 py-2.5 hover:bg-base-200/40 cursor-pointer transition-colors">
+                                    <div class="flex items-center gap-2">
+                                        <input type="checkbox"
+                                               :checked="!!addMissingPicks[s.id]?.ticked"
+                                               @change="ensurePickRow(s.id).ticked = !ensurePickRow(s.id).ticked"
+                                               class="checkbox checkbox-xs checkbox-primary" />
+                                        <span class="font-medium text-sm flex-1">{{ s.name }}</span>
+                                        <span class="text-[10px] font-mono text-base-content/45">{{ s.code }}</span>
+                                    </div>
+                                    <div v-if="addMissingPicks[s.id]?.ticked"
+                                         class="mt-2 ml-7 grid grid-cols-3 gap-2">
+                                        <div>
+                                            <label class="block text-[10px] uppercase text-base-content/55 font-bold mb-0.5">Total marks</label>
+                                            <input v-model.number="addMissingPicks[s.id].total_marks" type="number" min="1"
+                                                   class="input input-bordered input-xs w-full font-mono text-right" />
+                                        </div>
+                                        <div>
+                                            <label class="block text-[10px] uppercase text-base-content/55 font-bold mb-0.5">Passing</label>
+                                            <input v-model.number="addMissingPicks[s.id].passing_marks" type="number" min="0"
+                                                   class="input input-bordered input-xs w-full font-mono text-right" />
+                                        </div>
+                                        <div>
+                                            <label class="block text-[10px] uppercase text-base-content/55 font-bold mb-0.5">Date (optional)</label>
+                                            <input v-model="addMissingPicks[s.id].exam_date" type="date"
+                                                   class="input input-bordered input-xs w-full" />
+                                        </div>
+                                    </div>
+                                </label>
+                            </div>
+                            <div v-else class="rounded-xl border border-dashed border-base-300 p-6 text-center">
+                                <CheckCircleIcon class="w-8 h-8 text-emerald-500 mx-auto mb-1" />
+                                <p class="text-xs font-medium">Nothing missing</p>
+                                <p class="text-[11px] text-base-content/45 mt-0.5">
+                                    All curriculum subjects for this class are already on the exam.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <footer class="px-5 py-3 border-t border-base-200 bg-base-200/40 flex items-center justify-between gap-2">
+                    <p class="text-[11px] text-base-content/55">
+                        <span v-if="addMissingTickedCount > 0">
+                            {{ addMissingTickedCount }} subject{{ addMissingTickedCount === 1 ? '' : 's' }} selected
+                        </span>
+                        <span v-else>Pick a class and tick at least one subject.</span>
+                    </p>
+                    <div class="flex gap-2">
+                        <button type="button" @click="closeAddMissingModal"
+                                class="btn btn-ghost btn-sm">Cancel</button>
+                        <button type="button" @click="submitAddMissing"
+                                :disabled="addMissingTickedCount === 0 || addMissingBusy"
+                                class="btn btn-primary btn-sm gap-1.5">
+                            <CheckCircleIcon class="w-4 h-4" />
+                            {{ addMissingBusy ? 'Adding…' : `Add ${addMissingTickedCount || ''} subject${addMissingTickedCount === 1 ? '' : 's'}`.trim() }}
+                        </button>
+                    </div>
+                </footer>
+            </div>
         </div>
     </AppLayout>
 </template>

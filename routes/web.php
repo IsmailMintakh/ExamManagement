@@ -205,6 +205,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('exams/{exam}/publish', [ExamController::class, 'publish'])->name('exams.publish');
     Route::post('exams/{exam}/lock', [ExamController::class, 'lock'])->name('exams.lock');
     Route::post('exams/{exam}/cleanup-orphan-subjects', [ExamController::class, 'cleanupOrphanSubjects'])->name('exams.cleanup-orphans');
+    // Append-only endpoint backing the "Add Missing Subject" modal — see
+    // ExamController::addMissingSubjects for the safety guarantees.
+    Route::post('exams/{exam}/add-missing-subjects', [ExamController::class, 'addMissingSubjects'])->name('exams.add-missing-subjects');
 
     // Marks Entry
     Route::get('marks', [MarksController::class, 'index'])->name('marks.index');
