@@ -1176,16 +1176,20 @@ function submit() {
                     </div>
 
                     <!-- Edit-mode safety notice: surfaces when at least one row
-                         is locked because marks have already been entered. -->
+                         has marks entered. Total / passing are editable so the
+                         admin can correct mistakes, with results recalculating
+                         server-side; the subject pair itself can't be moved or
+                         removed without going through Cleanup / a fresh exam. -->
                     <div v-if="form.subjects.some(s => s.marks_count > 0)"
                          class="mx-4 mt-3 rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 flex items-start gap-2 text-xs">
-                        <LockClosedIcon class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                        <ExclamationTriangleIcon class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                         <p class="text-amber-900 dark:text-amber-200 leading-relaxed">
-                            <span class="font-bold">Some subjects are locked.</span>
-                            Marks have already been entered for them, so total / passing marks and
-                            removal are disabled. You can still
-                            <span class="font-semibold">add new subjects below</span> — existing marks
-                            stay intact.
+                            <span class="font-bold">Some subjects already have marks entered.</span>
+                            You can still correct their <span class="font-semibold">total or passing marks</span> —
+                            students' obtained marks stay the same, and the system
+                            will recalculate percentages, grades, and pass/fail status
+                            for every affected result automatically. The subject &amp; class
+                            pair can't be moved or removed without first clearing marks.
                         </p>
                     </div>
 
@@ -1257,7 +1261,7 @@ function submit() {
                                         editSelected.has(i) ? 'bg-violet-500/10' : 'hover:bg-base-200/30',
                                         row.marks_count > 0 ? 'bg-amber-500/5' : '',
                                     ]"
-                                    :title="row.marks_count > 0 ? `Locked — ${row.marks_count} marks already entered. Total/passing marks and removal are disabled to protect existing results.` : ''">
+                                    :title="row.marks_count > 0 ? `${row.marks_count} marks already entered. Editing total / passing marks will recalculate every affected result.` : ''">
                                     <td class="px-3 py-2 text-center">
                                         <input type="checkbox" :checked="editSelected.has(i)"
                                             @change="toggleEditRow(i)"
@@ -1278,23 +1282,25 @@ function submit() {
                                                 :disabled="row.marks_count > 0"
                                                 class="flex-1" />
                                             <span v-if="row.marks_count > 0"
-                                                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-bold tabular-nums whitespace-nowrap">
+                                                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-bold tabular-nums whitespace-nowrap"
+                                                title="Editing total / passing marks here will recalculate all results for this subject.">
                                                 <LockClosedIcon class="w-2.5 h-2.5" />
                                                 {{ row.marks_count }} marks
                                             </span>
                                         </div>
                                     </td>
                                     <td class="px-3 py-2">
+                                        <!-- Total + passing are now editable even when marks exist;
+                                             the controller cascades the change into Mark.total_marks
+                                             and re-runs ResultProcessingService for affected sections. -->
                                         <input v-model.number="row.total_marks" type="number" min="1"
-                                            :disabled="row.marks_count > 0"
                                             class="input input-bordered input-xs rounded-lg w-full text-right font-mono"
-                                            :class="row.marks_count > 0 ? 'opacity-60' : ''" />
+                                            :class="row.marks_count > 0 ? 'border-amber-500/40 focus:border-amber-500' : ''" />
                                     </td>
                                     <td class="px-3 py-2">
                                         <input v-model.number="row.passing_marks" type="number" min="0"
-                                            :disabled="row.marks_count > 0"
                                             class="input input-bordered input-xs rounded-lg w-full text-right font-mono"
-                                            :class="row.marks_count > 0 ? 'opacity-60' : ''" />
+                                            :class="row.marks_count > 0 ? 'border-amber-500/40 focus:border-amber-500' : ''" />
                                     </td>
                                     <td class="px-2 py-2 text-right">
                                         <button type="button" @click="removeSubjectRow(i)"

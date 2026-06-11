@@ -414,10 +414,10 @@ class ExamController extends Controller
         // to the admin that they can't be removed or have their totals
         // changed via this edit screen.
         $exam->setRelation('examSubjects', $exam->examSubjects()->get()->map(function ($es) use ($exam) {
-            $es->marks_count = \App\Models\Mark::where('exam_id', $exam->id)
+            $es->setAttribute('marks_count', \App\Models\Mark::where('exam_id', $exam->id)
                 ->where('subject_id', $es->subject_id)
                 ->where('school_class_id', $es->school_class_id)
-                ->count();
+                ->count());
             return $es;
         }));
 
@@ -570,15 +570,18 @@ class ExamController extends Controller
             ->keyBy(fn ($r) => $r->subject_id.'-'.$r->school_class_id);
 
         // (subject_id, school_class_id) pairs that already have marks entered.
-        // Marks for a paper are scoped through the section, so we join through
-        // sections to get the class. A simpler proxy: marks themselves carry
-        // school_class_id directly.
         $markedPairs = \App\Models\Mark::where('exam_id', $exam->id)
             ->selectRaw('subject_id, school_class_id')
             ->distinct()
             ->get()
             ->map(fn ($r) => $r->subject_id.'-'.$r->school_class_id)
             ->flip();
+
+        // Track which (subject, class) pairs had their total/passing marks
+        // changed on a row with existing student marks — those need to cascade
+        // through Mark.total_marks (the snapshot column) and trigger a result
+        // recompute for every section that already has generated Results.
+        $marksChangedFor = [];
 
         $added = 0; $updated = 0; $protectedRows = 0;
         foreach ($subjects as $row) {
@@ -587,21 +590,28 @@ class ExamController extends Controller
             $hasMarks = $markedPairs->has($key);
 
             if ($existing) {
-                // Existing row stays at the same primary key — no orphaned marks.
-                // When marks already exist we leave the marks-bearing fields
-                // (total_marks / passing_marks) alone so changing them doesn't
-                // invalidate students' existing percentages. Schedule fields
-                // (exam_date / times) are always safe to refresh.
-                $payload = [
+                $newTotal = (float) $row['total_marks'];
+                $newPass  = (float) $row['passing_marks'];
+                $totalChanged = abs((float) $existing->total_marks - $newTotal) > 0.0001;
+                $passChanged  = abs((float) $existing->passing_marks - $newPass) > 0.0001;
+
+                if ($hasMarks && ($totalChanged || $passChanged)) {
+                    $marksChangedFor[] = [
+                        'subject_id' => (int) $row['subject_id'],
+                        'school_class_id' => (int) $row['school_class_id'],
+                        'new_total' => $newTotal,
+                    ];
+                }
+
+                // Always update — admin is now allowed to fix total/passing
+                // marks even after marks are entered. We cascade below.
+                $existing->update([
+                    'total_marks' => $newTotal,
+                    'passing_marks' => $newPass,
                     'exam_date' => $row['exam_date'] ?? null,
                     'start_time' => $row['start_time'] ?? null,
                     'end_time' => $row['end_time'] ?? null,
-                ];
-                if (!$hasMarks) {
-                    $payload['total_marks'] = $row['total_marks'];
-                    $payload['passing_marks'] = $row['passing_marks'];
-                }
-                $existing->update($payload);
+                ]);
                 $updated++;
                 $existingRows->forget($key);
             } else {
@@ -629,9 +639,40 @@ class ExamController extends Controller
             $row->delete();
         }
 
-        $msg = 'Exam updated.';
+        // Cascade the marks-base changes: keep the Mark.total_marks snapshot
+        // in sync (so Mark::getPercentageAttribute returns correct numbers),
+        // and regenerate results for every section that already has Result
+        // rows for this exam — so grades and pass/fail flip immediately.
+        // marks_obtained is left untouched per spec.
+        $recalcResults = 0;
+        if (!empty($marksChangedFor)) {
+            foreach ($marksChangedFor as $change) {
+                \App\Models\Mark::where('exam_id', $exam->id)
+                    ->where('subject_id', $change['subject_id'])
+                    ->where('school_class_id', $change['school_class_id'])
+                    ->update(['total_marks' => $change['new_total']]);
+            }
+
+            $classIds = collect($marksChangedFor)->pluck('school_class_id')->unique()->all();
+            $sections = \App\Models\Result::where('exam_id', $exam->id)
+                ->whereIn('school_class_id', $classIds)
+                ->select('school_class_id', 'section_id')
+                ->distinct()
+                ->get();
+
+            if ($sections->isNotEmpty()) {
+                $resultService = app(\App\Services\ResultProcessingService::class);
+                foreach ($sections as $s) {
+                    $resultService->generateResults($exam, (int) $s->school_class_id, (int) $s->section_id);
+                    $recalcResults++;
+                }
+            }
+        }
+
+        $msg = 'Exam Updated Successfully.';
         if ($added > 0)          $msg .= " Added {$added} new subject".($added === 1 ? '' : 's').'.';
         if ($protectedRows > 0)  $msg .= " Kept {$protectedRows} subject".($protectedRows === 1 ? '' : 's')." with existing marks (cannot be removed via edit).";
+        if ($recalcResults > 0)  $msg .= " Recalculated results for {$recalcResults} section".($recalcResults === 1 ? '' : 's').'.';
 
         return redirect()->route('exams.index')->with('success', $msg);
     }
