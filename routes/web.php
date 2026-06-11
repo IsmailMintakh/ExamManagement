@@ -208,6 +208,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Append-only endpoint backing the "Add Missing Subject" modal — see
     // ExamController::addMissingSubjects for the safety guarantees.
     Route::post('exams/{exam}/add-missing-subjects', [ExamController::class, 'addMissingSubjects'])->name('exams.add-missing-subjects');
+    // Inline "Update Marks" endpoint — corrects total / passing marks for one
+    // or more (subject, class) tuples without going through the full wizard,
+    // and re-runs the result cascade for affected sections.
+    Route::post('exams/{exam}/update-subject-marks', [ExamController::class, 'updateSubjectMarks'])->name('exams.update-subject-marks');
 
     // Marks Entry
     Route::get('marks', [MarksController::class, 'index'])->name('marks.index');

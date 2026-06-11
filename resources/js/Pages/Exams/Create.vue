@@ -442,6 +442,69 @@ function addSubjectRow() {
 function removeSubjectRow(i) { form.subjects.splice(i, 1) }
 function clearAllSubjects() { form.subjects = [] }
 
+// ─── "Update Marks" inline workflow ───
+// Snapshot the saved total/passing marks per (subject, class) at form init.
+// Any row whose live total/passing differs from this snapshot is "dirty" and
+// the admin can apply just those changes via the dedicated endpoint without
+// going through the full exam wizard. The endpoint cascades into Mark and
+// Result the same way the full update does.
+const originalMarks = ref(new Map())
+if (props.exam?.exam_subjects) {
+    for (const es of props.exam.exam_subjects) {
+        originalMarks.value.set(
+            `${es.subject_id}-${es.school_class_id}`,
+            { total: Number(es.total_marks), passing: Number(es.passing_marks) }
+        )
+    }
+}
+
+function rowKey(row) {
+    return `${row.subject_id}-${row.school_class_id}`
+}
+
+function isMarksDirty(row) {
+    if (!row.subject_id || !row.school_class_id) return false
+    const orig = originalMarks.value.get(rowKey(row))
+    if (!orig) return false
+    return Number(row.total_marks) !== orig.total
+        || Number(row.passing_marks) !== orig.passing
+}
+
+const dirtyMarksRows = computed(() => form.subjects.filter(isMarksDirty))
+const marksUpdating = ref(false)
+const lastApplyError = ref('')
+
+function applyMarksUpdates() {
+    if (!props.exam?.id || dirtyMarksRows.value.length === 0) return
+    lastApplyError.value = ''
+    marksUpdating.value = true
+    const payload = {
+        subjects: dirtyMarksRows.value.map(r => ({
+            subject_id: r.subject_id,
+            school_class_id: r.school_class_id,
+            total_marks: Number(r.total_marks),
+            passing_marks: Number(r.passing_marks),
+        })),
+    }
+    router.post(route('exams.update-subject-marks', props.exam.id), payload, {
+        preserveScroll: true,
+        preserveState: true,
+        onSuccess: () => {
+            // Re-anchor the snapshot so the rows we just saved are no longer "dirty".
+            for (const r of dirtyMarksRows.value) {
+                originalMarks.value.set(rowKey(r), {
+                    total: Number(r.total_marks),
+                    passing: Number(r.passing_marks),
+                })
+            }
+        },
+        onError: (errs) => {
+            lastApplyError.value = Object.values(errs)[0] || 'Could not apply changes — check the values and retry.'
+        },
+        onFinish: () => { marksUpdating.value = false },
+    })
+}
+
 // ─── "Add Missing Subject" quick-add modal ───
 // Only available on the Edit Exam screen (props.exam exists). Append-only:
 // posts to a dedicated endpoint that uses firstOrCreate semantics, so it
@@ -1180,7 +1243,7 @@ function submit() {
                          admin can correct mistakes, with results recalculating
                          server-side; the subject pair itself can't be moved or
                          removed without going through Cleanup / a fresh exam. -->
-                    <div v-if="form.subjects.some(s => s.marks_count > 0)"
+                    <div v-if="form.subjects.some(s => s.marks_count > 0) && dirtyMarksRows.length === 0"
                          class="mx-4 mt-3 rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 flex items-start gap-2 text-xs">
                         <ExclamationTriangleIcon class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                         <p class="text-amber-900 dark:text-amber-200 leading-relaxed">
@@ -1191,6 +1254,32 @@ function submit() {
                             for every affected result automatically. The subject &amp; class
                             pair can't be moved or removed without first clearing marks.
                         </p>
+                    </div>
+
+                    <!-- Sticky "Update Marks" banner: appears as soon as any row's
+                         total or passing differs from the saved value. One click
+                         applies just those changes through the dedicated endpoint —
+                         no need to walk the wizard to the final Save step. -->
+                    <div v-if="dirtyMarksRows.length > 0"
+                         class="mx-4 mt-3 rounded-xl bg-primary/10 border border-primary/40 p-3 flex items-start gap-3 text-xs sticky top-2 z-10 shadow-sm">
+                        <div class="w-8 h-8 rounded-lg bg-primary/15 text-primary flex items-center justify-center shrink-0">
+                            <BoltIcon class="w-4 h-4" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-primary-content/90 leading-relaxed">
+                                <span class="font-bold">{{ dirtyMarksRows.length }} subject{{ dirtyMarksRows.length === 1 ? '' : 's' }} have unsaved marks changes.</span>
+                                Apply now to update ExamSubject, sync the marks entered by teachers, and recalculate results — without leaving this page.
+                            </p>
+                            <p v-if="lastApplyError" class="mt-1 text-rose-700 dark:text-rose-300 font-semibold">
+                                {{ lastApplyError }}
+                            </p>
+                        </div>
+                        <button type="button" @click="applyMarksUpdates"
+                                :disabled="marksUpdating"
+                                class="btn btn-primary btn-sm gap-1.5 shrink-0">
+                            <CheckCircleIcon class="w-4 h-4" />
+                            {{ marksUpdating ? 'Applying…' : `Update Marks (${dirtyMarksRows.length})` }}
+                        </button>
                     </div>
 
                     <!-- Bulk-edit toolbar — tick rows, set marks, apply -->
@@ -1292,23 +1381,39 @@ function submit() {
                                     <td class="px-3 py-2">
                                         <!-- Total + passing are now editable even when marks exist;
                                              the controller cascades the change into Mark.total_marks
-                                             and re-runs ResultProcessingService for affected sections. -->
+                                             and re-runs ResultProcessingService for affected sections.
+                                             A subtle dirty-state outline appears when the value differs
+                                             from what's currently saved on the server. -->
                                         <input v-model.number="row.total_marks" type="number" min="1"
                                             class="input input-bordered input-xs rounded-lg w-full text-right font-mono"
-                                            :class="row.marks_count > 0 ? 'border-amber-500/40 focus:border-amber-500' : ''" />
+                                            :class="[
+                                                row.marks_count > 0 ? 'border-amber-500/40 focus:border-amber-500' : '',
+                                                isMarksDirty(row) ? 'ring-2 ring-primary/40 border-primary/40' : '',
+                                            ]" />
                                     </td>
                                     <td class="px-3 py-2">
                                         <input v-model.number="row.passing_marks" type="number" min="0"
                                             class="input input-bordered input-xs rounded-lg w-full text-right font-mono"
-                                            :class="row.marks_count > 0 ? 'border-amber-500/40 focus:border-amber-500' : ''" />
+                                            :class="[
+                                                row.marks_count > 0 ? 'border-amber-500/40 focus:border-amber-500' : '',
+                                                isMarksDirty(row) ? 'ring-2 ring-primary/40 border-primary/40' : '',
+                                            ]" />
                                     </td>
                                     <td class="px-2 py-2 text-right">
-                                        <button type="button" @click="removeSubjectRow(i)"
-                                            :disabled="row.marks_count > 0"
-                                            :title="row.marks_count > 0 ? 'Cannot remove — marks already entered' : 'Remove this subject'"
-                                            class="btn btn-ghost btn-xs btn-square text-rose-500 disabled:text-base-content/30">
-                                            <XCircleIcon class="w-4 h-4" />
-                                        </button>
+                                        <div class="flex items-center justify-end gap-0.5">
+                                            <span v-if="isMarksDirty(row)"
+                                                  class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/15 text-primary text-[10px] font-bold whitespace-nowrap"
+                                                  title="Unsaved marks change — use Update Marks above to apply.">
+                                                <BoltIcon class="w-2.5 h-2.5" />
+                                                changed
+                                            </span>
+                                            <button type="button" @click="removeSubjectRow(i)"
+                                                :disabled="row.marks_count > 0"
+                                                :title="row.marks_count > 0 ? 'Cannot remove — marks already entered' : 'Remove this subject'"
+                                                class="btn btn-ghost btn-xs btn-square text-rose-500 disabled:text-base-content/30">
+                                                <XCircleIcon class="w-4 h-4" />
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             </tbody>

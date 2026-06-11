@@ -688,6 +688,105 @@ class ExamController extends Controller
     }
 
     /**
+     * Inline "Update Marks" endpoint — backs the per-row Apply button on the
+     * Edit Exam → Subjects table. Lets an admin correct total / passing marks
+     * for one or more (subject, class) tuples without clicking through the
+     * whole exam wizard. The cascade is identical to the full update():
+     *
+     *   - ExamSubject.{total_marks, passing_marks} updated.
+     *   - Mark.total_marks snapshot synced for every existing mark on that
+     *     (subject, class) so Mark::getPercentageAttribute returns correct
+     *     numbers. Mark.marks_obtained is NEVER touched.
+     *   - ResultProcessingService::generateResults() re-runs for every
+     *     section that already has Result rows for this exam, so percentage,
+     *     grade, pass/fail and positions reflect the new marks base.
+     */
+    public function updateSubjectMarks(Request $request, Exam $exam): RedirectResponse
+    {
+        $this->authorize('update', $exam);
+
+        if ($exam->isResultsPublished()) {
+            return back()->withErrors([
+                'subjects' => 'Cannot edit marks after results have been published. Unpublish first.',
+            ]);
+        }
+
+        $data = $request->validate([
+            'subjects' => ['required', 'array', 'min:1'],
+            'subjects.*.subject_id' => ['required', 'exists:subjects,id'],
+            'subjects.*.school_class_id' => ['required', 'exists:school_classes,id'],
+            'subjects.*.total_marks' => ['required', 'numeric', 'min:1'],
+            'subjects.*.passing_marks' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        $updated = 0;
+        $marksTouched = 0;
+        $sectionKeys = collect();
+
+        \DB::transaction(function () use ($exam, $data, &$updated, &$marksTouched, &$sectionKeys) {
+            foreach ($data['subjects'] as $row) {
+                $es = ExamSubject::where('exam_id', $exam->id)
+                    ->where('subject_id', $row['subject_id'])
+                    ->where('school_class_id', $row['school_class_id'])
+                    ->first();
+                if (!$es) continue;
+
+                $newTotal = (float) $row['total_marks'];
+                $newPass  = (float) $row['passing_marks'];
+                $changed = abs((float) $es->total_marks - $newTotal) > 0.0001
+                        || abs((float) $es->passing_marks - $newPass) > 0.0001;
+                if (!$changed) continue;
+
+                // Passing marks can't exceed total — guard so a typo doesn't
+                // silently pass all students.
+                if ($newPass > $newTotal) {
+                    abort(422, "Passing marks ({$newPass}) cannot exceed total marks ({$newTotal}).");
+                }
+
+                $es->update(['total_marks' => $newTotal, 'passing_marks' => $newPass]);
+                $updated++;
+
+                $affected = \App\Models\Mark::where('exam_id', $exam->id)
+                    ->where('subject_id', $row['subject_id'])
+                    ->where('school_class_id', $row['school_class_id'])
+                    ->update(['total_marks' => $newTotal]);
+                $marksTouched += $affected;
+
+                // Collect every (class, section) for this exam that already
+                // has generated Results — they need to be rebuilt against the
+                // new marks base.
+                $secs = \App\Models\Result::where('exam_id', $exam->id)
+                    ->where('school_class_id', $row['school_class_id'])
+                    ->select('school_class_id', 'section_id')
+                    ->distinct()
+                    ->get()
+                    ->map(fn ($r) => $r->school_class_id.':'.$r->section_id);
+                $sectionKeys = $sectionKeys->concat($secs);
+            }
+        });
+
+        $recalc = 0;
+        if ($sectionKeys->isNotEmpty()) {
+            $svc = app(\App\Services\ResultProcessingService::class);
+            foreach ($sectionKeys->unique() as $key) {
+                [$classId, $sectionId] = explode(':', $key);
+                $svc->generateResults($exam, (int) $classId, (int) $sectionId);
+                $recalc++;
+            }
+        }
+
+        if ($updated === 0) {
+            return back()->with('info', 'No changes detected — marks are already up to date.');
+        }
+
+        $msg = "Marks & results updated successfully — corrected {$updated} subject".($updated === 1 ? '' : 's').'.';
+        if ($marksTouched > 0) $msg .= " {$marksTouched} mark snapshot".($marksTouched === 1 ? '' : 's').' synced.';
+        if ($recalc > 0)       $msg .= " Recalculated results for {$recalc} section".($recalc === 1 ? '' : 's').'.';
+
+        return back()->with('success', $msg);
+    }
+
+    /**
      * Append-only endpoint for the "Add Missing Subject" flow on the Edit
      * Exam screen. Designed for the case where one or two subjects were
      * accidentally omitted at creation time. Guarantees:
