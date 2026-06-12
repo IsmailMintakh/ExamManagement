@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import PageHeader from '@/Components/PageHeader.vue'
 import Pagination from '@/Components/Pagination.vue'
 import SearchFilter from '@/Components/SearchFilter.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
@@ -8,14 +9,23 @@ import BulkActionBar from '@/Components/BulkActionBar.vue'
 import FloatingActionButton from '@/Components/FloatingActionButton.vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import { ref, computed, watch } from 'vue'
-import { PlusIcon, PencilSquareIcon, TrashIcon, EyeIcon, LockClosedIcon, MegaphoneIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
+import {
+    PlusIcon, PencilSquareIcon, TrashIcon, EyeIcon, LockClosedIcon,
+    MegaphoneIcon, ExclamationTriangleIcon,
+    ClipboardDocumentListIcon, DocumentTextIcon, ClockIcon, CheckCircleIcon,
+} from '@heroicons/vue/24/outline'
 import { usePermissions } from '@/Composables/usePermissions'
 import { useDebouncedSearch } from '@/Composables/useDebouncedSearch'
 import { formatDateRange, formatStatus, formatNumber } from '@/Utils/format'
 
 const { can } = usePermissions()
 
-const props = defineProps({ exams: Object, filters: Object, examTypes: Array })
+const props = defineProps({
+    exams: Object,
+    filters: Object,
+    examTypes: Array,
+    statusCounts: { type: Object, default: () => ({ total: 0, draft: 0, marks_entry: 0, completed: 0 }) },
+})
 // SearchFilter already debounces input by 300ms before emitting.
 // We pass delay: 0 so the request fires as soon as SearchFilter emits,
 // instead of waiting another 300ms.
@@ -105,18 +115,56 @@ const statusColors = {
     <Head title="Exams" />
     <AppLayout :breadcrumbs="[{ label: 'Exams' }]">
         <div class="space-y-5">
-            <!-- ═══════════ HEADER ═══════════ -->
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                    <h1 class="text-2xl font-extrabold tracking-tight">Exam Management</h1>
-                    <p class="text-sm text-base-content/55 mt-0.5">
-                        {{ exams?.total || 0 }} exam{{ (exams?.total || 0) === 1 ? '' : 's' }}
-                        <span v-if="search">matching "{{ search }}"</span>
-                    </p>
+            <PageHeader title="Exam management"
+                :subtitle="`${exams?.total || 0} exam${(exams?.total || 0) === 1 ? '' : 's'}${search ? ' matching “' + search + '”' : ''}`"
+                :icon="ClipboardDocumentListIcon" tone="primary">
+                <template #actions>
+                    <Link v-if="can('exams.create')" :href="route('exams.create')" class="btn btn-primary btn-sm gap-1.5">
+                        <PlusIcon class="w-4 h-4" /> Create Exam
+                    </Link>
+                </template>
+            </PageHeader>
+
+            <!-- KPI strip — workflow phase counts across exams in scope.
+                 Matches the Results module pattern so admins eyeball the same
+                 lifecycle terms in both places. -->
+            <div v-if="statusCounts.total > 0" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3.5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-sky-500/15 shrink-0">
+                        <ClipboardDocumentListIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Exams</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ statusCounts.total }}</p>
+                    </div>
                 </div>
-                <Link v-if="can('exams.create')" :href="route('exams.create')" class="btn btn-primary btn-sm gap-1.5">
-                    <PlusIcon class="w-4 h-4" /> Create Exam
-                </Link>
+                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3.5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-base-300 to-base-400 text-base-content flex items-center justify-center shadow-md shrink-0">
+                        <DocumentTextIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Drafts</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ statusCounts.draft }}</p>
+                    </div>
+                </div>
+                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3.5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-md shadow-amber-500/15 shrink-0">
+                        <ClockIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300">In marks entry</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ statusCounts.marks_entry }}</p>
+                    </div>
+                </div>
+                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3.5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-md shadow-emerald-500/15 shrink-0">
+                        <CheckCircleIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-emerald-700 dark:text-emerald-300">Completed</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ statusCounts.completed }}</p>
+                    </div>
+                </div>
             </div>
 
             <!-- ═══════════ MAIN CARD ═══════════ -->

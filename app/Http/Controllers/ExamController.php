@@ -57,11 +57,33 @@ class ExamController extends Controller
         $examTypes = ExamType::active()->orderBy('sort_order')->get(['id', 'name']);
         $sessions = AcademicSession::active()->orderByDesc('start_date')->get(['id', 'name']);
 
+        // KPI strip — phase counts respecting the same visibility scope as
+        // the list above (visibleToSchool + forTeacher), but pre-filter so
+        // the strip reflects "all exams I can see" rather than the current
+        // search/type/status drill-down. Sticks to the current session unless
+        // the user explicitly picked another.
+        $statusCounts = Exam::query()
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->visibleToSchool($user->school_id))
+            ->forTeacher($user)
+            ->when($request->filled('session_id'),
+                fn ($q) => $q->where('academic_session_id', $request->input('session_id')),
+                fn ($q) => $currentSession ? $q->where('academic_session_id', $currentSession->id) : $q,
+            )
+            ->selectRaw('status, COUNT(*) as cnt')
+            ->groupBy('status')
+            ->pluck('cnt', 'status');
+
         return Inertia::render('Exams/Index', [
             'exams' => $exams,
             'examTypes' => $examTypes,
             'sessions' => $sessions,
             'filters' => $request->only(['search', 'exam_type_id', 'status', 'session_id']),
+            'statusCounts' => [
+                'total' => (int) $statusCounts->sum(),
+                'draft' => (int) ($statusCounts['draft'] ?? 0),
+                'marks_entry' => (int) ($statusCounts['marks_entry'] ?? 0),
+                'completed' => (int) (($statusCounts['completed'] ?? 0) + ($statusCounts['published'] ?? 0)),
+            ],
         ]);
     }
 

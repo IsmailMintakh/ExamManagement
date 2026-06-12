@@ -86,11 +86,15 @@ function submitReturn() {
     <Head title="Result Review Queue" />
     <AppLayout :breadcrumbs="[{ label: 'Results', href: '/results' }, { label: 'Review Queue' }]">
         <div class="space-y-6">
-            <!-- Page Header -->
-            <div class="page-header">
-                <div>
-                    <h1 class="page-title">Result Review Queue</h1>
-                    <p class="page-subtitle">Review and approve submitted school results</p>
+            <!-- Page Header — gradient pill keeps the visual language
+                 aligned with Dashboard / Marks Index / Results Index. -->
+            <div class="rounded-2xl bg-base-100 border border-base-300 shadow-sm p-4 sm:p-5 flex items-center gap-3">
+                <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white flex items-center justify-center shadow-md shadow-violet-500/15 shrink-0">
+                    <ClipboardDocumentCheckIcon class="w-6 h-6" />
+                </div>
+                <div class="min-w-0">
+                    <h1 class="text-base sm:text-lg font-extrabold tracking-tight">Result Review Queue</h1>
+                    <p class="text-xs text-base-content/55">Review and approve submitted school results</p>
                 </div>
             </div>
 
@@ -132,13 +136,13 @@ function submitReturn() {
             <template v-if="groups?.length">
                 <div v-for="group in groups" :key="group.school_id ?? group.school_name" class="space-y-3">
                     <div class="flex items-center gap-2.5">
-                        <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-                            <BuildingOfficeIcon class="h-5 w-5 text-primary" />
+                        <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white shadow-md shadow-sky-500/15 shrink-0">
+                            <BuildingOfficeIcon class="h-5 w-5" />
                         </div>
-                        <div>
-                            <h2 class="text-base font-bold">{{ group.school_name || 'Unknown School' }}</h2>
+                        <div class="min-w-0">
+                            <h2 class="text-base font-bold truncate">{{ group.school_name || 'Unknown School' }}</h2>
                             <p class="text-xs text-base-content/50">
-                                {{ group.submissions.length }} pending submission(s)
+                                {{ group.submissions.length }} pending submission{{ group.submissions.length === 1 ? '' : 's' }}
                             </p>
                         </div>
                     </div>

@@ -105,6 +105,23 @@ class StudentController extends Controller
                 'school_class_id' => $s->school_class_id,
             ]);
 
+        // KPI strip — counts respect the same scope as the list above
+        // (super-admin sees everything, school-admin sees their school,
+        // class teacher sees their sections) but ignore the search/class/
+        // status filters so the strip stays meaningful as the user filters.
+        $statusCounts = Student::query()
+            ->when($user->isSuperAdmin() && $request->filled('school_id'),
+                fn ($q) => $q->where('school_id', $request->input('school_id')))
+            ->when($user->isSchoolAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->when($user->isClassTeacher(), function ($q) use ($user) {
+                $sectionIds = Section::where('class_teacher_id', $user->id)->pluck('id');
+                $q->whereIn('section_id', $sectionIds);
+            })
+            ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+            ->selectRaw('status, COUNT(*) as cnt')
+            ->groupBy('status')
+            ->pluck('cnt', 'status');
+
         return Inertia::render('Students/Index', [
             'students' => $students,
             'schools' => $schools,
@@ -112,6 +129,13 @@ class StudentController extends Controller
             'sections' => $sections,
             'isSuperAdmin' => $user->isSuperAdmin(),
             'filters' => $request->only(['search', 'school_id', 'class_id', 'section_id', 'status']),
+            'statusCounts' => [
+                'total' => (int) $statusCounts->sum(),
+                'active' => (int) ($statusCounts['active'] ?? 0),
+                'inactive' => (int) ($statusCounts['inactive'] ?? 0),
+                'graduated' => (int) ($statusCounts['graduated'] ?? 0),
+                'transferred' => (int) ($statusCounts['transferred'] ?? 0),
+            ],
         ]);
     }
 

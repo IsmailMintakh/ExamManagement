@@ -148,7 +148,7 @@ function getLockedBadge(row) {
                 :subtitle="isAdmin
                     ? 'Every (subject × class × section) cell — search, filter and group to find what needs entering.'
                     : 'Only the subjects assigned to you. Pick a row to enter that section\'s marks.'"
-                :icon="DocumentTextIcon" tone="primary">
+                :icon="DocumentTextIcon" :tone="isAdmin ? 'primary' : 'violet'">
                 <template #actions>
                     <Link v-if="isClassTeacher" href="/my-class"
                         class="btn btn-outline btn-sm rounded-lg gap-1.5">
@@ -161,25 +161,47 @@ function getLockedBadge(row) {
                 </template>
             </PageHeader>
 
-            <!-- Stat strip -->
-            <div v-if="allRows.length" class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div class="rounded-xl border border-base-300 bg-base-100 px-3 py-2.5">
-                    <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Showing</p>
-                    <p class="text-2xl font-extrabold tabular-nums">{{ stats.total }}</p>
+            <!-- KPI strip — consistent with Dashboard / My Subjects: gradient
+                 icon-pill on the left, big tabular number on the right,
+                 progress bar tucked into the "Progress" tile only. -->
+            <div v-if="allRows.length" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3.5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-sky-500/15 shrink-0">
+                        <ClipboardDocumentListIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Showing</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ stats.total }}</p>
+                    </div>
                 </div>
-                <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
-                    <p class="text-[10px] uppercase tracking-wider font-bold text-emerald-700 dark:text-emerald-300">Done</p>
-                    <p class="text-2xl font-extrabold tabular-nums">{{ stats.done }}</p>
+                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3.5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-md shadow-emerald-500/15 shrink-0">
+                        <CheckCircleIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-emerald-700 dark:text-emerald-300">Done</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ stats.done }}</p>
+                    </div>
                 </div>
-                <div class="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
-                    <p class="text-[10px] uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300">Pending</p>
-                    <p class="text-2xl font-extrabold tabular-nums">{{ stats.pending }}</p>
+                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3.5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-md shadow-amber-500/15 shrink-0">
+                        <ClockIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300">Pending</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ stats.pending }}</p>
+                    </div>
                 </div>
-                <div class="rounded-xl border border-base-300 bg-base-100 px-3 py-2.5">
-                    <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Progress</p>
-                    <p class="text-2xl font-extrabold tabular-nums">{{ stats.pct }}%</p>
-                    <div class="h-1.5 bg-base-200 rounded-full mt-1 overflow-hidden">
-                        <div class="h-full bg-emerald-500 rounded-full transition-all" :style="{ width: stats.pct + '%' }"></div>
+                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3.5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white flex items-center justify-center shadow-md shadow-violet-500/15 shrink-0">
+                        <DocumentTextIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Progress</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ stats.pct }}%</p>
+                        <div class="h-1 bg-base-200 rounded-full mt-1 overflow-hidden">
+                            <div class="h-full bg-emerald-500 rounded-full transition-all" :style="{ width: stats.pct + '%' }"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -196,11 +218,12 @@ function getLockedBadge(row) {
                     <SearchableSelect v-model="classFilter" :options="classOpts" placeholder="All classes" size="sm" :clearable="true" />
                     <SearchableSelect v-model="subjectFilter" :options="subjectOpts" placeholder="All subjects" size="sm" :clearable="true" />
                 </div>
-                <div class="flex flex-wrap items-center gap-2">
-                    <SearchableSelect v-if="isAdmin" v-model="teacherFilter" :options="teacherOpts"
-                        placeholder="All teachers" size="sm" :clearable="true"
-                        class="w-full sm:w-64" />
+                <!-- Optional teacher filter — admins only, full width so the
+                     dropdown stays usable on mobile. -->
+                <SearchableSelect v-if="isAdmin" v-model="teacherFilter" :options="teacherOpts"
+                    placeholder="All teachers" size="sm" :clearable="true" />
 
+                <div class="flex flex-wrap items-center gap-2">
                     <!-- Status pills -->
                     <div class="flex items-center gap-1 rounded-xl border border-base-300 bg-base-200/40 p-1 text-xs">
                         <button @click="statusFilter = 'all'" class="rounded-lg px-3 py-1.5 font-bold transition-colors"
@@ -217,9 +240,10 @@ function getLockedBadge(row) {
                         </button>
                     </div>
 
-                    <!-- Group by -->
-                    <div class="flex items-center gap-1 rounded-xl border border-base-300 bg-base-200/40 p-1 text-xs ml-auto">
-                        <span class="text-[10px] uppercase tracking-wider font-bold text-base-content/45 ml-1">Group by:</span>
+                    <!-- Group by — separate row on narrow screens (no ml-auto
+                         so it wraps cleanly instead of overflowing). -->
+                    <div class="flex items-center gap-1 rounded-xl border border-base-300 bg-base-200/40 p-1 text-xs">
+                        <span class="hidden sm:inline text-[10px] uppercase tracking-wider font-bold text-base-content/45 ml-1">Group:</span>
                         <button v-for="g in [
                             { k: 'exam', label: 'Exam', icon: ClipboardDocumentListIcon },
                             { k: 'class', label: 'Class', icon: AcademicCapIcon },
@@ -230,13 +254,13 @@ function getLockedBadge(row) {
                             class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 font-bold transition-colors"
                             :class="groupBy === g.k ? 'bg-primary text-primary-content' : 'text-base-content/60 hover:text-base-content'">
                             <component :is="g.icon" class="w-3.5 h-3.5" />
-                            {{ g.label }}
+                            <span class="hidden sm:inline">{{ g.label }}</span>
                         </button>
                     </div>
 
                     <button v-if="search || examFilter || classFilter || subjectFilter || teacherFilter || statusFilter !== 'all'"
                         @click="clearFilters"
-                        class="btn btn-ghost btn-xs gap-1 ml-auto">
+                        class="btn btn-ghost btn-xs gap-1 sm:ml-auto">
                         <XCircleIcon class="w-3.5 h-3.5" /> Clear
                     </button>
                 </div>
@@ -244,26 +268,33 @@ function getLockedBadge(row) {
 
             <!-- Grouped result list -->
             <div v-if="filteredRows.length" class="space-y-3">
-                <div v-for="g in grouped" :key="g.label" class="card-section overflow-hidden">
-                    <header class="card-header">
-                        <div class="flex items-center gap-3 w-full">
-                            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                                <Squares2X2Icon class="w-4 h-4 text-primary" />
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <h3 class="font-bold text-sm truncate">{{ g.label }}</h3>
-                                <p class="text-[11px] text-base-content/55 tabular-nums">
-                                    <span class="font-bold text-emerald-700 dark:text-emerald-300">{{ g.done }}</span>
-                                    <span class="text-base-content/45"> / {{ g.total }} done</span>
-                                    · {{ g.pct }}%
-                                </p>
-                            </div>
-                            <div class="w-24 shrink-0">
-                                <div class="h-1.5 bg-base-200 rounded-full overflow-hidden">
-                                    <div class="h-full transition-all"
-                                        :class="g.pct === 100 ? 'bg-emerald-500' : g.pct > 0 ? 'bg-amber-500' : 'bg-rose-500/50'"
-                                        :style="{ width: g.pct + '%' }"></div>
-                                </div>
+                <div v-for="g in grouped" :key="g.label"
+                     class="rounded-2xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
+                    <header class="px-4 py-3 border-b border-base-200 flex items-center gap-3">
+                        <!-- Gradient pill — matches Dashboard / My Subjects.
+                             Color reflects completion: emerald = all done,
+                             amber = in progress, rose = nothing entered. -->
+                        <div class="w-9 h-9 rounded-xl shrink-0 flex items-center justify-center text-white shadow-md"
+                             :class="g.pct === 100
+                                ? 'bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/15'
+                                : g.pct > 0
+                                    ? 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/15'
+                                    : 'bg-gradient-to-br from-rose-500 to-pink-600 shadow-rose-500/15'">
+                            <Squares2X2Icon class="w-4 h-4" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h3 class="font-bold text-sm truncate">{{ g.label }}</h3>
+                            <p class="text-[11px] text-base-content/55 tabular-nums">
+                                <span class="font-bold text-emerald-700 dark:text-emerald-300">{{ g.done }}</span>
+                                <span class="text-base-content/45"> / {{ g.total }} done</span>
+                                · {{ g.pct }}%
+                            </p>
+                        </div>
+                        <div class="hidden sm:block w-24 shrink-0">
+                            <div class="h-1.5 bg-base-200 rounded-full overflow-hidden">
+                                <div class="h-full transition-all"
+                                    :class="g.pct === 100 ? 'bg-emerald-500' : g.pct > 0 ? 'bg-amber-500' : 'bg-rose-500/50'"
+                                    :style="{ width: g.pct + '%' }"></div>
                             </div>
                         </div>
                     </header>

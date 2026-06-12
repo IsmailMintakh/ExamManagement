@@ -1,5 +1,6 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue'
+import PageHeader from '@/Components/PageHeader.vue'
 import SearchableSelect from '@/Components/SearchableSelect.vue'
 import Pagination from '@/Components/Pagination.vue'
 import ConfirmDialog from '@/Components/ConfirmDialog.vue'
@@ -11,7 +12,8 @@ import { ref, computed, watch } from 'vue'
 import {
     PlusIcon, PencilSquareIcon, TrashIcon, EyeIcon, ArrowUpTrayIcon,
     ArrowDownTrayIcon, IdentificationIcon, MagnifyingGlassIcon, XMarkIcon,
-    BuildingLibraryIcon, FunnelIcon, ChevronDownIcon,
+    BuildingLibraryIcon, FunnelIcon, ChevronDownIcon, UserGroupIcon,
+    CheckCircleIcon, AcademicCapIcon, ArrowsRightLeftIcon,
 } from '@heroicons/vue/24/outline'
 import { usePermissions } from '@/Composables/usePermissions'
 import { useFilterPresets } from '@/Composables/useFilterPresets'
@@ -28,6 +30,10 @@ const props = defineProps({
     classes: { type: Array, default: () => [] },
     sections: { type: Array, default: () => [] },
     isSuperAdmin: { type: Boolean, default: false },
+    // Status totals across the user's scope (school / sections), pre-filter.
+    // Used by the KPI strip so it shows the full picture even when the list
+    // is narrowed by class/section/search.
+    statusCounts: { type: Object, default: () => ({ total: 0, active: 0, inactive: 0, graduated: 0, transferred: 0 }) },
 })
 
 // ─── Filter state — bound 1:1 to backend query params ───
@@ -244,21 +250,58 @@ function deleteStudent() {
     <Head title="Students" />
     <AppLayout :breadcrumbs="[{ label: 'Students' }]">
         <div class="space-y-5">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                    <h1 class="text-2xl font-extrabold tracking-tight">Student Management</h1>
-                    <p class="text-sm text-base-content/55 mt-0.5">
-                        {{ students?.total || 0 }} student{{ (students?.total || 0) === 1 ? '' : 's' }}
-                        <span v-if="search">matching "{{ search }}"</span>
-                    </p>
-                </div>
-                <div class="flex gap-2">
+            <PageHeader title="Student management"
+                :subtitle="`${students?.total || 0} student${(students?.total || 0) === 1 ? '' : 's'}${search ? ' matching “' + search + '”' : ''}`"
+                :icon="UserGroupIcon" tone="emerald">
+                <template #actions>
                     <Link v-if="can('students.import')" :href="route('students.import')" class="btn btn-outline btn-secondary btn-sm gap-1.5">
                         <ArrowUpTrayIcon class="w-4 h-4" /> Import Excel
                     </Link>
                     <Link v-if="can('students.create')" :href="route('students.create')" class="btn btn-primary btn-sm gap-1.5">
                         <PlusIcon class="w-4 h-4" /> Add Student
                     </Link>
+                </template>
+            </PageHeader>
+
+            <!-- KPI strip — status totals across the user's scope. Stays
+                 stable as filters narrow the list so admins can see the full
+                 student picture even while drilling in. -->
+            <div v-if="statusCounts.total > 0" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3.5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-sky-500/15 shrink-0">
+                        <UserGroupIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Total</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ statusCounts.total }}</p>
+                    </div>
+                </div>
+                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3.5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-md shadow-emerald-500/15 shrink-0">
+                        <CheckCircleIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-emerald-700 dark:text-emerald-300">Active</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ statusCounts.active }}</p>
+                    </div>
+                </div>
+                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3.5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white flex items-center justify-center shadow-md shadow-violet-500/15 shrink-0">
+                        <AcademicCapIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-violet-700 dark:text-violet-300">Graduated</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ statusCounts.graduated }}</p>
+                    </div>
+                </div>
+                <div class="rounded-2xl border border-base-300 bg-base-100 px-4 py-3.5 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-md shadow-amber-500/15 shrink-0">
+                        <ArrowsRightLeftIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300">Transferred</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ statusCounts.transferred }}</p>
+                    </div>
                 </div>
             </div>
 
