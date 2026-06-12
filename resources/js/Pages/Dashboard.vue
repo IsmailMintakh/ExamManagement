@@ -24,6 +24,7 @@ import {
     ChevronRightIcon, RectangleStackIcon, ChevronDownIcon,
     BellAlertIcon, ArrowsRightLeftIcon, FaceSmileIcon, NoSymbolIcon,
     SparklesIcon, LightBulbIcon, FireIcon,
+    MagnifyingGlassIcon, FunnelIcon,
 } from '@heroicons/vue/24/outline'
 
 import PageHeader from '@/Components/PageHeader.vue'
@@ -83,6 +84,16 @@ const roleLabels = {
     'class-teacher':   'Class Teacher',
     'subject-teacher': 'Subject Teacher',
 }
+
+// Role-aware tone: shifts the page-header gradient & accent color so the
+// dashboard feels different per role at a glance. Same tokens as PageHeader
+// supports — keeps the rest of the codebase consistent.
+const roleTone = computed(() => ({
+    'super-admin':     'primary',
+    'school-admin':    'sky',
+    'class-teacher':   'emerald',
+    'subject-teacher': 'violet',
+}[props.role] || 'primary'))
 
 // ─── Today's Classes timeline (teachers only, kept from prior version) ───
 const nowTick = ref(Date.now())
@@ -240,6 +251,25 @@ const compareBars = computed(() => {
 })
 const compareTitle = computed(() => props.role === 'super-admin' ? 'School Comparison' : 'Class Performance')
 
+// ─── Section roster: search + empty-only filter ───
+// The section roster is one of the most-scanned widgets on the admin
+// dashboard. With 20+ sections you can't eyeball it fast, especially to find
+// "which sections still need students added". A tiny search + toggle solves it
+// without leaving the page.
+const rosterSearch = ref('')
+const rosterEmptyOnly = ref(false)
+const filteredRoster = computed(() => {
+    const rows = props.sectionRoster?.rows || []
+    const q = rosterSearch.value.trim().toLowerCase()
+    return rows.filter(r => {
+        if (rosterEmptyOnly.value && (r.count || 0) > 0) return false
+        if (!q) return true
+        return (r.class || '').toLowerCase().includes(q)
+            || (r.section || '').toLowerCase().includes(q)
+            || (r.teacher || '').toLowerCase().includes(q)
+    })
+})
+
 // ─── Status helpers ───
 const statusBadge = (status) => ({
     draft:        'bg-base-200 text-base-content/65',
@@ -280,10 +310,12 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
             </div>
 
             <!-- ════════ HEADER (compact, professional) ════════ -->
+            <!-- Tone shifts per role so a class teacher's dashboard reads
+                 visually distinct from a principal's at a single glance. -->
             <PageHeader
                 :title="`${greeting}, ${userName}`"
                 :subtitle="`${roleLabels[role] || role} · ${currentSession?.name || 'No active session'} · ${todayLabel}`"
-                :icon="AcademicCapIcon" tone="primary" />
+                :icon="AcademicCapIcon" :tone="roleTone" />
 
             <!-- ════════ INSIGHT BANNER (auto-summary) ════════ -->
             <div v-if="insight" class="rounded-2xl bg-gradient-to-r from-primary/[0.08] to-emerald-500/[0.06] border border-primary/15 px-4 py-3 flex items-center gap-3">
@@ -296,10 +328,12 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
 
             <!-- ════════ TODAY'S TEACHING SCHEDULE (teachers only) ════════ -->
             <section v-if="todaysClasses && (role === 'class-teacher' || role === 'subject-teacher')"
-                class="rounded-xl border border-base-300 bg-base-100 overflow-hidden shadow-sm">
+                class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden shadow-sm">
                 <header class="px-4 sm:px-5 py-3 border-b border-base-200 flex items-center justify-between gap-2 flex-wrap">
                     <div class="flex items-center gap-2 min-w-0">
-                        <ClockIcon class="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
+                        <div class="w-7 h-7 rounded-lg bg-sky-500/15 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+                            <ClockIcon class="w-4 h-4" />
+                        </div>
                         <h2 class="font-bold text-sm">Today's Schedule</h2>
                         <span class="text-[11px] text-base-content/55">
                             · {{ todayMerged.length }} period{{ todayMerged.length === 1 ? '' : 's' }}
@@ -379,37 +413,78 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
 
             <!-- ════════ STUDENTS BY CLASS / SECTION — surfaced near top (actionable) ════════ -->
             <section v-if="(role === 'super-admin' || role === 'school-admin') && sectionRoster?.rows?.length"
-                class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
-                <header class="px-4 py-3 border-b border-base-300 flex items-center justify-between gap-2 flex-wrap">
-                    <div class="flex items-center gap-2">
-                        <UserGroupIcon class="w-4 h-4 text-base-content/55" />
-                        <h2 class="text-sm font-bold">Students by class &amp; section</h2>
+                class="rounded-2xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
+                <header class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-2 flex-wrap">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <div class="w-7 h-7 rounded-lg bg-sky-500/15 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+                            <UserGroupIcon class="w-4 h-4" />
+                        </div>
+                        <h2 class="text-sm font-bold truncate">Students by class &amp; section</h2>
+                        <span class="text-[11px] text-base-content/55 whitespace-nowrap">
+                            · {{ filteredRoster.length }} / {{ sectionRoster.rows.length }}
+                        </span>
                     </div>
-                    <span v-if="sectionRoster.empty_sections" class="text-[11px] text-rose-600 dark:text-rose-400 font-semibold">
-                        {{ sectionRoster.empty_sections }} of {{ sectionRoster.total_sections }} not added yet
+                    <span v-if="sectionRoster.empty_sections" class="text-[11px] text-rose-600 dark:text-rose-400 font-semibold whitespace-nowrap">
+                        {{ sectionRoster.empty_sections }} of {{ sectionRoster.total_sections }} empty
                     </span>
                 </header>
-                <div class="max-h-80 overflow-y-auto divide-y divide-base-200 grid grid-cols-1 sm:grid-cols-2 sm:divide-y-0">
-                    <div v-for="r in sectionRoster.rows" :key="r.id"
-                        class="flex items-center gap-3 px-4 py-2.5 border-b border-base-200 sm:[&:nth-last-child(-n+2)]:border-b-0"
+
+                <!-- Search + empty-only filter — turns this widget from a wall
+                     of names into an actionable triage list. -->
+                <div class="px-3 py-2.5 border-b border-base-200 bg-base-200/30 flex items-center gap-2 flex-wrap">
+                    <div class="flex-1 min-w-[180px] flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-base-100 border border-base-300 focus-within:border-primary/50">
+                        <MagnifyingGlassIcon class="w-4 h-4 text-base-content/40 shrink-0" />
+                        <input v-model="rosterSearch" type="text"
+                            placeholder="Search class, section, teacher…"
+                            class="bg-transparent outline-none flex-1 text-xs min-w-0" />
+                    </div>
+                    <button type="button" @click="rosterEmptyOnly = !rosterEmptyOnly"
+                        class="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                        :class="rosterEmptyOnly
+                            ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                            : 'bg-base-100 text-base-content/65 border-base-300 hover:border-rose-500/30 hover:text-rose-700'">
+                        <FunnelIcon class="w-3.5 h-3.5" />
+                        Empty only
+                    </button>
+                </div>
+
+                <div v-if="filteredRoster.length" class="max-h-96 overflow-y-auto grid grid-cols-1 sm:grid-cols-2">
+                    <div v-for="r in filteredRoster" :key="r.id"
+                        class="flex items-center gap-3 px-4 py-2.5 border-b border-base-200 last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0"
                         :class="r.count === 0 ? 'bg-rose-500/[0.04]' : ''">
+                        <!-- Gradient class-pill, matches the visual language
+                             used in MyClass/MySubjects pages for consistency. -->
+                        <div class="w-9 h-9 rounded-xl shrink-0 flex items-center justify-center text-white font-bold text-[11px] shadow-md"
+                             :class="r.count === 0
+                                ? 'bg-gradient-to-br from-rose-500 to-pink-600 shadow-rose-500/15'
+                                : 'bg-gradient-to-br from-sky-500 to-indigo-600 shadow-sky-500/15'">
+                            {{ (r.class || '?').toString().substring(0, 2).toUpperCase() }}
+                        </div>
                         <div class="flex-1 min-w-0">
                             <p class="font-semibold text-sm truncate">
                                 Class {{ r.class }} <span class="text-base-content/55">— {{ r.section }}</span>
                             </p>
                             <p class="text-[11px] text-base-content/55 truncate">
-                                Class Teacher: <span class="font-medium text-base-content/75">{{ r.teacher }}</span>
+                                <span class="text-base-content/45">CT:</span>
+                                <span class="font-medium text-base-content/75">{{ r.teacher || '—' }}</span>
                             </p>
                         </div>
                         <span v-if="r.count > 0"
                             class="px-2.5 py-1 rounded-lg text-xs font-bold tabular-nums shrink-0 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                            {{ r.count }} {{ r.count === 1 ? 'student' : 'students' }}
+                            {{ r.count }}
                         </span>
                         <span v-else
-                            class="px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider shrink-0 bg-rose-500/15 text-rose-700 dark:text-rose-300">
-                            Not added
+                            class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shrink-0 bg-rose-500/15 text-rose-700 dark:text-rose-300 whitespace-nowrap">
+                            Empty
                         </span>
                     </div>
+                </div>
+                <div v-else class="px-5 py-8 text-center">
+                    <MagnifyingGlassIcon class="w-8 h-8 text-base-content/25 mx-auto mb-1.5" />
+                    <p class="text-xs text-base-content/55">
+                        No sections match your filters.
+                        <button type="button" @click="rosterSearch = ''; rosterEmptyOnly = false" class="text-primary font-semibold ml-1">Clear</button>
+                    </p>
                 </div>
             </section>
 
@@ -473,13 +548,15 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                     </article>
 
                     <!-- Activity feed -->
-                    <article class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
-                        <header class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <FireIcon class="w-4 h-4 text-rose-500" />
+                    <article class="rounded-2xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
+                        <header class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-2">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <div class="w-7 h-7 rounded-lg bg-rose-500/15 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                                    <FireIcon class="w-4 h-4" />
+                                </div>
                                 <h3 class="text-sm font-bold">Activity</h3>
                             </div>
-                            <Link href="/notifications" class="text-[11px] text-base-content/55 hover:text-primary font-medium">
+                            <Link href="/notifications" class="text-[11px] text-base-content/55 hover:text-primary font-medium whitespace-nowrap">
                                 View all →
                             </Link>
                         </header>
@@ -501,43 +578,62 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                 <div class="lg:col-span-8 space-y-3 sm:space-y-4">
                     <!-- Class teacher: my sections -->
                     <section v-if="role === 'class-teacher' && sections?.length"
-                        class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
-                        <header class="px-4 py-3 border-b border-base-200 flex items-center gap-2">
-                            <RectangleStackIcon class="w-4 h-4 text-base-content/55" />
-                            <h2 class="text-sm font-bold">My Sections</h2>
+                        class="rounded-2xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
+                        <header class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-2">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <div class="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                                    <RectangleStackIcon class="w-4 h-4" />
+                                </div>
+                                <h2 class="text-sm font-bold">My Sections</h2>
+                                <span class="text-[11px] text-base-content/55">· {{ sections.length }}</span>
+                            </div>
+                            <Link href="/my-class" class="text-[11px] text-base-content/55 hover:text-primary font-medium whitespace-nowrap">
+                                Open hub →
+                            </Link>
                         </header>
                         <div class="divide-y divide-base-200">
                             <Link v-for="s in sections" :key="s.id" :href="`/my-class?section=${s.id}`"
                                 class="flex items-center gap-3 px-4 py-3 hover:bg-base-200/40 transition-colors">
-                                <div class="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold text-xs">
-                                    {{ s.class_name?.charAt(0) || '?' }}
+                                <div class="w-9 h-9 rounded-xl shrink-0 bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-[11px] shadow-md shadow-emerald-500/15">
+                                    {{ (s.class_name || '?').substring(0, 2).toUpperCase() }}
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <p class="font-bold text-sm">{{ s.class_name }} — {{ s.name }}</p>
+                                    <p class="font-bold text-sm truncate">{{ s.class_name }} — {{ s.name }}</p>
                                     <p class="text-[11px] text-base-content/55">{{ s.students_count }} students</p>
                                 </div>
-                                <ArrowRightIcon class="w-4 h-4 text-base-content/40" />
+                                <ArrowRightIcon class="w-4 h-4 text-base-content/40 shrink-0" />
                             </Link>
                         </div>
                     </section>
 
                     <!-- Subject teacher: assignments -->
                     <section v-if="role === 'subject-teacher' && assignments?.length"
-                        class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
-                        <header class="px-4 py-3 border-b border-base-200 flex items-center gap-2">
-                            <BookOpenIcon class="w-4 h-4 text-base-content/55" />
-                            <h2 class="text-sm font-bold">My Assignments</h2>
+                        class="rounded-2xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
+                        <header class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-2">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <div class="w-7 h-7 rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0">
+                                    <BookOpenIcon class="w-4 h-4" />
+                                </div>
+                                <h2 class="text-sm font-bold">My Assignments</h2>
+                                <span class="text-[11px] text-base-content/55">· {{ assignments.length }}</span>
+                            </div>
+                            <Link href="/my-subjects" class="text-[11px] text-base-content/55 hover:text-primary font-medium whitespace-nowrap">
+                                View all →
+                            </Link>
                         </header>
                         <div class="divide-y divide-base-200">
-                            <div v-for="a in assignments" :key="a.id" class="flex items-center gap-3 px-4 py-3">
-                                <div class="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
-                                    <BookOpenIcon class="w-4 h-4" />
+                            <Link v-for="a in assignments" :key="a.id"
+                                :href="`/marks?subject=${a.subject_id}&section=${a.section_id}`"
+                                class="flex items-center gap-3 px-4 py-3 hover:bg-base-200/40 transition-colors">
+                                <div class="w-9 h-9 rounded-xl shrink-0 bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white flex items-center justify-center text-[10px] font-bold shadow-md shadow-violet-500/15">
+                                    {{ (a.subject_code || a.subject_name || '?').substring(0, 2).toUpperCase() }}
                                 </div>
                                 <div class="flex-1 min-w-0">
                                     <p class="font-bold text-sm truncate">{{ a.subject_name }}</p>
                                     <p class="text-[11px] text-base-content/55 truncate">{{ a.class_name }} · {{ a.section_name }}</p>
                                 </div>
-                            </div>
+                                <ArrowRightIcon class="w-4 h-4 text-base-content/40 shrink-0" />
+                            </Link>
                         </div>
                     </section>
                 </div>
@@ -565,13 +661,15 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 items-start">
 
             <!-- ════════ RECENT EXAMS — compact 1-line rows ════════ -->
-            <section v-if="recentExams?.length" class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
-                <header class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <ClipboardDocumentListIcon class="w-4 h-4 text-base-content/55" />
+            <section v-if="recentExams?.length" class="rounded-2xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
+                <header class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <div class="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                            <ClipboardDocumentListIcon class="w-4 h-4" />
+                        </div>
                         <h2 class="text-sm font-bold">Recent Exams</h2>
                     </div>
-                    <Link href="/exams" class="text-[11px] text-base-content/55 hover:text-primary font-medium">
+                    <Link href="/exams" class="text-[11px] text-base-content/55 hover:text-primary font-medium whitespace-nowrap">
                         View all →
                     </Link>
                 </header>
@@ -596,14 +694,16 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
 
             <!-- ════════ RECENTLY ADDED STUDENTS — who added them ════════ -->
             <section v-if="(role === 'super-admin' || role === 'school-admin') && recentStudents?.length"
-                class="rounded-xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
-                <header class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <UserGroupIcon class="w-4 h-4 text-base-content/55" />
+                class="rounded-2xl bg-base-100 border border-base-300 shadow-sm overflow-hidden">
+                <header class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <div class="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                            <UserGroupIcon class="w-4 h-4" />
+                        </div>
                         <h2 class="text-sm font-bold">Recently added students</h2>
                     </div>
                     <Link href="/activity-log?subject_type=App\Models\Student"
-                        class="text-[11px] text-base-content/55 hover:text-primary font-medium">
+                        class="text-[11px] text-base-content/55 hover:text-primary font-medium whitespace-nowrap">
                         Full history →
                     </Link>
                 </header>
