@@ -479,6 +479,45 @@ function togglePostSubmitTuple(classId, sectionId) {
     else list.push({ school_class_id: classId, section_id: sectionId })
     form.post_submit_edit_scope = [...list]
 }
+
+// Snapshot the saved policy so we can detect "dirty" — same pattern as the
+// inline marks-update flow on the subjects step. Lets us light up the Save
+// Policy button only when the admin actually changed something.
+const originalPolicy = ref({
+    policy: props.exam?.post_submit_edit_policy || 'none',
+    scope: JSON.stringify(props.exam?.post_submit_edit_scope || []),
+})
+const policyDirty = computed(() => {
+    if (form.post_submit_edit_policy !== originalPolicy.value.policy) return true
+    return JSON.stringify(form.post_submit_edit_scope || []) !== originalPolicy.value.scope
+})
+const policySaving = ref(false)
+const policySaveError = ref('')
+function saveEditPolicy() {
+    if (!props.exam?.id || !policyDirty.value) return
+    policySaveError.value = ''
+    policySaving.value = true
+    router.post(route('exams.update-edit-policy', props.exam.id), {
+        post_submit_edit_policy: form.post_submit_edit_policy,
+        post_submit_edit_scope: form.post_submit_edit_policy === 'specific'
+            ? (form.post_submit_edit_scope || [])
+            : [],
+    }, {
+        preserveScroll: true,
+        preserveState: true,
+        onSuccess: () => {
+            originalPolicy.value = {
+                policy: form.post_submit_edit_policy,
+                scope: JSON.stringify(form.post_submit_edit_scope || []),
+            }
+        },
+        onError: (errs) => {
+            policySaveError.value = Object.values(errs)[0]
+                || 'Could not save the policy — check the values and retry.'
+        },
+        onFinish: () => { policySaving.value = false },
+    })
+}
 function removeSubjectRow(i) { form.subjects.splice(i, 1) }
 function clearAllSubjects() { form.subjects = [] }
 
@@ -1620,6 +1659,25 @@ function submit() {
                                 </div>
                             </div>
                         </label>
+
+                        <!-- Inline Save button — applies just the policy
+                             without walking the rest of the wizard. Lights up
+                             only when the admin actually changed something. -->
+                        <div v-if="exam?.id" class="pt-2 border-t border-base-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <p class="text-[11px] text-base-content/55">
+                                <span v-if="policyDirty">Unsaved policy change.</span>
+                                <span v-else>Policy is saved.</span>
+                                <span v-if="policySaveError" class="block text-rose-700 dark:text-rose-300 font-semibold mt-1">
+                                    {{ policySaveError }}
+                                </span>
+                            </p>
+                            <button type="button" @click="saveEditPolicy"
+                                :disabled="!policyDirty || policySaving"
+                                class="btn btn-primary btn-sm gap-1.5 rounded-xl shrink-0">
+                                <CheckCircleIcon class="w-4 h-4" />
+                                {{ policySaving ? 'Saving…' : 'Save Policy' }}
+                            </button>
+                        </div>
                     </div>
                 </section>
             </div>

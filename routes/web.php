@@ -212,6 +212,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // or more (subject, class) tuples without going through the full wizard,
     // and re-runs the result cascade for affected sections.
     Route::post('exams/{exam}/update-subject-marks', [ExamController::class, 'updateSubjectMarks'])->name('exams.update-subject-marks');
+    // Inline "Save edit policy" endpoint — flips the per-exam post-submission
+    // edit policy + scope without walking the wizard.
+    Route::post('exams/{exam}/update-edit-policy', [ExamController::class, 'updateEditPolicy'])->name('exams.update-edit-policy');
 
     // Marks Entry
     Route::get('marks', [MarksController::class, 'index'])->name('marks.index');

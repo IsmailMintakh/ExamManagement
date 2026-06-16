@@ -718,6 +718,50 @@ class ExamController extends Controller
     }
 
     /**
+     * Inline endpoint for the "Save edit policy" button on the post-submit
+     * edit panel. Lets admins flip a single exam's policy without walking
+     * the whole wizard to the final Update button. Append-only — touches
+     * just the two policy columns, never any other exam data, marks or
+     * results.
+     */
+    public function updateEditPolicy(Request $request, Exam $exam): RedirectResponse
+    {
+        $this->authorize('update', $exam);
+
+        if ($exam->isResultsPublished()) {
+            return back()->withErrors([
+                'post_submit_edit_policy' => 'Cannot change the policy after results are published. Unpublish first.',
+            ]);
+        }
+
+        $data = $request->validate([
+            'post_submit_edit_policy' => ['required', 'in:none,all,specific'],
+            'post_submit_edit_scope' => ['nullable', 'array'],
+            'post_submit_edit_scope.*.school_class_id' => ['required_with:post_submit_edit_scope', 'exists:school_classes,id'],
+            'post_submit_edit_scope.*.section_id' => ['required_with:post_submit_edit_scope', 'exists:sections,id'],
+        ]);
+
+        // When policy isn't 'specific' the scope is meaningless — clear it
+        // so a stale list doesn't confuse a future admin who flips back.
+        $scope = $data['post_submit_edit_policy'] === 'specific'
+            ? ($data['post_submit_edit_scope'] ?? [])
+            : null;
+
+        $exam->update([
+            'post_submit_edit_policy' => $data['post_submit_edit_policy'],
+            'post_submit_edit_scope' => $scope,
+        ]);
+
+        $msg = match ($data['post_submit_edit_policy']) {
+            'none' => 'Edit policy updated — teachers can no longer edit submitted marks for this exam.',
+            'all'  => 'Edit policy updated — teachers may now edit submitted marks for every class & section on this exam.',
+            'specific' => 'Edit policy updated — teachers may edit submitted marks for the '.count($scope ?? []).' selected (class, section) combination'.(count($scope ?? []) === 1 ? '' : 's').'.',
+        };
+
+        return back()->with('success', $msg);
+    }
+
+    /**
      * Inline "Update Marks" endpoint — backs the per-row Apply button on the
      * Edit Exam → Subjects table. Lets an admin correct total / passing marks
      * for one or more (subject, class) tuples without clicking through the
