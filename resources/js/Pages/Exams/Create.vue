@@ -55,6 +55,12 @@ const form = useForm({
         custom_conditions: [],
     },
     combination_rules: props.exam?.combination_rules || { enabled: false, source_exams: [] },
+    // Post-submission edit policy — admins grant teachers the ability to
+    // edit marks after they've been submitted. 'none' (default) blocks it,
+    // 'all' unlocks every (subject, section) on this exam, 'specific'
+    // restricts unlock to the listed (class, section) tuples below.
+    post_submit_edit_policy: props.exam?.post_submit_edit_policy || 'none',
+    post_submit_edit_scope: props.exam?.post_submit_edit_scope || [],
     apply_to_all_schools: props.exam?.apply_to_all_schools ?? false,
     selected_school_ids: props.exam?.schools?.map(s => s.id) || (props.currentSchoolId ? [props.currentSchoolId] : []),
     subjects: props.exam?.exam_subjects?.map(es => ({
@@ -438,6 +444,40 @@ function subjectsForClass(classId) {
 
 function addSubjectRow() {
     form.subjects.push({ subject_id: '', school_class_id: '', total_marks: form.total_marks || 100, passing_marks: form.passing_marks || 33, exam_date: '' })
+}
+
+// ─── Post-submission edit policy: (class, section) tuple picker ───
+// Derives the picker list from the exam's mapped subjects (Step 3) crossed
+// with each class's sections. So as the admin adds classes to the exam,
+// they appear in the picker automatically — no extra wiring.
+const postSubmitTuples = computed(() => {
+    const seen = new Set()
+    const out = []
+    for (const row of form.subjects) {
+        const cid = Number(row.school_class_id)
+        if (!cid) continue
+        const cls = (props.classes || []).find(c => Number(c.id) === cid)
+        if (!cls?.sections) continue
+        for (const sec of cls.sections) {
+            const key = `${cid}-${sec.id}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            out.push({ class_id: cid, class_name: cls.name, section_id: sec.id, section_name: sec.name })
+        }
+    }
+    return out.sort((a, b) => `${a.class_name} ${a.section_name}`.localeCompare(`${b.class_name} ${b.section_name}`))
+})
+function isPostSubmitTuplePicked(classId, sectionId) {
+    return (form.post_submit_edit_scope || []).some(t =>
+        Number(t.school_class_id) === Number(classId) && Number(t.section_id) === Number(sectionId))
+}
+function togglePostSubmitTuple(classId, sectionId) {
+    const list = form.post_submit_edit_scope || []
+    const idx = list.findIndex(t =>
+        Number(t.school_class_id) === Number(classId) && Number(t.section_id) === Number(sectionId))
+    if (idx >= 0) list.splice(idx, 1)
+    else list.push({ school_class_id: classId, section_id: sectionId })
+    form.post_submit_edit_scope = [...list]
 }
 function removeSubjectRow(i) { form.subjects.splice(i, 1) }
 function clearAllSubjects() { form.subjects = [] }
@@ -1518,6 +1558,68 @@ function submit() {
                                 </div>
                             </button>
                         </div>
+                    </div>
+                </section>
+
+                <!-- ═══ Post-submission edit policy ═══
+                     Lets admins grant teachers post-submission edit access
+                     scoped to either the whole exam or specific class+section
+                     combinations. See Exam::allowsPostSubmitEdit for the
+                     server-side gate. -->
+                <section class="surface">
+                    <header class="surface-header">
+                        <h3>
+                            <span class="w-7 h-7 rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400 flex items-center justify-center">
+                                <LockClosedIcon class="w-4 h-4" />
+                            </span>
+                            Edit marks after submission
+                        </h3>
+                        <p class="text-[10px] text-base-content/55 ml-auto">
+                            Teachers normally can't change marks once submitted. Override here for this exam.
+                        </p>
+                    </header>
+                    <div class="surface-body space-y-3">
+                        <label class="flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors"
+                            :class="form.post_submit_edit_policy === 'none' ? 'border-base-content/30 bg-base-200/40' : 'border-base-200 hover:bg-base-200/40'">
+                            <input type="radio" v-model="form.post_submit_edit_policy" value="none" class="radio radio-sm mt-0.5" />
+                            <div>
+                                <div class="font-semibold text-sm">Disabled <span class="text-[10px] text-base-content/55 font-normal ml-1">(default)</span></div>
+                                <p class="text-[11px] text-base-content/55 mt-0.5">Teachers cannot edit marks once submitted. Only admins can override.</p>
+                            </div>
+                        </label>
+                        <label class="flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors"
+                            :class="form.post_submit_edit_policy === 'all' ? 'border-emerald-500 bg-emerald-500/5' : 'border-base-200 hover:bg-base-200/40'">
+                            <input type="radio" v-model="form.post_submit_edit_policy" value="all" class="radio radio-sm mt-0.5" />
+                            <div>
+                                <div class="font-semibold text-sm">Allow for every class &amp; section in this exam</div>
+                                <p class="text-[11px] text-base-content/55 mt-0.5">Any teacher with a SubjectTeacher assignment on this exam can re-open and edit their submitted marks.</p>
+                            </div>
+                        </label>
+                        <label class="flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors"
+                            :class="form.post_submit_edit_policy === 'specific' ? 'border-amber-500 bg-amber-500/5' : 'border-base-200 hover:bg-base-200/40'">
+                            <input type="radio" v-model="form.post_submit_edit_policy" value="specific" class="radio radio-sm mt-0.5" />
+                            <div class="flex-1 min-w-0">
+                                <div class="font-semibold text-sm">Allow only for specific class &amp; sections</div>
+                                <p class="text-[11px] text-base-content/55 mt-0.5">Pick the (class, section) combinations whose teachers may edit submitted marks.</p>
+
+                                <div v-if="form.post_submit_edit_policy === 'specific'" class="mt-3 space-y-1.5">
+                                    <div v-if="!postSubmitTuples.length" class="text-[11px] text-base-content/45 italic px-3 py-2 rounded-lg bg-base-200/40">
+                                        Map subjects to classes in Step 3 first — sections show up here after.
+                                    </div>
+                                    <label v-for="t in postSubmitTuples" :key="`${t.class_id}-${t.section_id}`"
+                                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-base-200 hover:bg-base-200/40 cursor-pointer">
+                                        <input type="checkbox"
+                                            :checked="isPostSubmitTuplePicked(t.class_id, t.section_id)"
+                                            @change="togglePostSubmitTuple(t.class_id, t.section_id)"
+                                            class="checkbox checkbox-sm checkbox-amber"
+                                            @click.stop />
+                                        <span class="text-sm font-medium">{{ t.class_name }}</span>
+                                        <span class="text-base-content/55">·</span>
+                                        <span class="text-sm">{{ t.section_name }}</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </label>
                     </div>
                 </section>
             </div>

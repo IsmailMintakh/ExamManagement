@@ -24,6 +24,7 @@ class Exam extends Model
         'apply_to_all_schools', 'applicable_class_ids',
         'status', 'marks_entry_deadline', 'is_locked', 'created_by',
         'exam_controller_id', 'results_published_at',
+        'post_submit_edit_policy', 'post_submit_edit_scope',
     ];
 
     /** Default weights used when admin enables combine but leaves them blank. */
@@ -49,7 +50,35 @@ class Exam extends Model
             'applicable_class_ids' => 'array',
             'combine_previous_terms' => 'boolean',
             'term_weights' => 'array',
+            'post_submit_edit_scope' => 'array',
         ];
+    }
+
+    /**
+     * May a teacher edit marks that have already been submitted for this
+     * (subject, section)? The single source of truth — controllers and the
+     * Vue entry page both consult this via the controller.
+     *
+     *   - 'none'     → never
+     *   - 'all'      → always
+     *   - 'specific' → only if the (school_class_id, section_id) pair
+     *                  appears in post_submit_edit_scope
+     *
+     * Once results are published the exam is frozen regardless of policy
+     * (changing marks would silently shift grades students have already seen).
+     */
+    public function allowsPostSubmitEdit(int $schoolClassId, int $sectionId): bool
+    {
+        if ($this->isResultsPublished()) return false;
+        $policy = $this->post_submit_edit_policy ?? 'none';
+        if ($policy === 'all') return true;
+        if ($policy !== 'specific') return false;
+
+        $scope = collect($this->post_submit_edit_scope ?? []);
+        return $scope->contains(function ($entry) use ($schoolClassId, $sectionId) {
+            return (int) ($entry['school_class_id'] ?? 0) === $schoolClassId
+                && (int) ($entry['section_id'] ?? 0) === $sectionId;
+        });
     }
 
     protected static function booted(): void

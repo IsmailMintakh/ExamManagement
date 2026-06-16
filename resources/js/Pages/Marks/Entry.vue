@@ -8,6 +8,7 @@ import {
     ExclamationTriangleIcon, UserGroupIcon, CloudIcon, BoltIcon,
     InformationCircleIcon, KeyIcon, ClipboardDocumentIcon,
     MagnifyingGlassIcon, ChatBubbleLeftEllipsisIcon, ChevronDownIcon,
+    PencilSquareIcon, ArrowPathIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -19,7 +20,25 @@ const props = defineProps({
     existingMarks: Object,
     examSubject: Object,
     isSubmitted: Boolean,
+    // Has the admin granted post-submission edit access for this (subject,
+    // section)? When true and isSubmitted is also true, an "Edit Marks"
+    // button appears that flips the form into editMode.
+    canEditAfterSubmit: { type: Boolean, default: false },
 })
+
+// editMode: user-controlled flag — flips on when the teacher clicks
+// "Edit Marks" on a submitted section that the admin has unlocked. While
+// editMode is true, all the `editLocked` gates behave like fresh entry.
+const editMode = ref(false)
+// One gate used everywhere the form was previously checking `isSubmitted`.
+// Locked when:
+//   - the marks are submitted AND
+//   - the user has NOT yet clicked Edit Marks
+// So: fresh entry = unlocked; submitted-no-permission = locked; submitted-
+// with-permission-and-edit-clicked = unlocked; admin always = unlocked
+// when they hit Edit.
+const editLocked = computed(() => props.isSubmitted && !editMode.value)
+const hasUnsavedEdits = computed(() => editMode.value && rows.value.some(r => r.dirty))
 
 // Coerce "30.00" → 30 (DB returns decimals as strings); leaves 33.5 as 33.5.
 const totalMarks   = Number(props.examSubject?.total_marks ?? 100)
@@ -97,7 +116,7 @@ const syncInProgress = ref(false)
 
 /** Quick +/- adjustment used by the mobile card view's stepper buttons. */
 function bumpMarks(row, delta) {
-    if (row.is_absent || props.isSubmitted) return
+    if (row.is_absent || editLocked.value) return
     const current = parseMarks(row.marks_obtained) ?? 0
     let next = Math.round((current + delta) * 10) / 10
     if (next < 0) next = 0
@@ -117,7 +136,7 @@ function parseMarks(s) {
 
 // =============== Validation ===============
 function rowError(row) {
-    if (props.isSubmitted) return null
+    if (editLocked.value) return null
     if (row.is_absent) return null
     if (row.marks_obtained === '' || row.marks_obtained == null) return null
     // Reject obvious invalid characters early (letters, multiple dots, etc.)
@@ -371,7 +390,7 @@ function onMarksKeydown(e, idx) {
     // Space → toggle Absent for this row. If currently absent, untoggling clears
     // it back to empty and the cursor stays here so the teacher can type a number.
     // Only fires when the field is empty (so it doesn't kill normal typing).
-    if (e.key === ' ' && !row.marks_obtained && !isSubmitted.value) {
+    if (e.key === ' ' && !row.marks_obtained && !editLocked.value) {
         e.preventDefault()
         row.is_absent = !row.is_absent
         toggleAbsent(row)
@@ -458,6 +477,64 @@ function submitMarks() {
     })
 }
 
+// ─── Post-submission edit workflow ───
+// Confirm dialog + save → POST to marks.store with the dirty rows. The
+// controller detects the existing 'submitted' status and triggers a
+// result recalc, then redirects with a success flash.
+const showPostEditConfirm = ref(false)
+const postEditSaving = ref(false)
+
+function cancelEdit() {
+    // Revert any unsaved row changes back to the persisted snapshot so
+    // closing edit mode behaves like "undo, don't apply".
+    for (const r of rows.value) {
+        r.marks_obtained = r._snap.marks_obtained
+        r.is_absent = r._snap.is_absent
+        r.remarks = r._snap.remarks
+        r.dirty = false
+    }
+    editMode.value = false
+}
+
+function requestPostEditSave() {
+    if (!hasUnsavedEdits.value || hasErrors.value) return
+    showPostEditConfirm.value = true
+}
+
+function savePostSubmitEdits() {
+    if (postEditSaving.value) return
+    postEditSaving.value = true
+    const dirtyRows = rows.value.filter(r => r.dirty && !rowError(r))
+    const payload = {
+        subject_id: props.subject.id,
+        section_id: props.section.id,
+        school_class_id: props.schoolClass?.id,
+        marks: dirtyRows.map(r => ({
+            student_id: r.student_id,
+            marks_obtained: r.is_absent ? null : parseMarks(r.marks_obtained),
+            is_absent: r.is_absent,
+            remarks: r.remarks || null,
+        })),
+    }
+    router.post(route('marks.store', props.exam.id), payload, {
+        preserveScroll: true,
+        onSuccess: () => {
+            showPostEditConfirm.value = false
+            editMode.value = false
+            // Re-anchor each row's snapshot so the cleared state matches DB.
+            for (const r of rows.value) {
+                r._snap = {
+                    marks_obtained: r.marks_obtained,
+                    is_absent: r.is_absent,
+                    remarks: r.remarks,
+                }
+                r.dirty = false
+            }
+        },
+        onFinish: () => { postEditSaving.value = false },
+    })
+}
+
 // =============== Below-passing students preview (for review modal) ===============
 const failedStudents = computed(() =>
     rows.value
@@ -511,18 +588,60 @@ const absentStudents = computed(() =>
             </div>
 
             <!-- ═══════════ SUBMITTED BANNER ═══════════ -->
-            <div v-if="isSubmitted" class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 flex items-center gap-3">
+            <!-- Three states:
+                 1. submitted + no edit permission → green lock banner
+                 2. submitted + permission + NOT yet in edit mode → invite to edit
+                 3. submitted + permission + IN edit mode → amber "you're editing" banner -->
+            <div v-if="isSubmitted && !canEditAfterSubmit"
+                 class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0">
                     <CheckCircleIcon class="w-5 h-5" />
                 </div>
                 <div>
                     <div class="font-bold text-emerald-900 dark:text-emerald-100">Marks Submitted</div>
-                    <div class="text-xs text-emerald-800/75 dark:text-emerald-200/75">These marks are locked and can no longer be edited.</div>
+                    <div class="text-xs text-emerald-800/75 dark:text-emerald-200/75">
+                        These marks are locked. Ask your administrator to enable post-submission edits for this exam to change them.
+                    </div>
                 </div>
             </div>
 
+            <div v-else-if="isSubmitted && canEditAfterSubmit && !editMode"
+                 class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0">
+                    <CheckCircleIcon class="w-5 h-5" />
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="font-bold text-emerald-900 dark:text-emerald-100">Marks Submitted</div>
+                    <div class="text-xs text-emerald-800/75 dark:text-emerald-200/75">
+                        Your administrator has enabled post-submission edits. Click <b>Edit Marks</b> to revise — results will recalculate automatically after you save.
+                    </div>
+                </div>
+                <button type="button" @click="editMode = true"
+                        class="btn btn-warning btn-sm gap-1.5 rounded-xl shrink-0">
+                    <PencilSquareIcon class="w-4 h-4" /> Edit Marks
+                </button>
+            </div>
+
+            <div v-else-if="isSubmitted && canEditAfterSubmit && editMode"
+                 class="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center flex-shrink-0">
+                    <PencilSquareIcon class="w-5 h-5" />
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="font-bold text-amber-900 dark:text-amber-100">Editing submitted marks</div>
+                    <div class="text-xs text-amber-800/80 dark:text-amber-200/80">
+                        Changes won't apply until you click <b>Save changes</b> below.
+                        Result percentages, grades and pass/fail will recalculate automatically.
+                    </div>
+                </div>
+                <button type="button" @click="cancelEdit"
+                        class="btn btn-ghost btn-sm gap-1.5 rounded-xl shrink-0">
+                    <XCircleIcon class="w-4 h-4" /> Cancel
+                </button>
+            </div>
+
             <!-- ═══════════ STATUS STRIP ═══════════ -->
-            <div v-if="!isSubmitted" class="rounded-2xl border border-base-200 bg-base-100 p-4">
+            <div v-if="!editLocked" class="rounded-2xl border border-base-200 bg-base-100 p-4">
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div class="flex items-center gap-4">
                         <div class="flex items-center gap-2.5">
@@ -689,14 +808,14 @@ const absentStudents = computed(() =>
                     <div class="px-3 pb-3 flex items-stretch gap-2 min-w-0">
                         <button type="button"
                             @click="bumpMarks(row, -1)"
-                            :disabled="row.is_absent || isSubmitted"
+                            :disabled="row.is_absent || editLocked"
                             class="w-11 h-12 shrink-0 rounded-xl bg-base-200 text-xl font-bold text-base-content/75 active:scale-95 transition-transform disabled:opacity-30 disabled:active:scale-100"
                             aria-label="Decrease">−</button>
 
                         <input
                             v-model="row.marks_obtained"
                             @input="markDirty(row)"
-                            :disabled="row.is_absent || isSubmitted"
+                            :disabled="row.is_absent || editLocked"
                             type="text"
                             inputmode="decimal"
                             :placeholder="row.is_absent ? 'AB' : 'Marks'"
@@ -706,7 +825,7 @@ const absentStudents = computed(() =>
 
                         <button type="button"
                             @click="bumpMarks(row, 1)"
-                            :disabled="row.is_absent || isSubmitted"
+                            :disabled="row.is_absent || editLocked"
                             class="w-11 h-12 shrink-0 rounded-xl bg-base-200 text-xl font-bold text-base-content/75 active:scale-95 transition-transform disabled:opacity-30 disabled:active:scale-100"
                             aria-label="Increase">+</button>
                     </div>
@@ -724,7 +843,7 @@ const absentStudents = computed(() =>
                         <div class="flex-1"></div>
                         <label class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer active:bg-base-200 shrink-0"
                                :class="row.is_absent ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200' : 'text-base-content/70'">
-                            <input type="checkbox" v-model="row.is_absent" @change="toggleAbsent(row)" :disabled="isSubmitted"
+                            <input type="checkbox" v-model="row.is_absent" @change="toggleAbsent(row)" :disabled="editLocked"
                                    class="checkbox checkbox-warning checkbox-xs" />
                             <span class="text-[10px] font-bold uppercase tracking-wider">Absent</span>
                         </label>
@@ -814,7 +933,7 @@ const absentStudents = computed(() =>
                                         @input="markDirty(row)"
                                         @keydown="onMarksKeydown($event, idx)"
                                         @paste="onMarksPaste($event, idx)"
-                                        :disabled="row.is_absent || isSubmitted"
+                                        :disabled="row.is_absent || editLocked"
                                         type="text"
                                         inputmode="decimal"
                                         :placeholder="row.is_absent ? 'AB' : '—'"
@@ -840,7 +959,7 @@ const absentStudents = computed(() =>
                                         type="checkbox"
                                         v-model="row.is_absent"
                                         @change="toggleAbsent(row)"
-                                        :disabled="isSubmitted"
+                                        :disabled="editLocked"
                                         class="checkbox checkbox-sm" />
                                 </td>
                                 <td class="px-3 py-2.5 text-center hidden md:table-cell">
@@ -864,7 +983,7 @@ const absentStudents = computed(() =>
                                     <input
                                         v-model="row.remarks"
                                         @input="markDirty(row)"
-                                        :disabled="row.is_absent || isSubmitted"
+                                        :disabled="row.is_absent || editLocked"
                                         type="text"
                                         placeholder="—"
                                         class="input input-bordered input-sm w-full text-xs" />
@@ -888,6 +1007,36 @@ const absentStudents = computed(() =>
             </div>
 
             <!-- ═══════════ STICKY ACTION BAR (mobile + desktop variants) ═══════════ -->
+
+            <!-- Post-submission EDIT action bar — shown only when the teacher
+                 has clicked Edit Marks on a submitted section. Stays visible
+                 until they Save or Cancel. Confirmation modal handles save. -->
+            <div v-if="isSubmitted && editMode && rows.length"
+                class="sticky bottom-4 rounded-2xl border border-amber-500/40 bg-amber-50/95 dark:bg-amber-950/40 backdrop-blur-xl shadow-xl p-3 z-10">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div class="flex items-center gap-2 text-xs text-amber-900 dark:text-amber-200">
+                        <PencilSquareIcon class="w-4 h-4 shrink-0" />
+                        <span v-if="hasUnsavedEdits">
+                            You've changed {{ rows.filter(r => r.dirty).length }} student{{ rows.filter(r => r.dirty).length === 1 ? '' : 's' }} — click <b>Save changes</b> to apply.
+                        </span>
+                        <span v-else>Make your edits below, then save.</span>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button @click="cancelEdit" class="btn btn-ghost btn-sm rounded-xl gap-1.5">
+                            <XCircleIcon class="w-4 h-4" /> Cancel
+                        </button>
+                        <button @click="requestPostEditSave"
+                            :disabled="!hasUnsavedEdits || hasErrors"
+                            class="btn btn-warning btn-sm rounded-xl gap-1.5">
+                            <DocumentCheckIcon class="w-4 h-4" /> Save changes
+                        </button>
+                    </div>
+                </div>
+                <div v-if="hasErrors" class="mt-2 px-2 py-1 rounded-md bg-rose-500/15 text-rose-700 dark:text-rose-300 text-[11px] font-medium flex items-center gap-1.5">
+                    <ExclamationTriangleIcon class="w-3.5 h-3.5 shrink-0" />
+                    Fix highlighted rows before saving
+                </div>
+            </div>
 
             <!-- MOBILE: compact dock that floats above the bottom nav -->
             <div v-if="!isSubmitted && rows.length"
@@ -1041,6 +1190,54 @@ const absentStudents = computed(() =>
                             <BoltIcon v-if="!submitProcessing" class="w-4 h-4" />
                             <span v-else class="loading loading-spinner loading-xs"></span>
                             {{ submitProcessing ? 'Submitting...' : 'Submit Final Marks' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Transition>
+
+        <!-- ═══════════ POST-SUBMISSION EDIT CONFIRMATION ═══════════
+             Last-chance dialog before applying changes to already-submitted
+             marks. The controller does the actual cascade into Result rows. -->
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0" enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100" leave-to-class="opacity-0">
+            <div v-if="showPostEditConfirm"
+                class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+                @click.self="!postEditSaving && (showPostEditConfirm = false)">
+                <div class="bg-base-100 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+                    <div class="px-5 py-4 border-b border-base-200 flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-md">
+                            <ExclamationTriangleIcon class="w-5 h-5" />
+                        </div>
+                        <div class="min-w-0">
+                            <h3 class="font-bold text-base">Save edits to submitted marks?</h3>
+                            <p class="text-[11px] text-base-content/55">This action recalculates results.</p>
+                        </div>
+                    </div>
+                    <div class="px-5 py-4 space-y-2 text-sm">
+                        <p>
+                            You're editing
+                            <b class="text-base-content">{{ rows.filter(r => r.dirty).length }}</b>
+                            already-submitted student mark{{ rows.filter(r => r.dirty).length === 1 ? '' : 's' }}.
+                        </p>
+                        <p class="text-base-content/65 text-xs leading-relaxed">
+                            On save: the new marks are recorded against the existing submission,
+                            and the system automatically recalculates total marks, percentages, grades,
+                            pass/fail and merit positions for every affected student. Updated
+                            values flow straight into result cards and result sheets.
+                        </p>
+                    </div>
+                    <div class="px-5 py-3 border-t border-base-200 bg-base-200/40 flex items-center justify-end gap-2">
+                        <button @click="showPostEditConfirm = false" :disabled="postEditSaving"
+                            class="btn btn-ghost btn-sm rounded-xl">Cancel</button>
+                        <button @click="savePostSubmitEdits" :disabled="postEditSaving"
+                            class="btn btn-warning btn-sm rounded-xl gap-1.5">
+                            <ArrowPathIcon v-if="postEditSaving" class="w-4 h-4 animate-spin" />
+                            <DocumentCheckIcon v-else class="w-4 h-4" />
+                            {{ postEditSaving ? 'Saving…' : 'Save & recalculate' }}
                         </button>
                     </div>
                 </div>

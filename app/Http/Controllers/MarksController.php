@@ -202,6 +202,14 @@ class MarksController extends Controller
             ->first();
 
         $subjectModel = Subject::findOrFail($subject);
+        $isSubmitted = $submission && $submission->status === 'submitted';
+
+        // Admins can always edit submitted marks. For teachers we consult
+        // the per-exam post-submit edit policy ('none' | 'all' | 'specific')
+        // set by the admin in the Exam Edit screen.
+        $isAdmin = $user->isSuperAdmin() || $user->isSchoolAdmin();
+        $canEditAfterSubmit = $isAdmin
+            || $examModel->allowsPostSubmitEdit($sectionModel->school_class_id, $section);
 
         return Inertia::render('Marks/Entry', [
             'exam' => $examModel,
@@ -211,7 +219,8 @@ class MarksController extends Controller
             'section' => $sectionModel,
             'students' => $students,
             'existingMarks' => $existingMarks,
-            'isSubmitted' => $submission && $submission->status === 'submitted',
+            'isSubmitted' => $isSubmitted,
+            'canEditAfterSubmit' => $canEditAfterSubmit,
         ]);
     }
 
@@ -229,7 +238,6 @@ class MarksController extends Controller
         ]);
 
         $data['exam_id'] = $exam->id;
-        $data['status'] = 'draft';
         $user = $request->user();
         $currentSession = AcademicSession::currentSession();
 
@@ -238,15 +246,36 @@ class MarksController extends Controller
             abort(403, 'You can only enter marks for subjects assigned to you.');
         }
 
-        if (!$exam->isMarksEntryOpen()) {
-            return redirect()->back()->with('error', 'Marks entry is not open for this exam.');
-        }
-
         $examSubject = ExamSubject::where('exam_id', $exam->id)
             ->where('subject_id', $data['subject_id'])
             ->firstOrFail();
 
         $section = Section::with('schoolClass')->findOrFail($data['section_id']);
+
+        // Are any of the marks we're saving already in 'submitted' status?
+        // If so we're in the post-submission EDIT path, which has its own
+        // gate (admin always allowed, teachers only when the exam's
+        // post_submit_edit_policy permits this class+section). Marks-entry
+        // doesn't need to be "open" for the edit path — that lock is for
+        // the original entry flow only.
+        $alreadySubmittedCount = Mark::where('exam_id', $exam->id)
+            ->where('subject_id', $data['subject_id'])
+            ->where('section_id', $data['section_id'])
+            ->where('status', 'submitted')
+            ->count();
+        $isEditingSubmitted = $alreadySubmittedCount > 0;
+
+        if ($isEditingSubmitted) {
+            $isAdmin = $user->isSuperAdmin() || $user->isSchoolAdmin();
+            if (!$isAdmin && !$exam->allowsPostSubmitEdit((int) $section->school_class_id, (int) $data['section_id'])) {
+                abort(403, 'Marks for this section have already been submitted. Ask your administrator to enable post-submission edits.');
+            }
+        } else {
+            // Normal draft save still requires marks-entry to be open.
+            if (!$exam->isMarksEntryOpen()) {
+                return redirect()->back()->with('error', 'Marks entry is not open for this exam.');
+            }
+        }
 
         // Marks can never exceed the subject's total — reject, don't clamp.
         $maxMarks = (float) $examSubject->total_marks;
@@ -260,6 +289,17 @@ class MarksController extends Controller
         }
 
         foreach ($data['marks'] as $markData) {
+            $existing = Mark::where('exam_id', $exam->id)
+                ->where('subject_id', $data['subject_id'])
+                ->where('student_id', $markData['student_id'])
+                ->where('section_id', $data['section_id'])
+                ->first();
+
+            // Preserve 'submitted' status for marks being edited post-submit
+            // — the row was submitted once, the edit just revises the numbers,
+            // it doesn't unsubmit. Otherwise default to draft for fresh entry.
+            $rowStatus = $existing && $existing->status === 'submitted' ? 'submitted' : 'draft';
+
             Mark::updateOrCreate(
                 [
                     'exam_id' => $exam->id,
@@ -277,11 +317,23 @@ class MarksController extends Controller
                     'grace_marks' => 0,
                     'is_absent' => $markData['is_absent'] ?? false,
                     'remarks' => $markData['remarks'] ?? null,
-                    'status' => $data['status'],
+                    'status' => $rowStatus,
                     'entered_by' => $user->id,
-                    'submitted_at' => null,
+                    'submitted_at' => $rowStatus === 'submitted'
+                        ? ($existing?->submitted_at ?? now())
+                        : null,
                 ]
             );
+        }
+
+        // Post-submission edit path → cascade through ResultProcessingService
+        // so percentage / grade / pass-fail / positions all reflect the new
+        // numbers. Same service the normal generate flow uses.
+        if ($isEditingSubmitted) {
+            app(\App\Services\ResultProcessingService::class)
+                ->generateResults($exam, (int) $section->school_class_id, (int) $data['section_id']);
+            return redirect()->back()->with('success',
+                'Marks updated successfully. Result calculations have been refreshed.');
         }
 
         return redirect()->back()->with('success', 'Marks saved as draft.');

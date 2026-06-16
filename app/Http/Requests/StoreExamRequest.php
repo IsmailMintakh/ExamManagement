@@ -79,6 +79,11 @@ class StoreExamRequest extends FormRequest
             'subjects.*.passing_marks' => ['required_with:subjects', 'numeric', 'min:0'],
             // Per-subject paper date must fall inside the exam window.
             'subjects.*.exam_date' => ['nullable', 'date', 'after_or_equal:start_date', 'before_or_equal:end_date'],
+            // Post-submission edit policy — see Exam::allowsPostSubmitEdit().
+            'post_submit_edit_policy' => ['nullable', 'in:none,all,specific'],
+            'post_submit_edit_scope' => ['nullable', 'array'],
+            'post_submit_edit_scope.*.school_class_id' => ['required_with:post_submit_edit_scope', 'exists:school_classes,id'],
+            'post_submit_edit_scope.*.section_id' => ['required_with:post_submit_edit_scope', 'exists:sections,id'],
         ];
     }
 

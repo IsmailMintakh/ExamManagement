@@ -520,6 +520,14 @@ class ExamController extends Controller
             'subjects.*.total_marks' => ['required_with:subjects', 'numeric', 'min:0'],
             'subjects.*.passing_marks' => ['required_with:subjects', 'numeric', 'min:0'],
             'subjects.*.exam_date' => ['nullable', 'date', 'after_or_equal:start_date', 'before_or_equal:end_date'],
+            // Post-submission edit policy. 'none' (default) blocks teachers
+            // from editing once submitted; 'all' unlocks the whole exam;
+            // 'specific' unlocks only the (class, section) pairs listed in
+            // post_submit_edit_scope. Admins always retain edit access.
+            'post_submit_edit_policy' => ['nullable', 'in:none,all,specific'],
+            'post_submit_edit_scope' => ['nullable', 'array'],
+            'post_submit_edit_scope.*.school_class_id' => ['required_with:post_submit_edit_scope', 'exists:school_classes,id'],
+            'post_submit_edit_scope.*.section_id' => ['required_with:post_submit_edit_scope', 'exists:sections,id'],
         ], [
             'end_date.after_or_equal' => 'The exam end date must be the same as or after the start date.',
             'marks_entry_deadline.after_or_equal' => 'The marks-entry deadline must be on or after the exam end date.',
