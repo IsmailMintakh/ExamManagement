@@ -49,6 +49,14 @@ class HandleInertiaRequests extends Middleware
                     'isClassTeacher' => \App\Models\Section::where('class_teacher_id', $user->id)
                         ->where('is_active', true)
                         ->exists(),
+                    // True when the user leads at least one PRIMARY-stage
+                    // section (ECD–5). Drives the Assessment sidebar entry
+                    // and the primary marks-entry visibility filter.
+                    'isPrimaryClassTeacher' => \App\Models\Section::where('class_teacher_id', $user->id)
+                        ->where('is_active', true)
+                        ->whereHas('schoolClass', fn ($q) =>
+                            $q->whereIn('stage', \App\Models\SchoolClass::PRIMARY_STAGES))
+                        ->exists(),
                 ] : null,
                 'currentSession' => AcademicSession::currentSession(),
                 'sessions' => AcademicSession::active()->orderBy('start_date', 'desc')->get(['id', 'name', 'is_current']),

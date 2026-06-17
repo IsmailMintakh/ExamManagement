@@ -119,6 +119,11 @@ class MarksController extends Controller
                     // an active SubjectTeacher row for. Class-teacher-of-
                     // section is not a marks-entry avenue — strictly
                     // assignment-based RBAC.
+                    //
+                    // This also handles the primary/higher separation: a
+                    // primary teacher has no SubjectTeacher row on Class 8,
+                    // a Class 8 teacher has no SubjectTeacher row on Class 2,
+                    // so neither will see the other's exams here.
                     if (!$isAdmin) {
                         $isMySubject = $teacherAssignments->where('subject_id', $es->subject_id)
                             ->where('section_id', $sec->id)->isNotEmpty();

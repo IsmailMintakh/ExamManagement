@@ -115,6 +115,32 @@ class SchoolClass extends Model
         return $query->where('stage', $stage);
     }
 
+    /**
+     * Primary section = ECD/Pre-Primary + Classes 1–5. Drives the separate
+     * primary result calculation (30/30/40 per-term subject totals + overall
+     * 10-mark assessment + raw-sum annual aggregation). Anywhere we branch
+     * "primary vs higher-classes" we go through this helper so the
+     * definition stays in one place.
+     */
+    public const PRIMARY_STAGES = ['pre_primary', 'primary'];
+
+    public function isPrimaryStage(): bool
+    {
+        return in_array($this->stage, self::PRIMARY_STAGES, true);
+    }
+
+    public function scopePrimary($query)
+    {
+        return $query->whereIn('stage', self::PRIMARY_STAGES);
+    }
+
+    public function scopeNonPrimary($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereNotIn('stage', self::PRIMARY_STAGES)->orWhereNull('stage');
+        });
+    }
+
     /** Display label for the class's stage (or '—' if unset). */
     public function getStageLabelAttribute(): string
     {

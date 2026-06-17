@@ -117,6 +117,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('my-subjects', [\App\Http\Controllers\MySubjectsController::class, 'index'])
         ->name('my-subjects.index');
 
+    // Primary-section Assessment marks — overall 10-mark conduct/participation
+    // score entered ONCE per student per session by the class teacher of an
+    // ECD-5 section. Feeds the primary Annual Result aggregator.
+    Route::get('assessment', [\App\Http\Controllers\AssessmentController::class, 'index'])
+        ->name('assessment.index');
+    Route::post('assessment', [\App\Http\Controllers\AssessmentController::class, 'store'])
+        ->name('assessment.store');
+
     // ─── Timetable + substitution ───
     Route::prefix('timetable')->name('timetable.')->group(function () {
         Route::get('/', [TimetableController::class, 'index'])->name('index');

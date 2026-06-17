@@ -91,8 +91,18 @@ class ResultProcessingService
                 // exam, blend in the student's 1st + 2nd term percentages and
                 // overwrite the result totals so the final card shows the
                 // year-end aggregate.
+                //
+                // Primary classes (ECD–5) follow a different rule per spec:
+                // each subject's annual total is the RAW SUM of all three
+                // terms (30 + 30 + 40 = 100), an overall 10-mark Assessment
+                // is added, and a sub-4 Assessment forces a Fail. We branch
+                // here instead of calling the weighted combiner.
                 if ($combineCtx) {
-                    $this->applyTermCombination($result, $student, $exam, $gradingScale, $combineCtx);
+                    if ($this->isPrimaryClass($schoolClassId)) {
+                        $this->applyPrimaryAnnualCombination($result, $student, $exam, $gradingScale, $combineCtx);
+                    } else {
+                        $this->applyTermCombination($result, $student, $exam, $gradingScale, $combineCtx);
+                    }
                 }
 
                 $results->push($result);
@@ -245,6 +255,137 @@ class ResultProcessingService
     }
 
     /**
+     * Is this class in the primary section (ECD/Pre-primary or Classes 1–5)?
+     * Drives the branch into the spec-defined raw-sum + assessment aggregator
+     * instead of the weighted percentage blend used elsewhere.
+     */
+    protected function isPrimaryClass(int $schoolClassId): bool
+    {
+        static $cache = [];
+        if (array_key_exists($schoolClassId, $cache)) return $cache[$schoolClassId];
+        $stage = \App\Models\SchoolClass::whereKey($schoolClassId)->value('stage');
+        return $cache[$schoolClassId] = in_array($stage, \App\Models\SchoolClass::PRIMARY_STAGES, true);
+    }
+
+    /**
+     * Primary-section Annual Result aggregator. Per spec:
+     *   - Each subject annual = RAW SUM of all three terms (T1 + T2 + Final).
+     *     With the standard primary scales that's 30 + 30 + 40 = 100, so the
+     *     subject denominator is 100 and a 40% passing mark is 40.
+     *   - The class teacher's 10-mark Assessment score is added on top so
+     *     grand total = subjects×100 + 10.
+     *   - Pass criteria: every subject ≥ subject pass marks AND the
+     *     assessment score ≥ assessment passing marks (4/10). A sub-pass
+     *     Assessment forces an overall Fail even if every subject is passed.
+     */
+    protected function applyPrimaryAnnualCombination(
+        Result $finalResult,
+        Student $student,
+        Exam $finalExam,
+        ?GradingScale $gradingScale,
+        array $ctx
+    ): void {
+        $first = Result::where('exam_id', $ctx['first_exam_id'])
+            ->where('student_id', $student->id)
+            ->first();
+        $second = Result::where('exam_id', $ctx['second_exam_id'])
+            ->where('student_id', $student->id)
+            ->first();
+        if (!$first || !$second) return;
+
+        $firstBySubj  = collect($first->subject_results ?? [])->keyBy('subject_id');
+        $secondBySubj = collect($second->subject_results ?? [])->keyBy('subject_id');
+
+        $combined = [];
+        $totalMarks = 0.0;
+        $obtainedMarks = 0.0;
+        $passed = 0;
+        $failed = 0;
+
+        foreach ($finalResult->subject_results ?? [] as $row) {
+            $sid = $row['subject_id'];
+
+            // Raw obtained marks per term — exactly what the student got.
+            $obtFirst  = (float) ($firstBySubj[$sid]['effective_marks']  ?? $firstBySubj[$sid]['marks_obtained']  ?? 0);
+            $obtSecond = (float) ($secondBySubj[$sid]['effective_marks'] ?? $secondBySubj[$sid]['marks_obtained'] ?? 0);
+            $obtFinal  = (float) ($row['effective_marks'] ?? $row['marks_obtained'] ?? 0);
+
+            // Per-subject annual denominator = sum of each term's subject total.
+            $totFirst  = (float) ($firstBySubj[$sid]['total_marks']  ?? 30);
+            $totSecond = (float) ($secondBySubj[$sid]['total_marks'] ?? 30);
+            $totFinal  = (float) ($row['total_marks'] ?? 40);
+            $annualTotal = $totFirst + $totSecond + $totFinal;
+
+            $annualObtained = round($obtFirst + $obtSecond + $obtFinal, 2);
+            $annualPassing = $annualTotal > 0 ? round($annualTotal * 0.40, 2) : 0; // 40% per spec
+            $isPassed = !($row['is_absent'] ?? false) && $annualObtained >= $annualPassing;
+
+            $combined[] = array_merge($row, [
+                'total_marks' => $annualTotal,
+                'passing_marks' => $annualPassing,
+                'marks_obtained' => $annualObtained,
+                'effective_marks' => $annualObtained,
+                'grace_marks' => 0,
+                'percentage' => $annualTotal > 0 ? round(($annualObtained / $annualTotal) * 100, 2) : 0,
+                'is_passed' => $isPassed,
+                'primary_breakdown' => [
+                    'first'  => ['obtained' => $obtFirst,  'total' => $totFirst],
+                    'second' => ['obtained' => $obtSecond, 'total' => $totSecond],
+                    'final'  => ['obtained' => $obtFinal,  'total' => $totFinal],
+                ],
+            ]);
+
+            $totalMarks    += $annualTotal;
+            $obtainedMarks += $annualObtained;
+            $isPassed ? $passed++ : $failed++;
+        }
+
+        // ─── Assessment marks (per student, per academic session) ───
+        $assessment = \App\Models\AssessmentMark::where('student_id', $student->id)
+            ->where('academic_session_id', $finalExam->academic_session_id)
+            ->first();
+        $assessmentObtained = $assessment ? (float) $assessment->marks_obtained : 0.0;
+        $assessmentTotal    = $assessment ? (float) $assessment->marks_total    : 10.0;
+        $assessmentPassing  = $assessment ? (float) $assessment->passing_marks  : 4.0;
+        $assessmentPassed   = $assessmentObtained >= $assessmentPassing;
+
+        $totalMarks    += $assessmentTotal;
+        $obtainedMarks += $assessmentObtained;
+
+        $combinedPercentage = $totalMarks > 0 ? round(($obtainedMarks / $totalMarks) * 100, 2) : 0;
+        [$grade, $gradePoint] = $this->calculateGrade($combinedPercentage, $gradingScale);
+
+        // Subject-pass via the exam's existing pass policy, then overlay the
+        // assessment rule: failing assessment forces an overall Fail no
+        // matter what the subjects look like.
+        $subjectsOK = $this->determinePassStatus($finalExam, $combined, $passed, $failed, $combinedPercentage);
+        $aggPassed = $subjectsOK && $assessmentPassed;
+
+        // Remarks line — make the assessment fail reason visible in the row.
+        $remarks = $finalResult->remarks;
+        if (!$assessmentPassed && $assessment) {
+            $remarks = trim(($remarks ? $remarks.' · ' : '').sprintf(
+                'Failed assessment (%s/%s).',
+                rtrim(rtrim(number_format($assessmentObtained, 2, '.', ''), '0'), '.'),
+                rtrim(rtrim(number_format($assessmentTotal,    2, '.', ''), '0'), '.'),
+            ));
+        }
+
+        $finalResult->update([
+            'subject_results' => $combined,
+            'total_marks' => $totalMarks,
+            'obtained_marks' => $obtainedMarks,
+            'percentage' => $combinedPercentage,
+            'grade' => $grade,
+            'grade_point' => $gradePoint,
+            'subjects_passed' => $passed,
+            'subjects_failed' => $failed,
+            'is_passed' => $aggPassed,
+            'remarks' => $remarks,
+        ]);
+    }
+
+    /**
      * Resolve the prior-term exam IDs + the weight set for a final-term
      * exam that wants to combine. Returns null when this isn't a combine
      * exam or when either prior-term exam is missing for this session.
@@ -254,9 +395,10 @@ class ResultProcessingService
         if ($exam->term !== 'final' || !$exam->combine_previous_terms) {
             return null;
         }
+        // Weights are validated downstream by the weighted aggregator only.
+        // The primary aggregator ignores weights entirely (raw sum per spec),
+        // so we don't want to gate combine resolution on a 100% sum here.
         $weights = $exam->term_weights ?: Exam::DEFAULT_TERM_WEIGHTS;
-        $sum = (int) ($weights['first'] ?? 0) + (int) ($weights['second'] ?? 0) + (int) ($weights['final'] ?? 0);
-        if ($sum !== 100) return null;
 
         $priors = Exam::where('academic_session_id', $exam->academic_session_id)
             ->whereIn('term', ['first', 'second'])
@@ -299,7 +441,13 @@ class ResultProcessingService
             return; // student didn't sit one of the prior terms — leave final marks as-is
         }
 
+        // Weighted aggregator is sane only when the three weights add up to
+        // 100. Skip the combine if they don't — the final exam's own numbers
+        // stay in place, no silent miscalculation.
         $weights = $ctx['weights'];
+        $sum = (int) ($weights['first'] ?? 0) + (int) ($weights['second'] ?? 0) + (int) ($weights['final'] ?? 0);
+        if ($sum !== 100) return;
+
         $firstBySubj = collect($first->subject_results ?? [])->keyBy('subject_id');
         $secondBySubj = collect($second->subject_results ?? [])->keyBy('subject_id');
 

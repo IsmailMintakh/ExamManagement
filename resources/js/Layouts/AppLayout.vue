@@ -165,6 +165,12 @@ const menuGroups = computed(() => {
             { label: 'My Subjects', href: '/my-subjects', icon: BookOpenIcon },
             { label: 'Marks Entry', href: '/marks', icon: DocumentTextIcon },
         ]
+        // Assessment marks — only for class teachers of primary-stage
+        // sections (ECD–5). The 10-mark overall conduct/participation score
+        // that feeds the primary Annual Result aggregation.
+        if (user.value?.isPrimaryClassTeacher) {
+            teachItems.push({ label: 'Assessment', href: '/assessment', icon: CheckBadgeIcon })
+        }
         if (hasPerm('exams.view')) teachItems.push({ label: 'Exams', href: '/exams', icon: ClipboardDocumentListIcon })
         teachItems.push({ label: 'Smart Lesson Plan', href: '/lesson-plan', icon: SparklesIcon })
         if (hasPerm('questions.view')) teachItems.push({ label: 'Question Bank', href: '/questions', icon: QuestionMarkCircleIcon })
