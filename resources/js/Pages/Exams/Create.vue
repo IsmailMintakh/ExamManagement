@@ -578,16 +578,16 @@ const removeSubjectError = ref('')
 const removeSubjectBusy = ref(false)
 
 function askRemoveSubject(row, index) {
-    // No marks → just yank the row, server-side sync handles it on save.
-    if (!props.exam?.id || !row.marks_count || row.marks_count === 0) {
+    // Create-mode (no saved exam yet) → just yank from local state, nothing
+    // to persist server-side. Also covers rows the admin just added but
+    // hasn't picked a subject/class for yet.
+    if (!props.exam?.id || !row.subject_id || !row.school_class_id) {
         removeSubjectRow(index)
         return
     }
-    // Marks present → require password (or full edit privileges first).
-    if (!row.subject_id || !row.school_class_id) {
-        removeSubjectRow(index)
-        return
-    }
+    // Edit-mode → ALWAYS open the modal so one click = one persisted delete.
+    // The modal hides the password field when marks_count === 0 (nothing to
+    // protect; the admin still confirms so accidents don't slip through).
     confirmRemoveSubject.value = { row, index, requiresPassword: row.marks_count > 0 }
     removeSubjectPassword.value = ''
     removeSubjectError.value = ''
@@ -2222,36 +2222,62 @@ function submit() {
             </div>
         </div>
 
-        <!-- ═══════════ Remove Subject — Password Required ═══════════
-             Fires only when the row has marks_count > 0. Subjects with no
-             marks are yanked client-side via removeSubjectRow(). Posts to
-             /exams/{id}/remove-subject which Hash::check's the admin's
-             password before deleting the (subject, class) row + cascading. -->
+        <!-- ═══════════ Remove Subject Confirmation ═══════════
+             Two modes — keyed on confirmRemoveSubject.requiresPassword:
+             - No marks → plain confirm dialog (one-click delete, but the
+               admin still confirms so accidental misclicks don't drop data).
+             - Marks present → password gate. Server Hash::checks the
+               current user's password before deleting the (subject, class)
+               row and cascading into marks/submissions/results.
+             Both paths POST to /exams/{id}/remove-subject so the row is
+             persisted immediately — refresh-safe. -->
         <div v-if="confirmRemoveSubject"
              class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
              @click.self="!removeSubjectBusy && cancelRemoveSubject()">
             <div class="bg-base-100 rounded-2xl border border-base-300 shadow-2xl w-full max-w-md overflow-hidden">
-                <header class="px-5 py-4 border-b border-base-200 flex items-center gap-3 bg-amber-500/5">
-                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-md">
-                        <LockClosedIcon class="w-5 h-5" />
+                <header class="px-5 py-4 border-b border-base-200 flex items-center gap-3"
+                        :class="confirmRemoveSubject.requiresPassword ? 'bg-amber-500/5' : 'bg-rose-500/5'">
+                    <div class="w-10 h-10 rounded-xl text-white flex items-center justify-center shadow-md"
+                         :class="confirmRemoveSubject.requiresPassword
+                             ? 'bg-gradient-to-br from-amber-500 to-orange-600'
+                             : 'bg-gradient-to-br from-rose-500 to-pink-600'">
+                        <LockClosedIcon v-if="confirmRemoveSubject.requiresPassword" class="w-5 h-5" />
+                        <TrashIcon v-else class="w-5 h-5" />
                     </div>
                     <div class="min-w-0">
-                        <h2 class="font-bold text-base">Remove subject — password required</h2>
-                        <p class="text-[11px] text-base-content/55">This subject has marks entered.</p>
+                        <h2 class="font-bold text-base">
+                            {{ confirmRemoveSubject.requiresPassword
+                                ? 'Remove subject — password required'
+                                : 'Remove this subject?' }}
+                        </h2>
+                        <p class="text-[11px] text-base-content/55">
+                            {{ confirmRemoveSubject.requiresPassword
+                                ? 'This subject has marks entered.'
+                                : 'Confirms an immediate delete on the server.' }}
+                        </p>
                     </div>
                 </header>
                 <div class="px-5 py-4 space-y-3 text-sm">
                     <p>
-                        You're about to remove <b>{{ confirmRemoveSubject.row.subject_name || 'this subject' }}</b>
-                        from this exam. <b>{{ confirmRemoveSubject.row.marks_count }} mark(s)</b> have already
-                        been entered for it.
+                        Remove
+                        <b>{{ confirmRemoveSubject.row.subject_name
+                            || (subjectsForClass(confirmRemoveSubject.row.school_class_id)
+                                .find(s => s.id === confirmRemoveSubject.row.subject_id)?.name)
+                            || 'this subject' }}</b>
+                        from this exam?
                     </p>
                     <ul class="text-xs text-base-content/65 list-disc list-inside pl-1 space-y-0.5">
-                        <li>All marks for this subject on this exam will be deleted.</li>
-                        <li>Any submissions and generated results for these sections will be recomputed.</li>
+                        <li v-if="confirmRemoveSubject.requiresPassword">
+                            <b class="text-base-content">{{ confirmRemoveSubject.row.marks_count }} mark(s)</b>
+                            already entered will be deleted.
+                        </li>
+                        <li v-if="confirmRemoveSubject.requiresPassword">
+                            Generated results for affected sections will be recomputed.
+                        </li>
+                        <li v-else>No marks have been entered yet for this subject.</li>
                         <li>This cannot be undone.</li>
                     </ul>
-                    <div class="pt-2">
+                    <div v-if="confirmRemoveSubject.requiresPassword" class="pt-2">
                         <label class="block text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-1.5">
                             Confirm with your account password
                         </label>
@@ -2260,21 +2286,24 @@ function submit() {
                             autocomplete="current-password"
                             @keydown.enter.prevent="doRemoveSubject"
                             class="input input-bordered input-sm w-full" />
-                        <p v-if="removeSubjectError"
-                           class="mt-2 text-xs text-rose-700 dark:text-rose-300 font-semibold">
-                            {{ removeSubjectError }}
-                        </p>
                     </div>
+                    <p v-if="removeSubjectError"
+                       class="text-xs text-rose-700 dark:text-rose-300 font-semibold">
+                        {{ removeSubjectError }}
+                    </p>
                 </div>
                 <footer class="px-5 py-3 border-t border-base-200 bg-base-200/40 flex items-center justify-end gap-2">
                     <button type="button" @click="cancelRemoveSubject"
                         :disabled="removeSubjectBusy"
                         class="btn btn-ghost btn-sm rounded-xl">Cancel</button>
                     <button type="button" @click="doRemoveSubject"
-                        :disabled="removeSubjectBusy || !removeSubjectPassword"
+                        :disabled="removeSubjectBusy
+                            || (confirmRemoveSubject.requiresPassword && !removeSubjectPassword)"
                         class="btn btn-error btn-sm gap-1.5 rounded-xl">
                         <TrashIcon class="w-4 h-4" />
-                        {{ removeSubjectBusy ? 'Removing…' : 'Confirm & remove' }}
+                        {{ removeSubjectBusy
+                            ? 'Removing…'
+                            : (confirmRemoveSubject.requiresPassword ? 'Confirm & remove' : 'Yes, remove') }}
                     </button>
                 </footer>
             </div>

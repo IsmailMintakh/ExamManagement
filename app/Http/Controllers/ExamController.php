@@ -10,6 +10,7 @@ use App\Models\ExamType;
 use App\Models\GradingScale;
 use App\Models\School;
 use App\Models\SchoolClass;
+use App\Models\Section;
 use App\Models\Subject;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -782,14 +783,16 @@ class ExamController extends Controller
 
         $sectionIds = Section::where('school_class_id', $classId)->pluck('id');
 
+        // Tight transaction: just the DB writes. The result regeneration
+        // is *outside* the transaction so a slow recompute on a big section
+        // can't time out the whole request (which used to surface as a 503)
+        // and so the deletion is durable even if regen fails.
         \DB::transaction(function () use ($exam, $subjectId, $classId, $sectionIds) {
-            // Wipe marks for this (exam, subject, class).
             \App\Models\Mark::where('exam_id', $exam->id)
                 ->where('subject_id', $subjectId)
                 ->where('school_class_id', $classId)
                 ->delete();
 
-            // Wipe per-section MarksSubmission rows for this subject.
             if ($sectionIds->isNotEmpty()) {
                 \App\Models\MarksSubmission::where('exam_id', $exam->id)
                     ->where('subject_id', $subjectId)
@@ -797,26 +800,37 @@ class ExamController extends Controller
                     ->delete();
             }
 
-            // The ExamSubject row itself.
             ExamSubject::where('exam_id', $exam->id)
                 ->where('subject_id', $subjectId)
                 ->where('school_class_id', $classId)
                 ->delete();
+        });
 
-            // Re-run result generation for any sections that already have
-            // Results so the dropped subject no longer skews totals/percentages.
-            $sectionsWithResults = \App\Models\Result::where('exam_id', $exam->id)
-                ->whereIn('section_id', $sectionIds)
-                ->select('school_class_id', 'section_id')
-                ->distinct()
-                ->get();
-            if ($sectionsWithResults->isNotEmpty()) {
-                $svc = app(\App\Services\ResultProcessingService::class);
-                foreach ($sectionsWithResults as $s) {
+        // Re-run result generation for any sections that already have
+        // Results so the dropped subject no longer skews totals/percentages.
+        // Best-effort — if regen throws, the deletion above stays applied
+        // and the admin gets a partial-success message instead of a 5xx.
+        $regenErrors = [];
+        $sectionsWithResults = \App\Models\Result::where('exam_id', $exam->id)
+            ->whereIn('section_id', $sectionIds)
+            ->select('school_class_id', 'section_id')
+            ->distinct()
+            ->get();
+        if ($sectionsWithResults->isNotEmpty()) {
+            $svc = app(\App\Services\ResultProcessingService::class);
+            foreach ($sectionsWithResults as $s) {
+                try {
                     $svc->generateResults($exam, (int) $s->school_class_id, (int) $s->section_id);
+                } catch (\Throwable $e) {
+                    \Log::warning('removeSubject: result regen failed', [
+                        'exam_id' => $exam->id,
+                        'section_id' => $s->section_id,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $regenErrors[] = $s->section_id;
                 }
             }
-        });
+        }
 
         $subjectName = \App\Models\Subject::find($subjectId)?->name ?? "subject #{$subjectId}";
         $className = SchoolClass::find($classId)?->name ?? "class #{$classId}";
