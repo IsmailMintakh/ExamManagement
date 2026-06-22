@@ -566,6 +566,61 @@ function saveEditPolicy() {
     })
 }
 function removeSubjectRow(i) { form.subjects.splice(i, 1) }
+
+// ─── Per-subject delete with password gate when marks exist ───
+// Marks-free rows are removed client-side and disappear on save (the
+// controller's additive sync wipes them). Marks-bearing rows go through
+// the password modal and POST to /exams/{id}/remove-subject which cascades
+// into Marks + Submissions + Result regeneration server-side.
+const confirmRemoveSubject = ref(null) // { row, index, requiresPassword }
+const removeSubjectPassword = ref('')
+const removeSubjectError = ref('')
+const removeSubjectBusy = ref(false)
+
+function askRemoveSubject(row, index) {
+    // No marks → just yank the row, server-side sync handles it on save.
+    if (!props.exam?.id || !row.marks_count || row.marks_count === 0) {
+        removeSubjectRow(index)
+        return
+    }
+    // Marks present → require password (or full edit privileges first).
+    if (!row.subject_id || !row.school_class_id) {
+        removeSubjectRow(index)
+        return
+    }
+    confirmRemoveSubject.value = { row, index, requiresPassword: row.marks_count > 0 }
+    removeSubjectPassword.value = ''
+    removeSubjectError.value = ''
+}
+function cancelRemoveSubject() {
+    confirmRemoveSubject.value = null
+    removeSubjectPassword.value = ''
+    removeSubjectError.value = ''
+}
+function doRemoveSubject() {
+    if (!confirmRemoveSubject.value) return
+    const { row, index } = confirmRemoveSubject.value
+    removeSubjectBusy.value = true
+    removeSubjectError.value = ''
+    router.post(route('exams.remove-subject', props.exam.id), {
+        subject_id: row.subject_id,
+        school_class_id: row.school_class_id,
+        password: removeSubjectPassword.value || null,
+    }, {
+        preserveScroll: true,
+        onSuccess: () => {
+            // Drop the row client-side too so the table updates immediately.
+            form.subjects.splice(index, 1)
+            cancelRemoveSubject()
+        },
+        onError: (errs) => {
+            removeSubjectError.value = errs.password
+                || errs.subject_id
+                || 'Could not remove this subject. Check the password and try again.'
+        },
+        onFinish: () => { removeSubjectBusy.value = false },
+    })
+}
 function clearAllSubjects() { form.subjects = [] }
 
 // ─── "Update Marks" inline workflow ───
@@ -1598,11 +1653,13 @@ function submit() {
                                                 <BoltIcon class="w-2.5 h-2.5" />
                                                 changed
                                             </span>
-                                            <button type="button" @click="removeSubjectRow(i)"
-                                                :disabled="row.marks_count > 0"
-                                                :title="row.marks_count > 0 ? 'Cannot remove — marks already entered' : 'Remove this subject'"
-                                                class="btn btn-ghost btn-xs btn-square text-rose-500 disabled:text-base-content/30">
-                                                <XCircleIcon class="w-4 h-4" />
+                                            <button type="button" @click="askRemoveSubject(row, i)"
+                                                :title="row.marks_count > 0
+                                                    ? `Remove this subject (password required — ${row.marks_count} marks entered)`
+                                                    : 'Remove this subject'"
+                                                class="btn btn-ghost btn-xs btn-square text-rose-500">
+                                                <LockClosedIcon v-if="row.marks_count > 0" class="w-3.5 h-3.5" />
+                                                <XCircleIcon v-else class="w-4 h-4" />
                                             </button>
                                         </div>
                                     </td>
@@ -2161,6 +2218,64 @@ function submit() {
                             {{ addMissingBusy ? 'Adding…' : `Add ${addMissingTickedCount || ''} subject${addMissingTickedCount === 1 ? '' : 's'}`.trim() }}
                         </button>
                     </div>
+                </footer>
+            </div>
+        </div>
+
+        <!-- ═══════════ Remove Subject — Password Required ═══════════
+             Fires only when the row has marks_count > 0. Subjects with no
+             marks are yanked client-side via removeSubjectRow(). Posts to
+             /exams/{id}/remove-subject which Hash::check's the admin's
+             password before deleting the (subject, class) row + cascading. -->
+        <div v-if="confirmRemoveSubject"
+             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+             @click.self="!removeSubjectBusy && cancelRemoveSubject()">
+            <div class="bg-base-100 rounded-2xl border border-base-300 shadow-2xl w-full max-w-md overflow-hidden">
+                <header class="px-5 py-4 border-b border-base-200 flex items-center gap-3 bg-amber-500/5">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-md">
+                        <LockClosedIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <h2 class="font-bold text-base">Remove subject — password required</h2>
+                        <p class="text-[11px] text-base-content/55">This subject has marks entered.</p>
+                    </div>
+                </header>
+                <div class="px-5 py-4 space-y-3 text-sm">
+                    <p>
+                        You're about to remove <b>{{ confirmRemoveSubject.row.subject_name || 'this subject' }}</b>
+                        from this exam. <b>{{ confirmRemoveSubject.row.marks_count }} mark(s)</b> have already
+                        been entered for it.
+                    </p>
+                    <ul class="text-xs text-base-content/65 list-disc list-inside pl-1 space-y-0.5">
+                        <li>All marks for this subject on this exam will be deleted.</li>
+                        <li>Any submissions and generated results for these sections will be recomputed.</li>
+                        <li>This cannot be undone.</li>
+                    </ul>
+                    <div class="pt-2">
+                        <label class="block text-[11px] uppercase tracking-wider font-bold text-base-content/55 mb-1.5">
+                            Confirm with your account password
+                        </label>
+                        <input v-model="removeSubjectPassword" type="password"
+                            placeholder="Enter your login password"
+                            autocomplete="current-password"
+                            @keydown.enter.prevent="doRemoveSubject"
+                            class="input input-bordered input-sm w-full" />
+                        <p v-if="removeSubjectError"
+                           class="mt-2 text-xs text-rose-700 dark:text-rose-300 font-semibold">
+                            {{ removeSubjectError }}
+                        </p>
+                    </div>
+                </div>
+                <footer class="px-5 py-3 border-t border-base-200 bg-base-200/40 flex items-center justify-end gap-2">
+                    <button type="button" @click="cancelRemoveSubject"
+                        :disabled="removeSubjectBusy"
+                        class="btn btn-ghost btn-sm rounded-xl">Cancel</button>
+                    <button type="button" @click="doRemoveSubject"
+                        :disabled="removeSubjectBusy || !removeSubjectPassword"
+                        class="btn btn-error btn-sm gap-1.5 rounded-xl">
+                        <TrashIcon class="w-4 h-4" />
+                        {{ removeSubjectBusy ? 'Removing…' : 'Confirm & remove' }}
+                    </button>
                 </footer>
             </div>
         </div>

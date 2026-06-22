@@ -226,6 +226,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Destructive recovery — drop a class entirely from this exam plus its
     // dependent marks/submissions/results. For mistakenly-added classes.
     Route::post('exams/{exam}/remove-class', [ExamController::class, 'removeClass'])->name('exams.remove-class');
+    // Per-subject destructive remove — password-gated when marks exist.
+    Route::post('exams/{exam}/remove-subject', [ExamController::class, 'removeSubject'])->name('exams.remove-subject');
 
     // Marks Entry
     Route::get('marks', [MarksController::class, 'index'])->name('marks.index');

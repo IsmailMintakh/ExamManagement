@@ -729,6 +729,105 @@ class ExamController extends Controller
     }
 
     /**
+     * Remove a single (subject, class) row from this exam — protected by
+     * the admin's account password when marks have already been entered.
+     *
+     * Lets admins back out a subject that was added by mistake without
+     * having to wipe the whole class. The password gate prevents accidental
+     * destruction while still allowing intentional cleanup. Rows with no
+     * marks pass through without a password (no data to lose).
+     *
+     * Refuses entirely once results are published — that lock is global
+     * and intentional.
+     */
+    public function removeSubject(Request $request, Exam $exam): RedirectResponse
+    {
+        $this->authorize('update', $exam);
+
+        if ($exam->isResultsPublished()) {
+            return back()->withErrors([
+                'subject_id' => 'Cannot remove subjects after results have been published. Unpublish results first.',
+            ]);
+        }
+
+        $data = $request->validate([
+            'subject_id' => ['required', 'exists:subjects,id'],
+            'school_class_id' => ['required', 'exists:school_classes,id'],
+            'password' => ['nullable', 'string'],
+        ]);
+
+        $subjectId = (int) $data['subject_id'];
+        $classId = (int) $data['school_class_id'];
+
+        // Are there any marks entered for this (exam, subject, class)?
+        // If so, gate the destructive action on the admin's password.
+        $marksCount = \App\Models\Mark::where('exam_id', $exam->id)
+            ->where('subject_id', $subjectId)
+            ->where('school_class_id', $classId)
+            ->count();
+
+        if ($marksCount > 0) {
+            if (empty($data['password'])) {
+                return back()->withErrors([
+                    'password' => 'Password required — this subject has '.$marksCount.' mark(s) entered.',
+                ]);
+            }
+            $user = $request->user();
+            if (!\Illuminate\Support\Facades\Hash::check($data['password'], $user->password)) {
+                return back()->withErrors([
+                    'password' => 'Incorrect password. The destructive action was rejected.',
+                ]);
+            }
+        }
+
+        $sectionIds = Section::where('school_class_id', $classId)->pluck('id');
+
+        \DB::transaction(function () use ($exam, $subjectId, $classId, $sectionIds) {
+            // Wipe marks for this (exam, subject, class).
+            \App\Models\Mark::where('exam_id', $exam->id)
+                ->where('subject_id', $subjectId)
+                ->where('school_class_id', $classId)
+                ->delete();
+
+            // Wipe per-section MarksSubmission rows for this subject.
+            if ($sectionIds->isNotEmpty()) {
+                \App\Models\MarksSubmission::where('exam_id', $exam->id)
+                    ->where('subject_id', $subjectId)
+                    ->whereIn('section_id', $sectionIds)
+                    ->delete();
+            }
+
+            // The ExamSubject row itself.
+            ExamSubject::where('exam_id', $exam->id)
+                ->where('subject_id', $subjectId)
+                ->where('school_class_id', $classId)
+                ->delete();
+
+            // Re-run result generation for any sections that already have
+            // Results so the dropped subject no longer skews totals/percentages.
+            $sectionsWithResults = \App\Models\Result::where('exam_id', $exam->id)
+                ->whereIn('section_id', $sectionIds)
+                ->select('school_class_id', 'section_id')
+                ->distinct()
+                ->get();
+            if ($sectionsWithResults->isNotEmpty()) {
+                $svc = app(\App\Services\ResultProcessingService::class);
+                foreach ($sectionsWithResults as $s) {
+                    $svc->generateResults($exam, (int) $s->school_class_id, (int) $s->section_id);
+                }
+            }
+        });
+
+        $subjectName = \App\Models\Subject::find($subjectId)?->name ?? "subject #{$subjectId}";
+        $className = SchoolClass::find($classId)?->name ?? "class #{$classId}";
+        $msg = "Removed {$subjectName} ({$className}) from this exam";
+        if ($marksCount > 0) {
+            $msg .= " — {$marksCount} mark(s) and any related submissions/results were deleted";
+        }
+        return back()->with('success', $msg.'.');
+    }
+
+    /**
      * Remove an entire class from this exam — wipes every ExamSubject row
      * for that class and cascades into the dependent Marks / Submissions /
      * Results so primary teachers stop seeing exams they were never meant
