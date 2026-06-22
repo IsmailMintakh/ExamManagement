@@ -266,26 +266,18 @@ const bulkSelectedSubjects = ref([])
 const bulkTotalMarks = ref(100)
 const bulkPassingMarks = ref(33)
 
-// Auto-fill primary-section term defaults per spec.
+// Primary-section term defaults per spec.
 //
 //   First / Second term  → 30 marks, pass at 12 (40%)
 //   Final term           → 40 marks, pass at 16 (40%)
 //
-// Triggers when the admin flips the stage filter to "Primary (ECD–5)" AND
-// picks a term. We only stomp the defaults when they're at the system-wide
-// defaults (100 / 33) so a manually-tweaked value isn't overwritten.
+// The watch that consumes this lives further down — after stageFilter is
+// declared — to avoid a temporal-dead-zone ReferenceError on page load.
 const PRIMARY_TERM_MARKS = {
     first:  { total: 30, passing: 12 },
     second: { total: 30, passing: 12 },
     final:  { total: 40, passing: 16 },
 }
-watch([stageFilter, () => form.term], ([stage, term]) => {
-    if (stage !== 'primary' || !term || !PRIMARY_TERM_MARKS[term]) return
-    const preset = PRIMARY_TERM_MARKS[term]
-    // Only overwrite when the field is still at the system-wide default.
-    if (Number(bulkTotalMarks.value) === 100)  bulkTotalMarks.value  = preset.total
-    if (Number(bulkPassingMarks.value) === 33) bulkPassingMarks.value = preset.passing
-}, { immediate: true })
 
 // Per-subject override map: subject_id → { total, passing }.
 // Only filled when admin wants a subject to differ from the global default
@@ -330,6 +322,17 @@ function classMatchesStageFilter(cls) {
     if (stageFilter.value === 'primary') return PRIMARY_STAGES.includes(cls.stage)
     return cls.stage === stageFilter.value
 }
+
+// Auto-fill primary-section term defaults when the admin picks
+// stageFilter='primary' AND a term. Only stomps the system-wide defaults
+// (100 / 33) — manually-tweaked values are preserved. Declared here
+// (after stageFilter) to dodge the temporal-dead-zone reference error.
+watch([stageFilter, () => form.term], ([stage, term]) => {
+    if (stage !== 'primary' || !term || !PRIMARY_TERM_MARKS[term]) return
+    const preset = PRIMARY_TERM_MARKS[term]
+    if (Number(bulkTotalMarks.value) === 100)  bulkTotalMarks.value  = preset.total
+    if (Number(bulkPassingMarks.value) === 33) bulkPassingMarks.value = preset.passing
+}, { immediate: true })
 
 const availableClasses = computed(() => {
     let list = props.classes || []
