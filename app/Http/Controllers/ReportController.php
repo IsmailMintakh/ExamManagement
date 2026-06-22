@@ -391,6 +391,19 @@ class ReportController extends Controller
                 'ddo_signature' => '',
                 'date' => now()->format('d-m-Y'),
                 'subjects_table_html' => $this->buildSubjectsTableHtml($marks),
+                // Primary section placeholders — drop these into custom result
+                // cards for ECD–5 schools. All return empty strings for non-
+                // primary students so the template renders identically for
+                // higher classes; primary students get populated content.
+                'is_primary' => $payload['isPrimary'] ? '1' : '',
+                'assessment_obtained' => $payload['assessment']['obtained'] ?? '',
+                'assessment_total' => $payload['assessment']['total'] ?? '',
+                'assessment_status' => isset($payload['assessment'])
+                    ? ($payload['assessment']['passed'] ? 'PASSED' : 'FAILED')
+                    : '',
+                'assessment_remarks' => $payload['assessment']['remarks'] ?? '',
+                'primary_term_breakdown_html' => $this->buildPrimaryBreakdownHtml($payload['subjectResults']),
+                'assessment_block_html' => $this->buildAssessmentBlockHtml($payload['assessment']),
             ];
 
             $renderedHtml = $this->renderCustomTemplate($customTemplate, $placeholderData);
@@ -408,6 +421,13 @@ class ReportController extends Controller
 
     /**
      * Replace simple {{placeholder}} tokens in a custom HTML template.
+     *
+     * Two flavours of placeholder are supported:
+     *   - Scalar text tokens: {{student_name}}, {{percentage}}, etc.
+     *   - HTML block tokens:  {{subjects_table}}, {{primary_term_breakdown}},
+     *     {{assessment_block}}. These render as raw HTML so the template can
+     *     drop whole tables/cards into the layout. Empty strings render as
+     *     nothing — safe to leave in for non-primary students.
      */
     protected function renderCustomTemplate(\App\Models\ResultCardTemplate $template, array $data): string
     {
@@ -417,9 +437,16 @@ class ReportController extends Controller
                 $html = str_replace('{{' . $key . '}}', (string) $value, $html);
             }
         }
-        // Special case: subjects table
+        // HTML block tokens — alias of their *_html data keys so the template
+        // markup stays clean ({{subjects_table}} instead of {{subjects_table_html}}).
         if (isset($data['subjects_table_html'])) {
             $html = str_replace('{{subjects_table}}', $data['subjects_table_html'], $html);
+        }
+        if (isset($data['primary_term_breakdown_html'])) {
+            $html = str_replace('{{primary_term_breakdown}}', $data['primary_term_breakdown_html'], $html);
+        }
+        if (isset($data['assessment_block_html'])) {
+            $html = str_replace('{{assessment_block}}', $data['assessment_block_html'], $html);
         }
         return $html;
     }
@@ -450,6 +477,71 @@ class ReportController extends Controller
             . '<th style="padding:6px;border:1px solid #ccc;">Obtained</th>'
             . '<th style="padding:6px;border:1px solid #ccc;">Grade</th>'
             . '</tr></thead><tbody>' . $rows . '</tbody></table>';
+    }
+
+    /**
+     * Primary-section per-subject term breakdown (T1 + T2 + Final) table —
+     * dropped into custom result-card HTML via the {{primary_term_breakdown_html}}
+     * placeholder. Returns an empty string when the student isn't primary,
+     * so admins can leave the placeholder in their template unconditionally.
+     */
+    protected function buildPrimaryBreakdownHtml(array $subjectResults): string
+    {
+        $hasBreakdown = false;
+        $rows = '';
+        foreach ($subjectResults as $sr) {
+            $pb = $sr['primary_breakdown'] ?? null;
+            if (!$pb) continue;
+            $hasBreakdown = true;
+            $rows .= '<tr>'
+                . '<td style="padding:5px;border:1px solid #ccc;font-weight:bold;">' . htmlspecialchars($sr['subject_name'] ?? '') . '</td>'
+                . '<td style="padding:5px;border:1px solid #ccc;text-align:center;">'
+                    . (string) ($pb['first']['obtained'] ?? '—') . '/' . (string) ($pb['first']['total'] ?? '—') . '</td>'
+                . '<td style="padding:5px;border:1px solid #ccc;text-align:center;">'
+                    . (string) ($pb['second']['obtained'] ?? '—') . '/' . (string) ($pb['second']['total'] ?? '—') . '</td>'
+                . '<td style="padding:5px;border:1px solid #ccc;text-align:center;">'
+                    . (string) ($pb['final']['obtained'] ?? '—') . '/' . (string) ($pb['final']['total'] ?? '—') . '</td>'
+                . '<td style="padding:5px;border:1px solid #ccc;text-align:center;font-weight:bold;">'
+                    . (string) ($sr['obtained'] ?? '—') . '/' . (string) ($sr['total_marks'] ?? '—') . '</td>'
+                . '</tr>';
+        }
+        if (!$hasBreakdown) return '';
+        return '<table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:10px;">'
+            . '<thead><tr style="background:#0f5132;color:#fff;">'
+            . '<th style="padding:5px;border:1px solid #ccc;text-align:left;">Subject</th>'
+            . '<th style="padding:5px;border:1px solid #ccc;">1st Term (30)</th>'
+            . '<th style="padding:5px;border:1px solid #ccc;">2nd Term (30)</th>'
+            . '<th style="padding:5px;border:1px solid #ccc;">Final (40)</th>'
+            . '<th style="padding:5px;border:1px solid #ccc;">Annual (100)</th>'
+            . '</tr></thead><tbody>' . $rows . '</tbody></table>';
+    }
+
+    /**
+     * Primary-section Assessment block — 10-mark overall conduct score.
+     * Empty string for non-primary students; populated card otherwise. Used
+     * via {{assessment_block_html}} in custom result-card templates.
+     */
+    protected function buildAssessmentBlockHtml(?array $assessment): string
+    {
+        if (!$assessment) return '';
+        $color = $assessment['passed'] ? '#059669' : '#dc2626';
+        $bg = $assessment['passed'] ? '#ecfdf5' : '#fef2f2';
+        $status = $assessment['passed'] ? 'PASSED' : 'FAILED';
+        $remarks = !empty($assessment['remarks'])
+            ? '<div style="margin-top:6px;padding-top:5px;border-top:1px dashed #cbd5e1;font-size:9px;color:#475569;"><b>Remarks:</b> ' . htmlspecialchars($assessment['remarks']) . '</div>'
+            : '';
+        return '<div style="border:1.5px solid ' . $color . ';border-radius:4px;padding:8px 12px;margin:8px 0;background:' . $bg . ';font-size:10px;">'
+            . '<div style="display:table;width:100%;">'
+            . '<div style="display:table-cell;vertical-align:middle;">'
+            . '<div style="font-weight:bold;color:#334155;">Overall Assessment</div>'
+            . '<div style="font-size:8px;color:#64748b;">Conduct · Participation · Attendance · Classroom Activities</div>'
+            . '</div>'
+            . '<div style="display:table-cell;text-align:right;vertical-align:middle;width:35%;">'
+            . '<span style="font-size:14pt;font-weight:bold;color:' . $color . ';">'
+            . $assessment['obtained'] . '<span style="font-size:10pt;color:#94a3b8;font-weight:normal;">/' . $assessment['total'] . '</span>'
+            . '</span>'
+            . '<span style="font-size:8pt;font-weight:bold;color:' . $color . ';margin-left:6px;">' . $status . '</span>'
+            . '</div></div>' . $remarks . '</div>';
     }
 
     public function progressReport(int $student)
