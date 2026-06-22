@@ -600,6 +600,36 @@ const dirtyMarksRows = computed(() => form.subjects.filter(isMarksDirty))
 const marksUpdating = ref(false)
 const lastApplyError = ref('')
 
+// ─── Destructive: remove an entire class from this exam ───
+// For the case where a class was added by mistake (e.g. primary classes
+// pulled into a higher-level monthly test). Cascades into marks + results
+// on the server side; the confirm dialog spells out the consequences.
+const removingClassId = ref(null)
+const confirmRemoveClass = ref(null) // { id, name }
+function askRemoveClass(row) {
+    confirmRemoveClass.value = { id: row.id, name: row.name, subjects: row.subjects }
+}
+function cancelRemoveClass() {
+    confirmRemoveClass.value = null
+}
+function doRemoveClass() {
+    if (!props.exam?.id || !confirmRemoveClass.value) return
+    removingClassId.value = confirmRemoveClass.value.id
+    router.post(route('exams.remove-class', props.exam.id), {
+        school_class_id: confirmRemoveClass.value.id,
+    }, {
+        preserveScroll: true,
+        onSuccess: () => {
+            // Strip the rows client-side too so the table updates immediately
+            // (server-side already deleted the DB rows).
+            const cid = confirmRemoveClass.value.id
+            form.subjects = form.subjects.filter(s => Number(s.school_class_id) !== Number(cid))
+            confirmRemoveClass.value = null
+        },
+        onFinish: () => { removingClassId.value = null },
+    })
+}
+
 function applyMarksUpdates() {
     if (!props.exam?.id || dirtyMarksRows.value.length === 0) return
     lastApplyError.value = ''
@@ -1899,6 +1929,7 @@ function submit() {
                                             <th class="text-right px-3 py-2 font-bold">Total marks</th>
                                             <th class="text-right px-3 py-2 font-bold">Passing</th>
                                             <th class="text-right px-3 py-2 font-bold">Pass %</th>
+                                            <th v-if="exam?.id" class="px-2 py-2 w-8"></th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-base-200">
@@ -1908,6 +1939,17 @@ function submit() {
                                             <td class="px-3 py-2 text-right font-mono font-bold">{{ row.total }}</td>
                                             <td class="px-3 py-2 text-right font-mono">{{ row.passing }}</td>
                                             <td class="px-3 py-2 text-right font-mono">{{ row.percentage }}%</td>
+                                            <!-- Edit mode only: nuke this whole class from the exam.
+                                                 Useful when a class was added by mistake (e.g.
+                                                 primary classes pulled into a higher-level test). -->
+                                            <td v-if="exam?.id" class="px-2 py-1 text-right">
+                                                <button type="button" @click="askRemoveClass(row)"
+                                                    :disabled="removingClassId === row.id"
+                                                    class="btn btn-ghost btn-xs btn-square text-rose-500 disabled:opacity-50"
+                                                    :title="`Remove ${row.name} from this exam (deletes its subjects, marks &amp; results)`">
+                                                    <TrashIcon class="w-3.5 h-3.5" />
+                                                </button>
+                                            </td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -2119,6 +2161,53 @@ function submit() {
                             {{ addMissingBusy ? 'Adding…' : `Add ${addMissingTickedCount || ''} subject${addMissingTickedCount === 1 ? '' : 's'}`.trim() }}
                         </button>
                     </div>
+                </footer>
+            </div>
+        </div>
+
+        <!-- ═══════════ Remove Class Confirmation ═══════════
+             Destructive — wipes the class's ExamSubject rows + marks +
+             submissions + results from this exam. Used to back out a class
+             that was added to the wrong exam (e.g. ECD–5 on a monthly test
+             meant for higher levels). -->
+        <div v-if="confirmRemoveClass"
+             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+             @click.self="cancelRemoveClass">
+            <div class="bg-base-100 rounded-2xl border border-base-300 shadow-2xl w-full max-w-md overflow-hidden">
+                <header class="px-5 py-4 border-b border-base-200 flex items-center gap-3 bg-rose-500/5">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 text-white flex items-center justify-center shadow-md shadow-rose-500/15">
+                        <TrashIcon class="w-5 h-5" />
+                    </div>
+                    <div class="min-w-0">
+                        <h2 class="font-bold text-base">Remove {{ confirmRemoveClass.name }} from this exam?</h2>
+                        <p class="text-[11px] text-base-content/55">This is destructive.</p>
+                    </div>
+                </header>
+                <div class="px-5 py-4 space-y-2 text-sm">
+                    <p>
+                        This will delete every <b>{{ confirmRemoveClass.name }}</b> entry from this exam,
+                        including <b>{{ confirmRemoveClass.subjects }} subject row{{ confirmRemoveClass.subjects === 1 ? '' : 's' }}</b>
+                        and any marks, submissions and results that were entered against them.
+                    </p>
+                    <ul class="text-xs text-base-content/65 list-disc list-inside pl-1 space-y-0.5">
+                        <li>{{ confirmRemoveClass.name }} students will stop seeing this exam in their dashboard.</li>
+                        <li>Teachers of {{ confirmRemoveClass.name }} will no longer see it in Marks Entry.</li>
+                        <li>Other classes on this exam are not affected.</li>
+                    </ul>
+                    <p class="text-[11px] text-rose-700 dark:text-rose-300 font-semibold pt-2">
+                        ⚠ This cannot be undone — marks and results for {{ confirmRemoveClass.name }} are deleted.
+                    </p>
+                </div>
+                <footer class="px-5 py-3 border-t border-base-200 bg-base-200/40 flex items-center justify-end gap-2">
+                    <button type="button" @click="cancelRemoveClass"
+                        :disabled="removingClassId !== null"
+                        class="btn btn-ghost btn-sm rounded-xl">Cancel</button>
+                    <button type="button" @click="doRemoveClass"
+                        :disabled="removingClassId !== null"
+                        class="btn btn-error btn-sm gap-1.5 rounded-xl">
+                        <TrashIcon class="w-4 h-4" />
+                        {{ removingClassId !== null ? 'Removing…' : `Remove ${confirmRemoveClass.name}` }}
+                    </button>
                 </footer>
             </div>
         </div>

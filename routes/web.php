@@ -223,6 +223,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Inline "Save edit policy" endpoint — flips the per-exam post-submission
     // edit policy + scope without walking the wizard.
     Route::post('exams/{exam}/update-edit-policy', [ExamController::class, 'updateEditPolicy'])->name('exams.update-edit-policy');
+    // Destructive recovery — drop a class entirely from this exam plus its
+    // dependent marks/submissions/results. For mistakenly-added classes.
+    Route::post('exams/{exam}/remove-class', [ExamController::class, 'removeClass'])->name('exams.remove-class');
 
     // Marks Entry
     Route::get('marks', [MarksController::class, 'index'])->name('marks.index');

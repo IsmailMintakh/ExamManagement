@@ -729,6 +729,64 @@ class ExamController extends Controller
     }
 
     /**
+     * Remove an entire class from this exam — wipes every ExamSubject row
+     * for that class and cascades into the dependent Marks / Submissions /
+     * Results so primary teachers stop seeing exams they were never meant
+     * to. Designed for the "I mistakenly added ECD–5 to a Monthly Test that
+     * was only for higher classes" recovery flow.
+     *
+     * Destructive — refuses once results are published (the spec elsewhere
+     * already locks down published exams).
+     */
+    public function removeClass(Request $request, Exam $exam): RedirectResponse
+    {
+        $this->authorize('update', $exam);
+
+        if ($exam->isResultsPublished()) {
+            return back()->withErrors([
+                'school_class_id' => 'Cannot remove a class after results have been published. Unpublish results first.',
+            ]);
+        }
+
+        $data = $request->validate([
+            'school_class_id' => ['required', 'exists:school_classes,id'],
+        ]);
+        $classId = (int) $data['school_class_id'];
+        $class = SchoolClass::find($classId);
+
+        \DB::transaction(function () use ($exam, $classId) {
+            // Delete marks for this exam × class first (we want the rows
+            // gone, not orphaned). Soft-delete via the model so they show
+            // in the activity log if anyone needs an audit trail.
+            \App\Models\Mark::where('exam_id', $exam->id)
+                ->where('school_class_id', $classId)
+                ->delete();
+
+            // Marks submissions are class-scoped via their section; we look
+            // up sections that belong to this class and drop their rows.
+            $sectionIds = Section::where('school_class_id', $classId)->pluck('id');
+            if ($sectionIds->isNotEmpty()) {
+                \App\Models\MarksSubmission::where('exam_id', $exam->id)
+                    ->whereIn('section_id', $sectionIds)
+                    ->delete();
+
+                \App\Models\Result::where('exam_id', $exam->id)
+                    ->whereIn('section_id', $sectionIds)
+                    ->forceDelete();
+            }
+
+            // Finally the ExamSubject rows for this class.
+            ExamSubject::where('exam_id', $exam->id)
+                ->where('school_class_id', $classId)
+                ->delete();
+        });
+
+        $name = $class?->name ?? "Class #{$classId}";
+        return back()->with('success',
+            "Removed {$name} from this exam — all its marks, submissions and results were deleted.");
+    }
+
+    /**
      * Inline endpoint for the "Save edit policy" button on the post-submit
      * edit panel. Lets admins flip a single exam's policy without walking
      * the whole wizard to the final Update button. Append-only — touches
