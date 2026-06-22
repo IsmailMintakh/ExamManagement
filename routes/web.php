@@ -229,6 +229,22 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Per-subject destructive remove — password-gated when marks exist.
     Route::post('exams/{exam}/remove-subject', [ExamController::class, 'removeSubject'])->name('exams.remove-subject');
 
+    // GET → edit redirects for the POST-only destructive/inline endpoints
+    // above. Without these, landing on the URL directly (typed in the
+    // address bar, opened from a stale tab, session-expired XHR retry)
+    // throws a noisy 405. Sending the user back to the exam editor is the
+    // right behaviour — the destructive actions are admin-only UI buttons.
+    foreach ([
+        'exams/{exam}/remove-class',
+        'exams/{exam}/remove-subject',
+        'exams/{exam}/update-edit-policy',
+        'exams/{exam}/update-subject-marks',
+        'exams/{exam}/add-missing-subjects',
+    ] as $postOnlyUrl) {
+        Route::get($postOnlyUrl, fn (\App\Models\Exam $exam) =>
+            redirect()->route('exams.edit', $exam));
+    }
+
     // Marks Entry
     Route::get('marks', [MarksController::class, 'index'])->name('marks.index');
     Route::get('marks/progress', [\App\Http\Controllers\MarksProgressController::class, 'index'])->name('marks.progress');
