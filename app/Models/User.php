@@ -105,6 +105,70 @@ class User extends Authenticatable
         return $this->hasRole('parent');
     }
 
+    /**
+     * Derives the teacher's "level" from their assignments.
+     *
+     *   - 'primary'  → user teaches / leads only primary-stage classes (ECD–5)
+     *   - 'higher'   → user teaches / leads only non-primary classes (6–12)
+     *   - 'mixed'    → user has assignments in both buckets
+     *   - null       → user has no teaching assignments at all
+     *
+     * Drives the primary/higher separation across dashboards, exam-create
+     * filters, marks-entry visibility, etc. Memoized so repeated calls
+     * during one request don't re-query.
+     */
+    public function teacherStage(): ?string
+    {
+        static $cache = [];
+        if (array_key_exists($this->id, $cache)) return $cache[$this->id];
+
+        $classIds = collect()
+            ->merge(SubjectTeacher::where('user_id', $this->id)
+                ->where('is_active', true)
+                ->pluck('school_class_id'))
+            ->merge(\App\Models\Section::where('class_teacher_id', $this->id)
+                ->where('is_active', true)
+                ->pluck('school_class_id'))
+            ->unique()
+            ->filter()
+            ->values();
+
+        if ($classIds->isEmpty()) return $cache[$this->id] = null;
+
+        $stages = \App\Models\SchoolClass::whereIn('id', $classIds)
+            ->pluck('stage')
+            ->unique();
+
+        $hasPrimary = $stages->contains(fn ($s) => in_array($s, \App\Models\SchoolClass::PRIMARY_STAGES, true));
+        $hasHigher  = $stages->contains(fn ($s) => $s && !in_array($s, \App\Models\SchoolClass::PRIMARY_STAGES, true));
+
+        if ($hasPrimary && $hasHigher) return $cache[$this->id] = 'mixed';
+        if ($hasPrimary)               return $cache[$this->id] = 'primary';
+        if ($hasHigher)                return $cache[$this->id] = 'higher';
+        return $cache[$this->id] = null;
+    }
+
+    /**
+     * For DDO/super-admin: which school is the user currently "viewing"?
+     *
+     * DDO accounts span multiple schools. Rather than dropping a school
+     * filter onto every page, we let the DDO pick a single school via a
+     * topbar selector and stash the id in session. This helper resolves
+     * the effective school id for the current request:
+     *
+     *   - super-admin → session('viewing_school_id') OR null (meaning "all schools")
+     *   - everyone else → their own school_id
+     *
+     * Controllers that previously hard-coded `$user->school_id` should
+     * route through this so the DDO selector works everywhere.
+     */
+    public function effectiveSchoolId(): ?int
+    {
+        if (!$this->isSuperAdmin()) return $this->school_id;
+        $picked = session('viewing_school_id');
+        return $picked ? (int) $picked : null;
+    }
+
     public function getAvatarUrlAttribute(): ?string
     {
         return $this->avatar ? $this->publicAssetUrl($this->avatar) : null;

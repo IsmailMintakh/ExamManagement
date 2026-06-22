@@ -19,6 +19,67 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
 {
+    /**
+     * Format a single Result into the shape every printable template needs.
+     * Returns the per-subject rows (with derived grade + the optional
+     * `primary_breakdown`), an `isPrimary` flag derived from the student's
+     * class stage, and the matching `assessment` payload when applicable.
+     *
+     * Used by reportCard, sectionMarkSheets, bulkMarkSheets and any future
+     * per-student PDF — keeps the data shape consistent across templates.
+     */
+    protected function formatResultPayload(\App\Models\Result $result, $gradingEntries, \App\Models\Exam $examModel): array
+    {
+        $subjectResults = collect($result->subject_results ?? [])->map(function ($sr) use ($gradingEntries) {
+            $pct = (float) ($sr['percentage'] ?? 0);
+            $grade = '-';
+            foreach ($gradingEntries as $entry) {
+                if ($pct >= (float) $entry->min_percentage && $pct <= (float) $entry->max_percentage) {
+                    $grade = $entry->grade;
+                    break;
+                }
+            }
+            return [
+                'subject_name' => $sr['subject_name'] ?? '',
+                'subject_code' => $sr['subject_code'] ?? '',
+                'total_marks' => $sr['total_marks'] ?? 0,
+                'passing_marks' => $sr['passing_marks'] ?? 0,
+                'marks_obtained' => $sr['marks_obtained'] ?? 0,
+                'obtained' => $sr['effective_marks'] ?? $sr['marks_obtained'] ?? 0,
+                'grace_marks' => $sr['grace_marks'] ?? 0,
+                'percentage' => $sr['percentage'] ?? 0,
+                'grade' => $grade,
+                'is_absent' => $sr['is_absent'] ?? false,
+                'failed' => !($sr['is_passed'] ?? true),
+                'primary_breakdown' => $sr['primary_breakdown'] ?? null,
+            ];
+        })->values()->toArray();
+
+        $student = $result->student;
+        $isPrimary = $student?->schoolClass?->isPrimaryStage() ?? false;
+        $assessment = null;
+        if ($isPrimary && $student) {
+            $am = \App\Models\AssessmentMark::where('student_id', $student->id)
+                ->where('academic_session_id', $examModel->academic_session_id)
+                ->first();
+            if ($am) {
+                $assessment = [
+                    'obtained' => (float) $am->marks_obtained,
+                    'total' => (float) $am->marks_total,
+                    'passing' => (float) $am->passing_marks,
+                    'passed' => $am->isPassed(),
+                    'remarks' => $am->remarks,
+                ];
+            }
+        }
+
+        return [
+            'subjectResults' => $subjectResults,
+            'isPrimary' => $isPrimary,
+            'assessment' => $assessment,
+        ];
+    }
+
     public function index(Request $request): Response
     {
         $user = $request->user();
@@ -120,6 +181,31 @@ class ReportController extends Controller
             ->orderByDesc('percentage')
             ->get();
 
+        // Bulk-load assessment marks for any primary students in the merit
+        // list so the blade can render an "Assessment" column on those
+        // sections without N+1 queries.
+        $primaryStudentIds = $results
+            ->filter(fn ($r) => $r->schoolClass?->isPrimaryStage())
+            ->pluck('student_id')
+            ->unique();
+
+        if ($primaryStudentIds->isNotEmpty()) {
+            $assessmentByStudent = \App\Models\AssessmentMark::whereIn('student_id', $primaryStudentIds)
+                ->where('academic_session_id', $examModel->academic_session_id)
+                ->get()
+                ->keyBy('student_id');
+            $results->each(function ($r) use ($assessmentByStudent) {
+                if (!$r->schoolClass?->isPrimaryStage()) return;
+                $am = $assessmentByStudent->get($r->student_id);
+                $r->assessment_payload = $am ? [
+                    'obtained' => (float) $am->marks_obtained,
+                    'total' => (float) $am->marks_total,
+                    'passed' => $am->isPassed(),
+                ] : null;
+                $r->is_primary_section = true;
+            });
+        }
+
         // Group by class name -> section name
         $classResults = $results->groupBy(fn ($r) => $r->schoolClass?->name ?? 'Unknown')
             ->map(fn ($group) => $group->groupBy(fn ($r) => $r->section?->name ?? 'Unknown'));
@@ -188,7 +274,19 @@ class ReportController extends Controller
         // (same source as report cards / mark sheets) so grace marks and
         // the exam's pass rules are respected — a subject passed via grace
         // must not show red here while the student passes overall.
-        $results->each(function ($result) {
+        // For primary classes, also load each student's overall Assessment
+        // mark for the session so the result sheet renders an Assessment
+        // column. Loaded in one query, keyed by student_id.
+        $isPrimary = $schoolClassModel->isPrimaryStage();
+        $assessmentByStudent = collect();
+        if ($isPrimary) {
+            $assessmentByStudent = \App\Models\AssessmentMark::whereIn('student_id', $results->pluck('student_id'))
+                ->where('academic_session_id', $examModel->academic_session_id)
+                ->get()
+                ->keyBy('student_id');
+        }
+
+        $results->each(function ($result) use ($assessmentByStudent, $isPrimary) {
             $map = [];
             foreach (($result->subject_results ?? []) as $sr) {
                 $map[$sr['subject_id']] = [
@@ -199,9 +297,30 @@ class ReportController extends Controller
                 ];
             }
             $result->subject_results = $map;
+
+            // Attach the student's Assessment row to each Result so the
+            // blade can render an Assessment column on primary sheets
+            // without re-querying per row.
+            if ($isPrimary) {
+                $am = $assessmentByStudent->get($result->student_id);
+                $result->assessment_payload = $am ? [
+                    'obtained' => (float) $am->marks_obtained,
+                    'total' => (float) $am->marks_total,
+                    'passed' => $am->isPassed(),
+                ] : null;
+            }
         });
 
-        $pdf = Pdf::loadView('reports.result-sheet', ['exam' => $examModel, 'school' => $school, 'schoolClass' => $schoolClassModel, 'academicSession' => $academicSession, 'results' => $results, 'summary' => $summary, 'subjects' => $subjects]);
+        $pdf = Pdf::loadView('reports.result-sheet', [
+            'exam' => $examModel,
+            'school' => $school,
+            'schoolClass' => $schoolClassModel,
+            'academicSession' => $academicSession,
+            'results' => $results,
+            'summary' => $summary,
+            'subjects' => $subjects,
+            'isPrimary' => $isPrimary,
+        ]);
         return $pdf->stream("result-sheet-{$examModel->slug}-{$schoolClassModel->slug}.pdf");
     }
 
@@ -219,31 +338,12 @@ class ReportController extends Controller
             ->with(['subject', 'examSubject'])
             ->get();
 
-        // Build subjectResults array from the stored JSON + attach grade to each subject
         $gradingEntries = $examModel->gradingScale?->entries ?? collect();
-        $subjectResults = collect($result->subject_results ?? [])->map(function ($sr) use ($gradingEntries) {
-            $pct = (float) ($sr['percentage'] ?? 0);
-            $grade = '-';
-            foreach ($gradingEntries as $entry) {
-                if ($pct >= (float) $entry->min_percentage && $pct <= (float) $entry->max_percentage) {
-                    $grade = $entry->grade;
-                    break;
-                }
-            }
-            return [
-                'subject_name' => $sr['subject_name'] ?? '',
-                'subject_code' => $sr['subject_code'] ?? '',
-                'total_marks' => $sr['total_marks'] ?? 0,
-                'passing_marks' => $sr['passing_marks'] ?? 0,
-                'marks_obtained' => $sr['marks_obtained'] ?? 0,
-                'obtained' => $sr['effective_marks'] ?? $sr['marks_obtained'] ?? 0,
-                'grace_marks' => $sr['grace_marks'] ?? 0,
-                'percentage' => $sr['percentage'] ?? 0,
-                'grade' => $grade,
-                'is_absent' => $sr['is_absent'] ?? false,
-                'failed' => !($sr['is_passed'] ?? true),
-            ];
-        })->values()->toArray();
+        // formatResultPayload returns subjectResults (with primary_breakdown
+        // carried), isPrimary derived from the student's class stage, and
+        // the matching assessment row if present.
+        $result->setRelation('student', $studentModel);
+        $payload = $this->formatResultPayload($result, $gradingEntries, $examModel);
 
         $data = [
             'exam' => $examModel,
@@ -254,8 +354,10 @@ class ReportController extends Controller
             'academicSession' => $examModel->academicSession,
             'result' => $result,
             'marks' => $marks,
-            'subjectResults' => $subjectResults,
+            'subjectResults' => $payload['subjectResults'],
             'gradingEntries' => $gradingEntries,
+            'isPrimary' => $payload['isPrimary'],
+            'assessment' => $payload['assessment'],
         ];
 
         // Look for a custom template configured for this session/school
@@ -381,34 +483,16 @@ class ReportController extends Controller
         }
 
         // Build students array with their results + subjectResults
-        $sheets = $results->map(function ($result) use ($gradingEntries) {
-            $subjectResults = collect($result->subject_results ?? [])->map(function ($sr) use ($gradingEntries) {
-                $pct = (float) ($sr['percentage'] ?? 0);
-                $grade = '-';
-                foreach ($gradingEntries as $entry) {
-                    if ($pct >= (float) $entry->min_percentage && $pct <= (float) $entry->max_percentage) {
-                        $grade = $entry->grade;
-                        break;
-                    }
-                }
-                return [
-                    'subject_name' => $sr['subject_name'] ?? '',
-                    'subject_code' => $sr['subject_code'] ?? '',
-                    'total_marks' => $sr['total_marks'] ?? 0,
-                    'passing_marks' => $sr['passing_marks'] ?? 0,
-                    'obtained' => $sr['effective_marks'] ?? $sr['marks_obtained'] ?? 0,
-                    'grace_marks' => $sr['grace_marks'] ?? 0,
-                    'percentage' => $sr['percentage'] ?? 0,
-                    'grade' => $grade,
-                    'is_absent' => $sr['is_absent'] ?? false,
-                    'failed' => !($sr['is_passed'] ?? true),
-                ];
-            })->values()->toArray();
-
+        // (delegates to the shared formatter so primary breakdown + the
+        // Assessment row land on these sheets too).
+        $sheets = $results->map(function ($result) use ($gradingEntries, $examModel) {
+            $payload = $this->formatResultPayload($result, $gradingEntries, $examModel);
             return (object) [
                 'result' => $result,
                 'student' => $result->student,
-                'subjectResults' => $subjectResults,
+                'subjectResults' => $payload['subjectResults'],
+                'isPrimary' => $payload['isPrimary'],
+                'assessment' => $payload['assessment'],
             ];
         });
 
@@ -464,34 +548,14 @@ class ReportController extends Controller
 
         $gradingEntries = $examModel->gradingScale?->entries ?? collect();
 
-        $sheets = $results->map(function ($result) use ($gradingEntries) {
-            $subjectResults = collect($result->subject_results ?? [])->map(function ($sr) use ($gradingEntries) {
-                $pct = (float) ($sr['percentage'] ?? 0);
-                $grade = '-';
-                foreach ($gradingEntries as $entry) {
-                    if ($pct >= (float) $entry->min_percentage && $pct <= (float) $entry->max_percentage) {
-                        $grade = $entry->grade;
-                        break;
-                    }
-                }
-                return [
-                    'subject_name' => $sr['subject_name'] ?? '',
-                    'subject_code' => $sr['subject_code'] ?? '',
-                    'total_marks' => $sr['total_marks'] ?? 0,
-                    'passing_marks' => $sr['passing_marks'] ?? 0,
-                    'obtained' => $sr['effective_marks'] ?? $sr['marks_obtained'] ?? 0,
-                    'grace_marks' => $sr['grace_marks'] ?? 0,
-                    'percentage' => $sr['percentage'] ?? 0,
-                    'grade' => $grade,
-                    'is_absent' => $sr['is_absent'] ?? false,
-                    'failed' => !($sr['is_passed'] ?? true),
-                ];
-            })->values()->toArray();
-
+        $sheets = $results->map(function ($result) use ($gradingEntries, $examModel) {
+            $payload = $this->formatResultPayload($result, $gradingEntries, $examModel);
             return (object) [
                 'result' => $result,
                 'student' => $result->student,
-                'subjectResults' => $subjectResults,
+                'subjectResults' => $payload['subjectResults'],
+                'isPrimary' => $payload['isPrimary'],
+                'assessment' => $payload['assessment'],
                 // Per-sheet class/section so the blade can label each page
                 // (the outer $section/$schoolClass don't apply in bulk mode).
                 'schoolClass' => $result->schoolClass,
@@ -553,9 +617,20 @@ class ReportController extends Controller
                 ->orderBy('position')
                 ->get();
 
+            // Per-block primary detection — drives the Assessment column +
+            // attaches each student's assessment payload to their Result.
+            $isPrimary = $class->isPrimaryStage();
+            $assessmentByStudent = collect();
+            if ($isPrimary) {
+                $assessmentByStudent = \App\Models\AssessmentMark::whereIn('student_id', $results->pluck('student_id'))
+                    ->where('academic_session_id', $examModel->academic_session_id)
+                    ->get()
+                    ->keyBy('student_id');
+            }
+
             // Per-subject cells from the authoritative result snapshot
             // (grace + exam pass rules respected), same as resultSheet().
-            $results->each(function ($r) {
+            $results->each(function ($r) use ($assessmentByStudent, $isPrimary) {
                 $bySubj = [];
                 foreach (($r->subject_results ?? []) as $sr) {
                     $bySubj[$sr['subject_id']] = [
@@ -566,6 +641,15 @@ class ReportController extends Controller
                     ];
                 }
                 $r->subject_results = $bySubj;
+
+                if ($isPrimary) {
+                    $am = $assessmentByStudent->get($r->student_id);
+                    $r->assessment_payload = $am ? [
+                        'obtained' => (float) $am->marks_obtained,
+                        'total' => (float) $am->marks_total,
+                        'passed' => $am->isPassed(),
+                    ] : null;
+                }
             });
 
             $subjects = $examModel->examSubjects
@@ -596,6 +680,7 @@ class ReportController extends Controller
                 'results' => $results,
                 'subjects' => $subjects,
                 'summary' => $summary,
+                'isPrimary' => $isPrimary,
             ];
         });
 
@@ -857,6 +942,33 @@ class ReportController extends Controller
             ])
             ->all();
 
+        // ── Primary assessment insight ──
+        // For ECD–5 students in scope, summarise the 10-mark Assessment:
+        // how many are entered vs missing, the distribution (Pass/Fail),
+        // and the average. Helps DDOs spot conduct-related fails before
+        // they slip into the annual reports.
+        $primaryClassIds = \App\Models\SchoolClass::primary()
+            ->whereIn('id', $results->pluck('school_class_id')->unique())
+            ->pluck('id');
+
+        $primaryAssessment = null;
+        if ($primaryClassIds->isNotEmpty()) {
+            $primaryStudentIds = $results->whereIn('school_class_id', $primaryClassIds)->pluck('student_id')->unique();
+            $assessments = \App\Models\AssessmentMark::whereIn('student_id', $primaryStudentIds)
+                ->where('academic_session_id', $examModel->academic_session_id)
+                ->get();
+            $entered = $assessments->count();
+            $passedAssessments = $assessments->filter(fn ($a) => (float) $a->marks_obtained >= (float) $a->passing_marks)->count();
+            $primaryAssessment = [
+                'total_primary_students' => $primaryStudentIds->count(),
+                'entered' => $entered,
+                'missing' => max(0, $primaryStudentIds->count() - $entered),
+                'passed_assessment' => $passedAssessments,
+                'failed_assessment' => $entered - $passedAssessments,
+                'avg_score' => $entered ? round($assessments->avg('marks_obtained'), 2) : 0,
+            ];
+        }
+
         return Inertia::render('Reports/ExamAnalytics', [
             'exam' => [
                 'id' => $examModel->id,
@@ -878,6 +990,7 @@ class ReportController extends Controller
             'gradeDistribution' => $gradeDistribution,
             'topPerformers' => $top,
             'isSuperAdmin' => $user->isSuperAdmin(),
+            'primaryAssessment' => $primaryAssessment,
         ]);
     }
 
@@ -1000,6 +1113,27 @@ class ReportController extends Controller
             }
         }
 
+        // Primary section: surface the student's overall Assessment mark
+        // (10 marks) on the booklet so PTM discussions cover conduct as
+        // well as academics. Non-primary students get $assessment = null
+        // and the blade skips the row.
+        $isPrimary = $studentModel->schoolClass?->isPrimaryStage() ?? false;
+        $assessment = null;
+        if ($isPrimary && $currentSession) {
+            $am = \App\Models\AssessmentMark::where('student_id', $studentModel->id)
+                ->where('academic_session_id', $currentSession->id)
+                ->first();
+            if ($am) {
+                $assessment = [
+                    'obtained' => (float) $am->marks_obtained,
+                    'total' => (float) $am->marks_total,
+                    'passing' => (float) $am->passing_marks,
+                    'passed' => $am->isPassed(),
+                    'remarks' => $am->remarks,
+                ];
+            }
+        }
+
         $school = $studentModel->school;
         $pdf = Pdf::loadView('reports.progress-booklet', [
             'student' => $studentModel,
@@ -1007,6 +1141,8 @@ class ReportController extends Controller
             'session' => $currentSession,
             'results' => $results,
             'subjectTrend' => array_values($subjectTrend),
+            'isPrimary' => $isPrimary,
+            'assessment' => $assessment,
         ])->setPaper('a4', 'portrait');
 
         return $pdf->stream("progress-booklet-{$studentModel->admission_no}.pdf");
@@ -1035,12 +1171,26 @@ class ReportController extends Controller
             ->get()
             ->groupBy('student_id');
 
+        // Primary section: bulk-load every student's overall Assessment for
+        // the session so each booklet page can render the conduct summary
+        // without N+1. Non-primary sections skip this entirely.
+        $isPrimary = $sectionModel->schoolClass?->isPrimaryStage() ?? false;
+        $assessmentByStudent = collect();
+        if ($isPrimary && $currentSession) {
+            $assessmentByStudent = \App\Models\AssessmentMark::whereIn('student_id', $students->pluck('id'))
+                ->where('academic_session_id', $currentSession->id)
+                ->get()
+                ->keyBy('student_id');
+        }
+
         $pdf = Pdf::loadView('reports.progress-booklet-bulk', [
             'students' => $students,
             'school' => $sectionModel->schoolClass->school,
             'section' => $sectionModel,
             'session' => $currentSession,
             'resultsByStudent' => $resultsByStudent,
+            'isPrimary' => $isPrimary,
+            'assessmentByStudent' => $assessmentByStudent,
         ])->setPaper('a4', 'portrait');
 
         return $pdf->stream("progress-booklets-{$sectionModel->slug}.pdf");

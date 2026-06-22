@@ -8,7 +8,7 @@ import {
     InformationCircleIcon, PaperAirplaneIcon, ChevronDownIcon,
     MagnifyingGlassIcon, AcademicCapIcon, BoltIcon,
     ArrowPathIcon, ClockIcon, PrinterIcon, DocumentDuplicateIcon,
-    IdentificationIcon,
+    IdentificationIcon, XCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -18,6 +18,10 @@ const props = defineProps({
     marksStatus: Array,
     existingResults: Array,
     totalGeneratedResults: { type: Number, default: 0 },
+    // Per-section "X of Y students have Assessment marks entered" for
+    // primary sections only. Empty array means there are no primary
+    // sections in this exam. Drives the readiness banner.
+    assessmentReadiness: { type: Array, default: () => [] },
 })
 
 const page = usePage()
@@ -362,6 +366,58 @@ async function generateAllReady() {
                             <MagnifyingGlassIcon class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/35" />
                             <input v-model="search" type="text" placeholder="Search class…"
                                 class="input input-bordered w-full pl-9 text-sm" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ───── Primary Assessment readiness ─────
+                 Shown only when the exam touches at least one ECD–5 section.
+                 Surfaces the conduct/assessment entry gap so admins don't
+                 generate Annual results with missing assessments — a
+                 missing assessment can flip a passing student to Fail per
+                 the spec (sub-4 assessment overrides subject pass). -->
+            <div v-if="assessmentReadiness.length"
+                class="surface" style="border-left: 4px solid #059669;">
+                <div class="p-4">
+                    <div class="flex items-start gap-3">
+                        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                            <CheckCircleIcon class="h-5 w-5" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h3 class="text-sm font-bold text-emerald-900 dark:text-emerald-100">
+                                Primary Assessment readiness
+                                <span class="ml-1 text-emerald-700 dark:text-emerald-300 font-medium">
+                                    · {{ assessmentReadiness.filter(r => r.complete).length }} of {{ assessmentReadiness.length }} sections complete
+                                </span>
+                            </h3>
+                            <p class="text-[11px] text-base-content/55 mt-0.5 leading-relaxed">
+                                Annual results for ECD–5 use the class teacher's overall Assessment (10 marks, pass 4).
+                                Students whose assessment is missing will be treated as 0 — likely flipping them to Fail.
+                                Ask each class teacher to enter assessment marks from <b>Assessment</b> in the sidebar before generating.
+                            </p>
+                            <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                <div v-for="row in assessmentReadiness" :key="row.section_id"
+                                    class="rounded-xl border border-base-300 bg-base-100 px-3 py-2 flex items-center gap-2.5">
+                                    <span class="inline-flex items-center justify-center w-7 h-7 rounded-lg shrink-0"
+                                        :class="row.complete
+                                            ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                            : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'">
+                                        <CheckCircleIcon v-if="row.complete" class="w-4 h-4" />
+                                        <XCircleIcon v-else class="w-4 h-4" />
+                                    </span>
+                                    <div class="flex-1 min-w-0">
+                                        <p class="text-xs font-bold truncate">
+                                            {{ row.class_name }} · {{ row.section_name }}
+                                        </p>
+                                        <p class="text-[10px] tabular-nums"
+                                            :class="row.complete ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300 font-bold'">
+                                            {{ row.entered }} / {{ row.students }} entered
+                                            <span v-if="row.missing > 0">· {{ row.missing }} missing</span>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

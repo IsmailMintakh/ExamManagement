@@ -324,6 +324,7 @@ function showTip(event, label) {
 function hideTip() { tip.value.visible = false }
 const userMenuOpen = ref(false)
 const sessionMenuOpen = ref(false)
+const schoolMenuOpen = ref(false)
 const commandPalette = ref(null)
 const notificationDrawerOpen = ref(false)
 const liveUnreadCount = ref(null)
@@ -337,9 +338,21 @@ function switchSession(sessionId) {
     router.post(route('academic-sessions.switch', sessionId))
 }
 
+// DDO viewing-school selector — POSTs the picked school to the server which
+// stashes it in session, then the page reloads with every controller now
+// scoped to that school via User::effectiveSchoolId(). null = view all.
+const schools = computed(() => page.props.auth?.schools || [])
+const viewingSchoolId = computed(() => page.props.auth?.viewingSchoolId || null)
+const viewingSchool = computed(() => schools.value.find(s => s.id === viewingSchoolId.value) || null)
+function switchViewingSchool(schoolId) {
+    schoolMenuOpen.value = false
+    router.post(route('viewing-school.set'), { school_id: schoolId }, { preserveScroll: true })
+}
+
 function handleOutsideClick(e) {
     if (userMenuOpen.value && !e.target.closest('.user-menu-container')) userMenuOpen.value = false
     if (sessionMenuOpen.value && !e.target.closest('.session-menu-container')) sessionMenuOpen.value = false
+    if (schoolMenuOpen.value && !e.target.closest('.school-menu-container')) schoolMenuOpen.value = false
 }
 
 onMounted(() => document.addEventListener('click', handleOutsideClick))
@@ -494,6 +507,54 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                     </template>
                 </div>
             </nav>
+
+            <!-- DDO School Selector — super-admin only. When set, every
+                 controller scopes its queries to this school via
+                 User::effectiveSchoolId(). Null = view all schools. -->
+            <div v-if="hasRole('super-admin') && schools.length > 1"
+                 class="shrink-0 p-3" style="border-top: 1px solid oklch(var(--bc) / 0.08);">
+                <div class="school-menu-container relative">
+                    <button
+                        @click.stop="schoolMenuOpen = !schoolMenuOpen"
+                        class="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-medium transition-all"
+                        style="background: oklch(var(--bc) / 0.04); border: 1px solid oklch(var(--bc) / 0.06);"
+                    >
+                        <BuildingOfficeIcon class="h-4 w-4 text-secondary shrink-0" />
+                        <div class="flex-1 text-left min-w-0">
+                            <p class="text-[9px] uppercase tracking-widest text-base-content/40 leading-none">Viewing</p>
+                            <p class="mt-0.5 truncate text-[12.5px] font-semibold leading-tight">
+                                {{ viewingSchool?.name || 'All schools' }}
+                            </p>
+                        </div>
+                        <ChevronDownIcon class="h-3.5 w-3.5 text-base-content/40 transition-transform" :class="{ 'rotate-180': schoolMenuOpen }" />
+                    </button>
+                    <Transition
+                        enter-active-class="transition duration-100 ease-out"
+                        enter-from-class="opacity-0 scale-95" enter-to-class="opacity-100 scale-100"
+                        leave-active-class="transition duration-75 ease-in"
+                        leave-from-class="opacity-100 scale-100" leave-to-class="opacity-0 scale-95"
+                    >
+                        <div v-if="schoolMenuOpen" class="absolute bottom-full left-0 right-0 mb-2 rounded-xl bg-base-100 p-1.5 shadow-lifted max-h-[60vh] overflow-y-auto" style="border: 1px solid oklch(var(--bc) / 0.1);">
+                            <button @click="switchViewingSchool(null)"
+                                class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs transition-colors"
+                                :class="viewingSchoolId === null ? 'bg-secondary/10 text-secondary font-semibold' : 'hover:bg-base-200'">
+                                <span class="h-1.5 w-1.5 rounded-full" :class="viewingSchoolId === null ? 'bg-secondary' : 'bg-base-300'" />
+                                <span class="flex-1 text-left">All schools (district view)</span>
+                                <CheckBadgeIcon v-if="viewingSchoolId === null" class="h-3.5 w-3.5 text-secondary" />
+                            </button>
+                            <div class="h-px bg-base-200 my-1"></div>
+                            <button v-for="s in schools" :key="s.id"
+                                @click="switchViewingSchool(s.id)"
+                                class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs transition-colors"
+                                :class="viewingSchoolId === s.id ? 'bg-secondary/10 text-secondary font-semibold' : 'hover:bg-base-200'">
+                                <span class="h-1.5 w-1.5 rounded-full" :class="viewingSchoolId === s.id ? 'bg-secondary' : 'bg-base-300'" />
+                                <span class="flex-1 text-left truncate">{{ s.name }}</span>
+                                <CheckBadgeIcon v-if="viewingSchoolId === s.id" class="h-3.5 w-3.5 text-secondary" />
+                            </button>
+                        </div>
+                    </Transition>
+                </div>
+            </div>
 
             <!-- Session Selector -->
             <div v-if="sessions?.length" class="shrink-0 p-3" style="border-top: 1px solid oklch(var(--bc) / 0.08);">

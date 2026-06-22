@@ -16,6 +16,9 @@ const props = defineProps({
     gradeDistribution: { type: Object, default: () => ({}) },
     topPerformers: { type: Array, default: () => [] },
     isSuperAdmin: Boolean,
+    // Primary section insight — only populated when the exam touches at
+    // least one ECD–5 class. Shows assessment entry coverage + pass split.
+    primaryAssessment: { type: Object, default: null },
 })
 
 const passColor = pct => pct >= 80 ? 'text-emerald-600' : pct >= 50 ? 'text-amber-600' : 'text-rose-600'
@@ -92,6 +95,55 @@ const totalGraded = computed(() =>
                     <p class="text-2xl font-extrabold tabular-nums">{{ headline.avg_percentage || 0 }}%</p>
                 </div>
             </div>
+
+            <!-- ════════ PRIMARY ASSESSMENT INSIGHT ════════
+                 Only rendered when the exam touches at least one ECD–5 class
+                 — surfaces conduct/assessment coverage + pass split so admins
+                 don't miss assessment-fail students that the spec demands. -->
+            <section v-if="primaryAssessment"
+                class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden"
+                style="border-left: 4px solid #059669;">
+                <header class="px-5 py-3 border-b border-base-300 flex items-center gap-2">
+                    <span class="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                        <CheckCircleIcon class="w-4 h-4" />
+                    </span>
+                    <h2 class="text-sm font-bold">Primary Assessment (ECD–5)</h2>
+                    <span class="text-[11px] text-base-content/55 ml-auto">10-mark overall conduct &amp; participation</span>
+                </header>
+                <div class="p-4 grid grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div class="rounded-xl bg-base-200/40 px-3 py-2.5">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Primary students</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ primaryAssessment.total_primary_students }}</p>
+                    </div>
+                    <div class="rounded-xl bg-emerald-500/10 px-3 py-2.5">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-emerald-800 dark:text-emerald-300">Entered</p>
+                        <p class="text-xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-300">{{ primaryAssessment.entered }}</p>
+                    </div>
+                    <div class="rounded-xl bg-amber-500/10 px-3 py-2.5">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-amber-800 dark:text-amber-300">Missing</p>
+                        <p class="text-xl font-extrabold tabular-nums text-amber-700 dark:text-amber-300">{{ primaryAssessment.missing }}</p>
+                    </div>
+                    <div class="rounded-xl bg-rose-500/10 px-3 py-2.5">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-rose-800 dark:text-rose-300">Failed assessment</p>
+                        <p class="text-xl font-extrabold tabular-nums text-rose-700 dark:text-rose-300">{{ primaryAssessment.failed_assessment }}</p>
+                    </div>
+                    <div class="rounded-xl bg-base-200/40 px-3 py-2.5">
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-base-content/55">Avg score</p>
+                        <p class="text-xl font-extrabold tabular-nums">{{ primaryAssessment.avg_score }}<span class="text-sm text-base-content/45 font-normal">/10</span></p>
+                    </div>
+                </div>
+                <p v-if="primaryAssessment.missing > 0 || primaryAssessment.failed_assessment > 0"
+                    class="px-5 pb-3 text-[11px] text-base-content/65 leading-relaxed">
+                    <span v-if="primaryAssessment.missing > 0" class="font-bold text-amber-700 dark:text-amber-300">
+                        {{ primaryAssessment.missing }} student{{ primaryAssessment.missing === 1 ? '' : 's' }} have no assessment yet —
+                    </span>
+                    annual results for these students will treat the assessment as 0 and flip them to Fail.
+                    <span v-if="primaryAssessment.failed_assessment > 0" class="block mt-1">
+                        <span class="font-bold text-rose-700 dark:text-rose-300">{{ primaryAssessment.failed_assessment }} student{{ primaryAssessment.failed_assessment === 1 ? '' : 's' }} scored below 4</span>
+                        — they're failed in the annual result regardless of subject performance per spec.
+                    </span>
+                </p>
+            </section>
 
             <!-- ════════ DDO COMPARISON (super-admin only) ════════ -->
             <section v-if="isSuperAdmin && bySchool.length"

@@ -13,6 +13,11 @@ const props = defineProps({
     exam: Object,
     subjects: { type: Array, default: () => [] },
     amendments: { type: Array, default: () => [] },
+    // Primary section (ECD–5) data — drives the term-breakdown row beneath
+    // each subject and the Overall Assessment card. Both null for higher
+    // classes; the v-if guards skip them.
+    isPrimary: { type: Boolean, default: false },
+    assessment: { type: Object, default: null },
 })
 
 function fmtPct(v) {
@@ -138,7 +143,8 @@ function fmtPct(v) {
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="s in subjects" :key="s.subject_id">
+                            <template v-for="s in subjects" :key="s.subject_id">
+                            <tr>
                                 <td class="font-semibold">{{ s.subject_name }}</td>
                                 <td class="text-right font-mono">{{ s.obtained_marks ?? '—' }}</td>
                                 <td class="text-right font-mono">{{ s.total_marks ?? '—' }}</td>
@@ -146,6 +152,32 @@ function fmtPct(v) {
                                 <td class="text-center"><span class="badge badge-sm">{{ s.grade || '—' }}</span></td>
                                 <td class="text-center">
                                     <CheckCircleIcon v-if="s.is_passed" class="h-4 w-4 text-success inline" />
+                                    <XCircleIcon v-else class="h-4 w-4 text-error inline" />
+                                </td>
+                            </tr>
+                            <tr v-if="isPrimary && s.primary_breakdown" class="bg-base-200/30">
+                                <td colspan="6" class="text-[11px] text-base-content/65 py-1.5 px-3">
+                                    <span class="font-bold text-base-content/45 uppercase tracking-wider text-[10px] mr-2">Term trail:</span>
+                                    1st <strong>{{ s.primary_breakdown.first?.obtained ?? '—' }}</strong>/{{ s.primary_breakdown.first?.total ?? '—' }}
+                                    <span class="text-base-content/30 mx-1">·</span>
+                                    2nd <strong>{{ s.primary_breakdown.second?.obtained ?? '—' }}</strong>/{{ s.primary_breakdown.second?.total ?? '—' }}
+                                    <span class="text-base-content/30 mx-1">·</span>
+                                    Final <strong>{{ s.primary_breakdown.final?.obtained ?? '—' }}</strong>/{{ s.primary_breakdown.final?.total ?? '—' }}
+                                </td>
+                            </tr>
+                            </template>
+                            <!-- Primary Assessment row (10 marks, conduct + participation). -->
+                            <tr v-if="isPrimary && assessment" class="bg-emerald-500/5">
+                                <td class="font-semibold text-emerald-700 dark:text-emerald-300">
+                                    Overall Assessment
+                                    <span class="text-[10px] text-base-content/55 font-normal block">conduct · participation · attendance</span>
+                                </td>
+                                <td class="text-right font-mono">{{ assessment.obtained }}</td>
+                                <td class="text-right font-mono">{{ assessment.total }}</td>
+                                <td class="text-right font-mono">{{ fmtPct(assessment.total > 0 ? (assessment.obtained / assessment.total * 100) : 0) }}</td>
+                                <td class="text-center"><span class="text-xs text-base-content/55">—</span></td>
+                                <td class="text-center">
+                                    <CheckCircleIcon v-if="assessment.passed" class="h-4 w-4 text-success inline" />
                                     <XCircleIcon v-else class="h-4 w-4 text-error inline" />
                                 </td>
                             </tr>

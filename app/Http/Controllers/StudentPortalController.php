@@ -141,8 +141,29 @@ class StudentPortalController extends Controller
                 'grade' => $s['grade'] ?? null,
                 'is_passed' => $s['is_passed'] ?? null,
                 'status' => isset($s['is_passed']) ? ($s['is_passed'] ? 'Pass' : 'Fail') : null,
+                'primary_breakdown' => $s['primary_breakdown'] ?? null,
             ];
         })->values();
+
+        // Primary section: pull the overall Assessment row for the same
+        // session so the student sees the conduct/participation score next
+        // to their academic numbers.
+        $isPrimary = $student->schoolClass?->isPrimaryStage() ?? false;
+        $assessment = null;
+        if ($isPrimary && $result->academic_session_id) {
+            $am = \App\Models\AssessmentMark::where('student_id', $student->id)
+                ->where('academic_session_id', $result->academic_session_id)
+                ->first();
+            if ($am) {
+                $assessment = [
+                    'obtained' => (float) $am->marks_obtained,
+                    'total' => (float) $am->marks_total,
+                    'passing' => (float) $am->passing_marks,
+                    'passed' => $am->isPassed(),
+                    'remarks' => $am->remarks,
+                ];
+            }
+        }
 
         return Inertia::render('StudentPortal/ResultDetail', [
             'result' => [
@@ -169,6 +190,8 @@ class StudentPortalController extends Controller
                 'end_date' => $result->exam->end_date?->format('M d, Y'),
             ] : null,
             'subjects' => $subjects,
+            'isPrimary' => $isPrimary,
+            'assessment' => $assessment,
             'student' => [
                 'id' => $student->id,
                 'name' => $student->name,

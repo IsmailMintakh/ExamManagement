@@ -320,6 +320,24 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
     Route::post('notifications/read-all', [NotificationController::class, 'markAllAsRead'])->name('notifications.read-all');
 
+    // DDO "viewing school" selector — super-admin picks a school from the
+    // topbar to scope dashboards/lists down to that school. Stored in
+    // session so it persists across pages. Pass school_id=null/"all" to
+    // clear the filter (i.e. view across every school again).
+    Route::post('viewing-school', function (\Illuminate\Http\Request $request) {
+        abort_unless($request->user()?->isSuperAdmin(), 403);
+        $request->validate([
+            'school_id' => ['nullable', 'integer', 'exists:schools,id'],
+        ]);
+        $id = $request->input('school_id');
+        if ($id) {
+            session(['viewing_school_id' => (int) $id]);
+        } else {
+            session()->forget('viewing_school_id');
+        }
+        return back();
+    })->name('viewing-school.set');
+
     // Activity Log
     Route::get('activity-log', [ActivityLogController::class, 'index'])->name('activity-log.index');
 

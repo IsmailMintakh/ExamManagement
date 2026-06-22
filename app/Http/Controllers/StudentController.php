@@ -32,10 +32,16 @@ class StudentController extends Controller
         // Use filled() not has() — has() returns true even when ?class_id= is in
         // the URL with no value, which would then filter WHERE class_id = ''
         // and silently drop every row. filled() requires a non-empty value.
+        // Effective school: super-admin's DDO selector OR school-admin's own
+        // school. NULL only when a super-admin hasn't picked a school
+        // (district-wide view). The explicit ?school_id= URL filter still
+        // works on top of this for ad-hoc drilling.
+        $scopeSchoolId = $user->effectiveSchoolId();
+
         $students = Student::query()
             ->when($user->isSuperAdmin() && $request->filled('school_id'),
                 fn ($q) => $q->where('school_id', $request->input('school_id')))
-            ->when($user->isSchoolAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->when($scopeSchoolId, fn ($q) => $q->where('school_id', $scopeSchoolId))
             ->when($user->isClassTeacher(), function ($q) use ($user) {
                 $sectionIds = Section::where('class_teacher_id', $user->id)->pluck('id');
                 $q->whereIn('section_id', $sectionIds);
@@ -112,7 +118,7 @@ class StudentController extends Controller
         $statusCounts = Student::query()
             ->when($user->isSuperAdmin() && $request->filled('school_id'),
                 fn ($q) => $q->where('school_id', $request->input('school_id')))
-            ->when($user->isSchoolAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->when($scopeSchoolId, fn ($q) => $q->where('school_id', $scopeSchoolId))
             ->when($user->isClassTeacher(), function ($q) use ($user) {
                 $sectionIds = Section::where('class_teacher_id', $user->id)->pluck('id');
                 $q->whereIn('section_id', $sectionIds);

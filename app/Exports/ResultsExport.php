@@ -19,12 +19,34 @@ class ResultsExport
             'Content-Disposition' => "attachment; filename=\"{$filename}\"",
         ];
 
-        return new StreamedResponse(function () {
+        // Bulk-load assessment marks for any primary students so the CSV can
+        // include the Assessment column without N+1 queries. We expose the
+        // columns whenever ANY result in the export is primary, with empty
+        // cells for non-primary rows — keeps the CSV shape stable for Excel.
+        $primaryStudentIds = $this->results
+            ->filter(fn ($r) => $r->schoolClass?->isPrimaryStage())
+            ->pluck('student_id')
+            ->unique();
+        $hasPrimary = $primaryStudentIds->isNotEmpty();
+        $assessmentByStudent = collect();
+        if ($hasPrimary) {
+            $assessmentByStudent = \App\Models\AssessmentMark::whereIn('student_id', $primaryStudentIds)
+                ->where('academic_session_id', $this->exam->academic_session_id)
+                ->get()
+                ->keyBy('student_id');
+        }
+
+        return new StreamedResponse(function () use ($hasPrimary, $assessmentByStudent) {
             $handle = fopen('php://output', 'w');
-            fputcsv($handle, ['Position', 'Roll No', 'Student Name', 'Father Name', 'Class', 'Section', 'School', 'Total Marks', 'Obtained Marks', 'Percentage', 'Grade', 'Status']);
+            $header = ['Position', 'Roll No', 'Student Name', 'Father Name', 'Class', 'Section', 'School',
+                       'Total Marks', 'Obtained Marks', 'Percentage', 'Grade', 'Status'];
+            if ($hasPrimary) {
+                array_push($header, 'Assessment', 'Assessment Total', 'Assessment Status');
+            }
+            fputcsv($handle, $header);
 
             foreach ($this->results as $r) {
-                fputcsv($handle, [
+                $row = [
                     $r->position,
                     $r->student?->roll_no,
                     $r->student?->name,
@@ -37,7 +59,18 @@ class ResultsExport
                     $r->percentage . '%',
                     $r->grade,
                     $r->is_passed ? 'PASS' : 'FAIL',
-                ]);
+                ];
+                if ($hasPrimary) {
+                    $isPrimary = $r->schoolClass?->isPrimaryStage();
+                    $am = $isPrimary ? $assessmentByStudent->get($r->student_id) : null;
+                    array_push(
+                        $row,
+                        $am ? (float) $am->marks_obtained : ($isPrimary ? '' : '—'),
+                        $am ? (float) $am->marks_total    : ($isPrimary ? '' : '—'),
+                        $am ? ($am->isPassed() ? 'PASS' : 'FAIL') : ($isPrimary ? 'NOT ENTERED' : '—'),
+                    );
+                }
+                fputcsv($handle, $row);
             }
             fclose($handle);
         }, 200, $headers);

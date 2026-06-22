@@ -22,6 +22,10 @@ const props = defineProps({
     subjects: Array,
     latestAmendments: { type: Object, default: () => ({}) },
     canAmend: { type: Boolean, default: false },
+    // True for ECD–5 sections. When set, each result row carries an
+    // assessment_payload {obtained, total, passed} and the table renders
+    // an extra "Assess" column between subjects and Total.
+    isPrimary: { type: Boolean, default: false },
 })
 
 // ─── Amendment workflow ───
@@ -190,6 +194,11 @@ function downloadAllMarkSheets(examId, sectionId) {
                                         <div class="text-xs font-bold">{{ subj.code || subj.name?.substring(0, 4) }}</div>
                                         <div class="text-[10px] text-base-content/40 font-normal">({{ subj.total }})</div>
                                     </th>
+                                    <!-- Primary-only: Overall Assessment column (10 marks). -->
+                                    <th v-if="isPrimary" class="bg-emerald-500/15 text-center min-w-[60px]">
+                                        <div class="text-xs font-bold text-emerald-700 dark:text-emerald-300">Assess</div>
+                                        <div class="text-[10px] text-emerald-600/70 dark:text-emerald-400/70 font-normal">(10)</div>
+                                    </th>
                                     <th class="bg-base-200 text-center min-w-[70px]">Total</th>
                                     <th class="bg-base-200 text-center w-16">%</th>
                                     <th class="bg-base-200 text-center w-16">Grade</th>
@@ -220,6 +229,15 @@ function downloadAllMarkSheets(examId, sectionId) {
                                             </span>
                                         </template>
                                         <span v-else class="text-base-content/20">-</span>
+                                    </td>
+                                    <!-- Primary-only Assessment cell. -->
+                                    <td v-if="isPrimary" class="text-center text-sm bg-emerald-500/5">
+                                        <template v-if="result.assessment_payload">
+                                            <span :class="{ 'text-error font-bold': !result.assessment_payload.passed }">
+                                                {{ result.assessment_payload.obtained }}
+                                            </span>
+                                        </template>
+                                        <span v-else class="text-base-content/20" title="Not yet entered">—</span>
                                     </td>
                                     <td class="text-center font-bold text-sm">
                                         {{ result.obtained_marks }}<span class="text-base-content/40 font-normal">/{{ result.total_marks }}</span>

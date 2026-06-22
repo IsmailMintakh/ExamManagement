@@ -219,7 +219,48 @@
                     {{ $sr['failed'] ? 'FAIL' : 'PASS' }}
                 </td>
             </tr>
+            {{-- Primary section per-term breakdown row — only rendered when
+                 the annual aggregator stamped a primary_breakdown on this
+                 subject. Shows T1/T2/Final raw obtained so parents see the
+                 22 + 25 + 32 → 79/100 trail behind the annual number. --}}
+            @if(($isPrimary ?? false) && !empty($sr['primary_breakdown']))
+            @php($pb = $sr['primary_breakdown'])
+            <tr class="primary-breakdown-row">
+                <td></td>
+                <td colspan="7" style="font-size:7.5pt;color:#475569;padding:2px 6px 4px;background:#f8fafc">
+                    <span style="color:#64748b;text-transform:uppercase;letter-spacing:0.5px;font-size:6.5pt">Term breakdown:</span>
+                    <span style="margin-left:6px">1st Term <strong>{{ $pb['first']['obtained'] ?? '-' }}</strong>/{{ $pb['first']['total'] ?? '-' }}</span>
+                    <span style="margin-left:10px">·</span>
+                    <span style="margin-left:6px">2nd Term <strong>{{ $pb['second']['obtained'] ?? '-' }}</strong>/{{ $pb['second']['total'] ?? '-' }}</span>
+                    <span style="margin-left:10px">·</span>
+                    <span style="margin-left:6px">Final <strong>{{ $pb['final']['obtained'] ?? '-' }}</strong>/{{ $pb['final']['total'] ?? '-' }}</span>
+                </td>
+            </tr>
+            @endif
             @endforeach
+            {{-- Primary section assessment row — 10-mark overall conduct /
+                 participation score entered by the class teacher. Spec says
+                 it adds to the grand total AND a sub-pass forces overall
+                 Fail (the aggregator already handles is_passed). --}}
+            @if(($isPrimary ?? false) && !empty($assessment))
+            <tr>
+                <td class="t-c" style="color:#64748b">—</td>
+                <td class="subj-name" style="background:#ecfdf5">
+                    Overall Assessment
+                    <span class="subj-code" style="color:#059669">(conduct, participation, attendance)</span>
+                </td>
+                <td class="t-c">{{ $assessment['total'] }}</td>
+                <td class="t-c">{{ $assessment['passing'] }}</td>
+                <td class="m-val {{ $assessment['passed'] ? 'pass' : 'fail' }}">
+                    {{ $assessment['obtained'] }}
+                </td>
+                <td class="t-c">{{ $assessment['total'] > 0 ? number_format($assessment['obtained'] / $assessment['total'] * 100, 1) : '-' }}</td>
+                <td class="t-c">—</td>
+                <td class="t-c" style="font-weight:bold;color:{{ $assessment['passed'] ? '#059669' : '#dc2626' }}">
+                    {{ $assessment['passed'] ? 'PASS' : 'FAIL' }}
+                </td>
+            </tr>
+            @endif
             <tr class="total-row">
                 <td colspan="2" style="text-align:right;padding-right:10px">GRAND TOTAL</td>
                 <td class="t-c">{{ $result->total_marks }}</td>

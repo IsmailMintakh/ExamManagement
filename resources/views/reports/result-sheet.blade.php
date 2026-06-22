@@ -95,6 +95,10 @@
                 @foreach($subjects as $subject)
                     <th>{{ $subject['code'] }}<br><span style="font-weight:normal;font-size:7px">({{ $subject['total'] }})</span></th>
                 @endforeach
+                {{-- Primary-only: Overall Assessment column (10 marks). --}}
+                @if($isPrimary ?? false)
+                    <th style="background:#ecfdf5">Assess<br><span style="font-weight:normal;font-size:7px">(10)</span></th>
+                @endif
                 <th>Total</th>
                 <th>%</th>
                 <th>Grade</th>
@@ -115,6 +119,18 @@
                         {{ ($sr['is_absent'] ?? false) ? 'AB' : ($sr['obtained'] ?? '-') }}
                     </td>
                 @endforeach
+                {{-- Primary-only: render the student's Assessment cell.
+                     Empty dash when not yet entered, red when below pass. --}}
+                @if($isPrimary ?? false)
+                    @php $asmt = $result->assessment_payload ?? null; @endphp
+                    <td class="{{ ($asmt && !$asmt['passed']) ? 'fail' : '' }}" style="background:#ecfdf5">
+                        @if($asmt)
+                            {{ $asmt['obtained'] }}
+                        @else
+                            <span style="color:#94a3b8">—</span>
+                        @endif
+                    </td>
+                @endif
                 <td style="font-weight:bold">{{ $result->obtained_marks }}/{{ $result->total_marks }}</td>
                 <td style="font-weight:bold">{{ $result->percentage }}%</td>
                 <td>{{ $result->grade }}</td>

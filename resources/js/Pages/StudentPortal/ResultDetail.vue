@@ -11,6 +11,11 @@ const props = defineProps({
     exam: Object,
     subjects: Array,
     student: Object,
+    // ECD–5 students see an extra term-trail row under each subject and an
+    // Overall Assessment row at the bottom. Higher classes get null for
+    // both and the @if guards skip them.
+    isPrimary: { type: Boolean, default: false },
+    assessment: { type: Object, default: null },
 })
 
 function fmtPct(v) {
@@ -119,7 +124,8 @@ function downloadReportCard() {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="(s, i) in subjects" :key="i">
+                                <template v-for="(s, i) in subjects" :key="i">
+                                <tr>
                                     <td class="font-medium">{{ s.subject_name }}</td>
                                     <td class="text-right">{{ s.total_marks ?? '-' }}</td>
                                     <td class="text-right font-semibold">{{ s.obtained_marks ?? '-' }}</td>
@@ -134,6 +140,33 @@ function downloadReportCard() {
                                             {{ s.is_passed ? 'Pass' : 'Fail' }}
                                         </span>
                                         <span v-else class="text-base-content/40">-</span>
+                                    </td>
+                                </tr>
+                                <tr v-if="isPrimary && s.primary_breakdown" class="bg-base-200/40">
+                                    <td colspan="6" class="text-[11px] text-base-content/65 py-1.5 px-3">
+                                        <span class="font-bold text-base-content/45 uppercase tracking-wider text-[10px] mr-2">Term trail:</span>
+                                        1st <strong>{{ s.primary_breakdown.first?.obtained ?? '—' }}</strong>/{{ s.primary_breakdown.first?.total ?? '—' }}
+                                        ·
+                                        2nd <strong>{{ s.primary_breakdown.second?.obtained ?? '—' }}</strong>/{{ s.primary_breakdown.second?.total ?? '—' }}
+                                        ·
+                                        Final <strong>{{ s.primary_breakdown.final?.obtained ?? '—' }}</strong>/{{ s.primary_breakdown.final?.total ?? '—' }}
+                                    </td>
+                                </tr>
+                                </template>
+                                <!-- Primary Assessment row. -->
+                                <tr v-if="isPrimary && assessment" class="bg-emerald-500/10">
+                                    <td class="font-semibold text-emerald-700 dark:text-emerald-300">
+                                        Overall Assessment
+                                        <span class="block text-[10px] text-base-content/55 font-normal">conduct · participation · attendance</span>
+                                    </td>
+                                    <td class="text-right">{{ assessment.total }}</td>
+                                    <td class="text-right font-semibold">{{ assessment.obtained }}</td>
+                                    <td class="text-right">{{ fmtPct(assessment.total > 0 ? (assessment.obtained / assessment.total * 100) : 0) }}</td>
+                                    <td class="text-center text-base-content/40">—</td>
+                                    <td class="text-center">
+                                        <span class="badge badge-sm" :class="assessment.passed ? 'badge-success' : 'badge-error'">
+                                            {{ assessment.passed ? 'Pass' : 'Fail' }}
+                                        </span>
                                     </td>
                                 </tr>
                             </tbody>

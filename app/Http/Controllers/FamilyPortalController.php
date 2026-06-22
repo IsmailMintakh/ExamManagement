@@ -198,8 +198,33 @@ class FamilyPortalController extends Controller
                 'grade' => $s['grade'] ?? null,
                 'is_passed' => $s['is_passed'] ?? null,
                 'status' => isset($s['is_passed']) ? ($s['is_passed'] ? 'Pass' : 'Fail') : null,
+                // Carry the primary term breakdown (T1+T2+Final raw obtained
+                // per subject) so parents see the annual trail behind the
+                // per-subject annual number on the result page. null for
+                // non-primary students.
+                'primary_breakdown' => $s['primary_breakdown'] ?? null,
             ];
         })->values();
+
+        // For primary students, load the overall Assessment row so the
+        // family portal shows it next to the academic numbers — same data
+        // that goes onto the report card / mark sheet.
+        $isPrimary = $student->schoolClass?->isPrimaryStage() ?? false;
+        $assessment = null;
+        if ($isPrimary && $result->academic_session_id) {
+            $am = \App\Models\AssessmentMark::where('student_id', $student->id)
+                ->where('academic_session_id', $result->academic_session_id)
+                ->first();
+            if ($am) {
+                $assessment = [
+                    'obtained' => (float) $am->marks_obtained,
+                    'total' => (float) $am->marks_total,
+                    'passing' => (float) $am->passing_marks,
+                    'passed' => $am->isPassed(),
+                    'remarks' => $am->remarks,
+                ];
+            }
+        }
 
         $amendments = $result->amendments->map(fn ($a) => [
             'id' => $a->id,
@@ -237,6 +262,8 @@ class FamilyPortalController extends Controller
                 'end_date' => $result->exam->end_date?->format('M d, Y'),
             ] : null,
             'subjects' => $subjects,
+            'isPrimary' => $isPrimary,
+            'assessment' => $assessment,
         ]);
     }
 

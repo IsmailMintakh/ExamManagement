@@ -48,6 +48,13 @@
 
         @foreach($classResults as $className => $sections)
             @foreach($sections as $sectionName => $results)
+                @php
+                    // Detect primary section once per group — every Result
+                    // in a section shares the same class, so checking the
+                    // first row's flag is enough. Drives the optional
+                    // Assessment column below.
+                    $isPrimary = (bool) optional($results->first())->is_primary_section;
+                @endphp
                 <div class="class-section">
                     {{ $className }} - {{ $sectionName }}
                     <span style="float:right;">Total Marks: {{ optional($results->first())->total_marks }}</span>
@@ -57,8 +64,11 @@
                         <tr>
                             <th style="width:8%">Position</th>
                             <th style="width:14%">Reg No</th>
-                            <th style="width:38%">Student Name</th>
-                            <th style="width:18%">Obtained Marks</th>
+                            <th style="width:{{ $isPrimary ? '32%' : '38%' }}">Student Name</th>
+                            <th style="width:{{ $isPrimary ? '14%' : '18%' }}">Obtained Marks</th>
+                            @if($isPrimary)
+                                <th style="width:10%;background:#0f5132">Assess<br><span style="font-weight:normal;font-size:7px;color:#d1e7dd">(10)</span></th>
+                            @endif
                             <th style="width:22%">Remarks</th>
                         </tr>
                     </thead>
@@ -74,6 +84,16 @@
                             <td>{{ $result->student->admission_no }}</td>
                             <td class="student-name">{{ $result->student->name }}</td>
                             <td style="text-align:center;font-weight:bold">{{ $result->obtained_marks }}</td>
+                            @if($isPrimary)
+                                @php $asmt = $result->assessment_payload ?? null; @endphp
+                                <td style="text-align:center;background:#ecfdf5">
+                                    @if($asmt)
+                                        <strong>{{ $asmt['obtained'] }}</strong>
+                                    @else
+                                        <span style="color:#94a3b8">—</span>
+                                    @endif
+                                </td>
+                            @endif
                             <td></td>
                         </tr>
                         @endforeach

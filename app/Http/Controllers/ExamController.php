@@ -27,6 +27,11 @@ class ExamController extends Controller
         $user = $request->user();
         $currentSession = AcademicSession::currentSession();
 
+        // Effective school = either the user's actual school OR the school
+        // they've picked via the DDO topbar selector. NULL means "all
+        // schools" (only super-admins without a pick land here).
+        $scopeSchoolId = $user->effectiveSchoolId();
+
         $exams = Exam::query()
             ->when($request->has('search'), function ($query) use ($request) {
                 $query->where('name', 'like', '%' . $request->input('search') . '%');
@@ -44,7 +49,7 @@ class ExamController extends Controller
             // a class belonging to the school. The class check hides exams
             // whose target classes don't exist at this school (e.g. a Class
             // 6 exam at a Nursery–5 primary school).
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->visibleToSchool($user->school_id))
+            ->when($scopeSchoolId, fn ($q) => $q->visibleToSchool($scopeSchoolId))
             // Teachers: narrow further to exams they actually teach in
             // (class-teacher's class + subject-teacher's subject tuples).
             ->forTeacher($user)
@@ -63,7 +68,7 @@ class ExamController extends Controller
         // search/type/status drill-down. Sticks to the current session unless
         // the user explicitly picked another.
         $statusCounts = Exam::query()
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->visibleToSchool($user->school_id))
+            ->when($scopeSchoolId, fn ($q) => $q->visibleToSchool($scopeSchoolId))
             ->forTeacher($user)
             ->when($request->filled('session_id'),
                 fn ($q) => $q->where('academic_session_id', $request->input('session_id')),
@@ -111,8 +116,13 @@ class ExamController extends Controller
                 ->with('warning', 'Add at least one exam type first (e.g. Monthly, Term, Annual).');
         }
 
+        // Effective school respects the DDO topbar selector, so a DDO
+        // building an exam while "viewing" one school only sees that
+        // school's classes/sections.
+        $scopeSchoolId = $user->effectiveSchoolId();
+
         $schools = School::active()
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('id', $user->school_id))
+            ->when($scopeSchoolId, fn ($q) => $q->where('id', $scopeSchoolId))
             ->orderBy('name')->get(['id', 'name']);
         if ($schools->isEmpty()) {
             return redirect()->route('schools.create')
@@ -126,7 +136,7 @@ class ExamController extends Controller
         }
 
         $classes = SchoolClass::active()->ordered()
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->when($scopeSchoolId, fn ($q) => $q->where('school_id', $scopeSchoolId))
             ->with(['sections', 'subjects'])->get();
         if ($classes->isEmpty()) {
             return redirect()->route('classes.create')
@@ -451,8 +461,9 @@ class ExamController extends Controller
             ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('id', $user->school_id))
             ->orderBy('name')->get(['id', 'name']);
 
+        $scopeSchoolId = $user->effectiveSchoolId();
         $classes = SchoolClass::active()->ordered()
-            ->when(!$user->isSuperAdmin(), fn ($q) => $q->where('school_id', $user->school_id))
+            ->when($scopeSchoolId, fn ($q) => $q->where('school_id', $scopeSchoolId))
             ->with(['sections', 'subjects'])->get();
         $classes = $this->mergeTaughtSubjectsIntoCurriculum($classes);
 

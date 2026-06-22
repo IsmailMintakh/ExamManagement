@@ -57,9 +57,20 @@ class HandleInertiaRequests extends Middleware
                         ->whereHas('schoolClass', fn ($q) =>
                             $q->whereIn('stage', \App\Models\SchoolClass::PRIMARY_STAGES))
                         ->exists(),
+                    // 'primary' / 'higher' / 'mixed' / null. Drives which
+                    // exams, marks-entry rows, etc. the user sees.
+                    'teacherStage' => $user->teacherStage(),
                 ] : null,
                 'currentSession' => AcademicSession::currentSession(),
                 'sessions' => AcademicSession::active()->orderBy('start_date', 'desc')->get(['id', 'name', 'is_current']),
+                // DDO viewing-school selector — only meaningful for super-admin
+                // accounts that span multiple schools. `viewingSchoolId` is the
+                // currently-picked school (or null = "all schools"); `schools`
+                // is the menu we show in the topbar dropdown.
+                'viewingSchoolId' => $user && $user->isSuperAdmin() ? (session('viewing_school_id') ? (int) session('viewing_school_id') : null) : null,
+                'schools' => $user && $user->isSuperAdmin()
+                    ? \App\Models\School::active()->orderBy('name')->get(['id', 'name', 'code'])
+                    : [],
             ],
 
             'flash' => [

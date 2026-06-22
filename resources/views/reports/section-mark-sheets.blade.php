@@ -136,7 +136,14 @@
 @endphp
 
 @foreach($sheets as $idx => $sheet)
-    @php $student = $sheet->student; $result = $sheet->result; $subjectResults = $sheet->subjectResults; @endphp
+    @php
+        $student = $sheet->student; $result = $sheet->result; $subjectResults = $sheet->subjectResults;
+        // Primary-section bits (term breakdown row + 10-mark assessment row)
+        // are silently null for non-primary sheets, so the @if guards below
+        // skip them on those pages.
+        $isPrimary = $sheet->isPrimary ?? false;
+        $assessment = $sheet->assessment ?? null;
+    @endphp
     <div class="sheet"{{ $loop->last ? ' style="page-break-after: auto"' : '' }}>
     <div class="frame"><div class="frame-inner">
 
@@ -234,7 +241,41 @@
                         {{ $sr['failed'] ? 'FAIL' : 'PASS' }}
                     </td>
                 </tr>
+                {{-- Primary term breakdown — only rendered when the annual
+                     aggregator stamped a primary_breakdown on this subject. --}}
+                @if($isPrimary && !empty($sr['primary_breakdown']))
+                @php($pb = $sr['primary_breakdown'])
+                <tr>
+                    <td></td>
+                    <td colspan="7" style="font-size:7.5pt;color:#475569;padding:2px 6px 4px;background:#f8fafc">
+                        <span style="color:#64748b;text-transform:uppercase;letter-spacing:0.5px;font-size:6.5pt">Term breakdown:</span>
+                        <span style="margin-left:6px">1st <strong>{{ $pb['first']['obtained'] ?? '-' }}</strong>/{{ $pb['first']['total'] ?? '-' }}</span>
+                        ·
+                        <span>2nd <strong>{{ $pb['second']['obtained'] ?? '-' }}</strong>/{{ $pb['second']['total'] ?? '-' }}</span>
+                        ·
+                        <span>Final <strong>{{ $pb['final']['obtained'] ?? '-' }}</strong>/{{ $pb['final']['total'] ?? '-' }}</span>
+                    </td>
+                </tr>
+                @endif
                 @endforeach
+                {{-- Primary overall Assessment row (10 marks, pass 4). --}}
+                @if($isPrimary && !empty($assessment))
+                <tr>
+                    <td class="t-c" style="color:#64748b">—</td>
+                    <td class="subj-name" style="background:#ecfdf5">
+                        Overall Assessment
+                        <span class="subj-code" style="color:#059669">(conduct, participation)</span>
+                    </td>
+                    <td class="t-c">{{ $assessment['total'] }}</td>
+                    <td class="t-c">{{ $assessment['passing'] }}</td>
+                    <td class="m-val {{ $assessment['passed'] ? 'pass' : 'fail' }}">{{ $assessment['obtained'] }}</td>
+                    <td class="t-c">{{ $assessment['total'] > 0 ? number_format($assessment['obtained'] / $assessment['total'] * 100, 1) : '-' }}</td>
+                    <td class="t-c">—</td>
+                    <td class="t-c" style="font-weight:bold;color:{{ $assessment['passed'] ? '#059669' : '#dc2626' }}">
+                        {{ $assessment['passed'] ? 'PASS' : 'FAIL' }}
+                    </td>
+                </tr>
+                @endif
                 <tr class="total-row">
                     <td colspan="2" style="text-align:right;padding-right:10px">GRAND TOTAL</td>
                     <td class="t-c">{{ $result->total_marks }}</td>

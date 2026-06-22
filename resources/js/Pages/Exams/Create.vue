@@ -266,6 +266,27 @@ const bulkSelectedSubjects = ref([])
 const bulkTotalMarks = ref(100)
 const bulkPassingMarks = ref(33)
 
+// Auto-fill primary-section term defaults per spec.
+//
+//   First / Second term  → 30 marks, pass at 12 (40%)
+//   Final term           → 40 marks, pass at 16 (40%)
+//
+// Triggers when the admin flips the stage filter to "Primary (ECD–5)" AND
+// picks a term. We only stomp the defaults when they're at the system-wide
+// defaults (100 / 33) so a manually-tweaked value isn't overwritten.
+const PRIMARY_TERM_MARKS = {
+    first:  { total: 30, passing: 12 },
+    second: { total: 30, passing: 12 },
+    final:  { total: 40, passing: 16 },
+}
+watch([stageFilter, () => form.term], ([stage, term]) => {
+    if (stage !== 'primary' || !term || !PRIMARY_TERM_MARKS[term]) return
+    const preset = PRIMARY_TERM_MARKS[term]
+    // Only overwrite when the field is still at the system-wide default.
+    if (Number(bulkTotalMarks.value) === 100)  bulkTotalMarks.value  = preset.total
+    if (Number(bulkPassingMarks.value) === 33) bulkPassingMarks.value = preset.passing
+}, { immediate: true })
+
 // Per-subject override map: subject_id → { total, passing }.
 // Only filled when admin wants a subject to differ from the global default
 // (e.g. Computer = 50 / 17, while every other subject keeps 100 / 33). Empty
@@ -290,10 +311,33 @@ function overrideOf(subjectId) {
 }
 const showSubjectOverrides = ref(false)
 
+// ─── Stage filter — primary vs higher separation per the spec ───
+// 'all' means "show classes from every stage", otherwise we narrow to one
+// stage (or the primary bucket of pre_primary + primary). Defaults to
+// 'all' so admins managing a mixed school don't suddenly lose half the
+// list. The admin can flip it back and forth without losing the form.
+const PRIMARY_STAGES = ['pre_primary', 'primary']
+const stageFilter = ref('all')
+const STAGE_FILTER_OPTIONS = [
+    { value: 'all',     label: 'All stages' },
+    { value: 'primary', label: 'Primary (ECD–5)' },
+    { value: 'middle',  label: 'Middle (6–8)' },
+    { value: 'secondary', label: 'Secondary (9–10)' },
+    { value: 'higher_secondary', label: 'Higher Secondary (11–12)' },
+]
+function classMatchesStageFilter(cls) {
+    if (stageFilter.value === 'all') return true
+    if (stageFilter.value === 'primary') return PRIMARY_STAGES.includes(cls.stage)
+    return cls.stage === stageFilter.value
+}
+
 const availableClasses = computed(() => {
-    if (form.apply_to_all_schools) return props.classes || []
-    if (!form.selected_school_ids.length) return []
-    return (props.classes || []).filter(c => form.selected_school_ids.includes(c.school_id))
+    let list = props.classes || []
+    if (!form.apply_to_all_schools) {
+        if (!form.selected_school_ids.length) return []
+        list = list.filter(c => form.selected_school_ids.includes(c.school_id))
+    }
+    return list.filter(classMatchesStageFilter)
 })
 
 // Subjects are scoped to the classes the user has selected — only subjects
@@ -1132,6 +1176,41 @@ function submit() {
                         <p class="text-xs text-base-content/65">
                             Pick the classes, pick the subjects, set their marks once — the system fans out one row per (class, subject) pair below.
                         </p>
+
+                        <!-- Stage filter — separates primary (ECD–5) from
+                             middle/secondary/higher-secondary so admins
+                             build one exam per level. Primary follows the
+                             30/30/40 + assessment rules, the rest don't. -->
+                        <div class="flex flex-col gap-2 p-2.5 rounded-xl bg-base-200/40 border border-base-200">
+                            <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                                <span class="text-[10px] uppercase tracking-wider font-bold text-base-content/55 shrink-0">
+                                    Stage filter:
+                                </span>
+                                <div class="flex items-center gap-1 flex-wrap">
+                                    <button v-for="opt in STAGE_FILTER_OPTIONS" :key="opt.value" type="button"
+                                        @click="stageFilter = opt.value"
+                                        class="rounded-lg px-2.5 py-1 text-[11px] font-bold transition-colors whitespace-nowrap"
+                                        :class="stageFilter === opt.value
+                                            ? (opt.value === 'primary' ? 'bg-emerald-500 text-white' : 'bg-primary text-primary-content')
+                                            : 'bg-base-100 border border-base-300 text-base-content/65 hover:text-base-content'">
+                                        {{ opt.label }}
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- Primary-stage spec hint: confirms that the
+                                 30/30/40 defaults will auto-apply once a term
+                                 is selected. Only shown when primary is the
+                                 active stage filter. -->
+                            <p v-if="stageFilter === 'primary'"
+                               class="text-[10.5px] text-emerald-700 dark:text-emerald-300 leading-relaxed pl-1">
+                                <span class="font-bold">Primary spec:</span>
+                                each subject's term total auto-fills to
+                                <b>30 (pass 12)</b> for First &amp; Second term, or
+                                <b>40 (pass 16)</b> for Final term once you pick a term
+                                in Step 1. Overall <b>10-mark assessment</b> is entered
+                                separately by the class teacher.
+                            </p>
+                        </div>
 
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             <div>

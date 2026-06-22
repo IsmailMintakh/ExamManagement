@@ -103,7 +103,7 @@ class ResultController extends Controller
             ->whereIn('id', $classIds)
             ->active()
             ->ordered()
-            ->get(['id', 'name']);
+            ->get(['id', 'name', 'stage']);
 
         $sections = Section::query()
             ->whereIn('school_class_id', $classIds)
@@ -172,6 +172,48 @@ class ResultController extends Controller
             ];
         });
 
+        // Primary-section assessment readiness — per (class, section) tally
+        // of "X of Y students have assessment entered". Surfaced on the Vue
+        // page so admins know whether the Annual aggregator will produce
+        // correct primary results (sub-pass assessment = Fail per spec).
+        // Non-primary sections get no row in this list.
+        $primarySectionIds = $sections->filter(function ($s) use ($classes) {
+            $cls = $classes->firstWhere('id', $s->school_class_id);
+            return $cls ? in_array($cls->stage ?? null, \App\Models\SchoolClass::PRIMARY_STAGES, true) : false;
+        })->pluck('id');
+
+        $assessmentReadiness = collect();
+        if ($primarySectionIds->isNotEmpty() && $exam->academic_session_id) {
+            $studentCountsBySection = \App\Models\Student::whereIn('section_id', $primarySectionIds)
+                ->where('status', 'active')
+                ->where('academic_session_id', $exam->academic_session_id)
+                ->selectRaw('section_id, COUNT(*) as cnt')
+                ->groupBy('section_id')
+                ->pluck('cnt', 'section_id');
+
+            $assessmentCountsBySection = \App\Models\AssessmentMark::whereIn('section_id', $primarySectionIds)
+                ->where('academic_session_id', $exam->academic_session_id)
+                ->selectRaw('section_id, COUNT(*) as cnt')
+                ->groupBy('section_id')
+                ->pluck('cnt', 'section_id');
+
+            $assessmentReadiness = $sections->whereIn('id', $primarySectionIds)->map(function ($s) use ($studentCountsBySection, $assessmentCountsBySection, $classes) {
+                $entered = (int) ($assessmentCountsBySection[$s->id] ?? 0);
+                $total = (int) ($studentCountsBySection[$s->id] ?? 0);
+                $cls = $classes->firstWhere('id', $s->school_class_id);
+                return [
+                    'section_id' => $s->id,
+                    'class_id' => $s->school_class_id,
+                    'class_name' => $cls?->name,
+                    'section_name' => $s->name,
+                    'students' => $total,
+                    'entered' => $entered,
+                    'missing' => max(0, $total - $entered),
+                    'complete' => $total > 0 && $entered >= $total,
+                ];
+            })->values();
+        }
+
         return Inertia::render('Results/Generate', [
             'exam' => array_merge($exam->toArray(), [
                 // Surface the publication state to the page so it can show
@@ -184,6 +226,7 @@ class ResultController extends Controller
             'marksStatus' => $marksStatus,
             'existingResults' => $existingResults,
             'totalGeneratedResults' => Result::where('exam_id', $exam->id)->count(),
+            'assessmentReadiness' => $assessmentReadiness,
         ]);
     }
 
@@ -317,9 +360,21 @@ class ResultController extends Controller
                 'total' => $es->total_marks,
             ]);
 
+        // For primary sections, load every student's Assessment row in one
+        // query so the Vue table can render the extra column without N+1.
+        $isPrimary = $section->schoolClass?->isPrimaryStage() ?? false;
+        $assessmentByStudent = collect();
+        if ($isPrimary) {
+            $studentIds = $results->getCollection()->pluck('student_id')->unique();
+            $assessmentByStudent = \App\Models\AssessmentMark::whereIn('student_id', $studentIds)
+                ->where('academic_session_id', $exam->academic_session_id)
+                ->get()
+                ->keyBy('student_id');
+        }
+
         // Re-index subject_results by subject_id for the Vue table.
         // Also expose `last_amended_at` so the row can show an "Amended" badge.
-        $results->getCollection()->transform(function ($result) {
+        $results->getCollection()->transform(function ($result) use ($isPrimary, $assessmentByStudent) {
             $stored = $result->subject_results ?? [];
             $indexed = [];
             foreach ($stored as $sr) {
@@ -332,6 +387,15 @@ class ResultController extends Controller
             }
             $result->subject_results = $indexed;
             $result->last_amended_iso = $result->last_amended_at?->toIso8601String();
+
+            if ($isPrimary) {
+                $am = $assessmentByStudent->get($result->student_id);
+                $result->assessment_payload = $am ? [
+                    'obtained' => (float) $am->marks_obtained,
+                    'total' => (float) $am->marks_total,
+                    'passed' => $am->isPassed(),
+                ] : null;
+            }
             return $result;
         });
 
@@ -354,6 +418,7 @@ class ResultController extends Controller
             'subjects' => $subjects,
             'latestAmendments' => $latestAmendments,
             'canAmend' => $user->isSuperAdmin() || $user->isSchoolAdmin(),
+            'isPrimary' => $isPrimary,
         ]);
     }
 

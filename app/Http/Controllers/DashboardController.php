@@ -655,14 +655,20 @@ class DashboardController extends Controller
                 ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
                 ->count();
 
+            // Stage scope flows through forTeacher() — a class teacher's
+            // classes are all in one stage, so they only see exams from
+            // their level. A primary teacher won't see Class 8 exams here
+            // (and vice versa) without a separate filter.
             $pendingMarksEntry = Exam::published()
                 ->where('status', 'marks_entry')
                 ->where('is_locked', false)
                 ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+                ->forTeacher($user)
                 ->count();
 
             $recentExams = Exam::published()
                 ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+                ->forTeacher($user)
                 ->with('examType')
                 ->latest()
                 ->take(5)
@@ -752,8 +758,11 @@ class DashboardController extends Controller
 
             $pendingMarksEntry = $pendingMarks->sum('pending_count');
 
+            // Stage scope via forTeacher() — subject teachers see only
+            // exams that touch a class they're assigned to teach.
             $recentExams = Exam::published()
                 ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+                ->forTeacher($user)
                 ->with('examType')
                 ->latest()
                 ->take(5)

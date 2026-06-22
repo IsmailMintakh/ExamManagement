@@ -19,12 +19,30 @@ class AwardListExport
             'Content-Disposition' => "attachment; filename=\"{$filename}\"",
         ];
 
-        return new StreamedResponse(function () {
+        $primaryStudentIds = $this->results
+            ->filter(fn ($r) => $r->schoolClass?->isPrimaryStage())
+            ->pluck('student_id')
+            ->unique();
+        $hasPrimary = $primaryStudentIds->isNotEmpty();
+        $assessmentByStudent = collect();
+        if ($hasPrimary) {
+            $assessmentByStudent = \App\Models\AssessmentMark::whereIn('student_id', $primaryStudentIds)
+                ->where('academic_session_id', $this->exam->academic_session_id)
+                ->get()
+                ->keyBy('student_id');
+        }
+
+        return new StreamedResponse(function () use ($hasPrimary, $assessmentByStudent) {
             $handle = fopen('php://output', 'w');
-            fputcsv($handle, ['Position', 'Roll No', 'Student Name', 'Father Name', 'Class', 'Section', 'School', 'Obtained', 'Total', 'Percentage', 'Grade']);
+            $header = ['Position', 'Roll No', 'Student Name', 'Father Name', 'Class', 'Section', 'School',
+                       'Obtained', 'Total', 'Percentage', 'Grade'];
+            if ($hasPrimary) {
+                array_push($header, 'Assessment', 'Assessment Total');
+            }
+            fputcsv($handle, $header);
 
             foreach ($this->results as $r) {
-                fputcsv($handle, [
+                $row = [
                     $r->position,
                     $r->student?->roll_no,
                     $r->student?->name,
@@ -36,7 +54,17 @@ class AwardListExport
                     $r->total_marks,
                     $r->percentage . '%',
                     $r->grade,
-                ]);
+                ];
+                if ($hasPrimary) {
+                    $isPrimary = $r->schoolClass?->isPrimaryStage();
+                    $am = $isPrimary ? $assessmentByStudent->get($r->student_id) : null;
+                    array_push(
+                        $row,
+                        $am ? (float) $am->marks_obtained : ($isPrimary ? '' : '—'),
+                        $am ? (float) $am->marks_total    : ($isPrimary ? '' : '—'),
+                    );
+                }
+                fputcsv($handle, $row);
             }
             fclose($handle);
         }, 200, $headers);

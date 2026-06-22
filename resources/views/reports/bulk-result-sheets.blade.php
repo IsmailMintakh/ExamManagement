@@ -101,6 +101,12 @@
                     @foreach($block->subjects as $subj)
                         <th>{{ $subj['code'] ?? $subj['name'] }}<br>({{ $subj['total'] }})</th>
                     @endforeach
+                    {{-- Primary-only: Overall Assessment column (10 marks).
+                         Each block (one per class) carries its own isPrimary
+                         flag so a non-primary class doesn't show this. --}}
+                    @if($block->isPrimary ?? false)
+                        <th style="background:#ecfdf5">Assess<br>(10)</th>
+                    @endif
                     <th>Total</th>
                     <th>%</th>
                     <th>Grade</th>
@@ -126,6 +132,16 @@
                                 @endif
                             </td>
                         @endforeach
+                        @if($block->isPrimary ?? false)
+                            @php $asmt = $result->assessment_payload ?? null; @endphp
+                            <td style="background:#ecfdf5">
+                                @if($asmt)
+                                    <span @class(['fail' => !$asmt['passed']])>{{ $asmt['obtained'] }}</span>
+                                @else
+                                    <span style="color:#ccc">—</span>
+                                @endif
+                            </td>
+                        @endif
                         <td><strong>{{ $result->obtained_marks }}</strong>/{{ $result->total_marks }}</td>
                         <td><strong>{{ $result->percentage }}%</strong></td>
                         <td>{{ $result->grade ?? '—' }}</td>

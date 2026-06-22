@@ -129,6 +129,39 @@
                 <div class="empty-msg">No exam results available for this student yet.</div>
             @endif
 
+            {{-- Primary section: render the overall Assessment card per
+                 student. We pull each student's row from the pre-loaded map
+                 instead of querying inside the loop. --}}
+            @if($isPrimary ?? false)
+                @php $am = $assessmentByStudent->get($student->id); @endphp
+                @if($am)
+                    @php
+                        $asmtPassed = (float) $am->marks_obtained >= (float) $am->passing_marks;
+                    @endphp
+                    <div style="border: 1.5px solid {{ $asmtPassed ? '#059669' : '#dc2626' }}; border-radius: 4px; padding: 8px 12px; margin: 6px 0 8px; background: {{ $asmtPassed ? '#ecfdf5' : '#fef2f2' }};">
+                        <div style="display: table; width: 100%;">
+                            <div style="display: table-cell; vertical-align: middle;">
+                                <div style="font-size: 8.5pt; font-weight: bold; color: #334155;">Overall Assessment</div>
+                                <div style="font-size: 7.5pt; color: #64748b;">Conduct · Participation · Attendance</div>
+                            </div>
+                            <div style="display: table-cell; text-align: right; vertical-align: middle; width: 35%;">
+                                <span style="font-size: 13pt; font-weight: bold; color: {{ $asmtPassed ? '#059669' : '#dc2626' }};">
+                                    {{ (float) $am->marks_obtained }}<span style="font-size: 9pt; color: #94a3b8; font-weight: normal;">/{{ (float) $am->marks_total }}</span>
+                                </span>
+                                <span style="font-size: 7pt; font-weight: bold; color: {{ $asmtPassed ? '#047857' : '#b91c1c' }}; margin-left: 6px;">
+                                    {{ $asmtPassed ? 'PASS' : 'FAIL' }}
+                                </span>
+                            </div>
+                        </div>
+                        @if(!empty($am->remarks))
+                            <div style="border-top: 1px dashed #cbd5e1; margin-top: 5px; padding-top: 4px; font-size: 7.5pt; color: #475569;">
+                                <strong style="color: #1e3a8a;">Remarks:</strong> {{ $am->remarks }}
+                            </div>
+                        @endif
+                    </div>
+                @endif
+            @endif
+
             <div class="sig-row">
                 <div class="sig-cell">
                     <div class="sig-line">Class Teacher</div>

@@ -197,6 +197,38 @@
         </p>
     @endif
 
+    {{-- Primary section overall Assessment (10 marks). Sits between exam
+         results and the subject trend so PTM conversations can pivot from
+         academic numbers to conduct / participation in one read. --}}
+    @if(($isPrimary ?? false) && !empty($assessment))
+        <p class="section-title">Overall Assessment</p>
+        <div style="border: 1.5px solid {{ $assessment['passed'] ? '#059669' : '#dc2626' }}; border-radius: 4px; padding: 10px 14px; margin-bottom: 8px; background: {{ $assessment['passed'] ? '#ecfdf5' : '#fef2f2' }};">
+            <div style="display: table; width: 100%;">
+                <div style="display: table-cell; vertical-align: middle;">
+                    <div style="font-size: 9pt; color: #334155; font-weight: bold; margin-bottom: 2px;">
+                        Conduct · Participation · Attendance · Classroom Activities
+                    </div>
+                    <div style="font-size: 8pt; color: #64748b;">
+                        Class teacher's overall assessment for the session.
+                    </div>
+                </div>
+                <div style="display: table-cell; vertical-align: middle; text-align: right; width: 40%;">
+                    <div style="font-size: 16pt; font-weight: bold; color: {{ $assessment['passed'] ? '#059669' : '#dc2626' }};">
+                        {{ $assessment['obtained'] }}<span style="font-size: 11pt; color: #94a3b8; font-weight: normal;">/{{ $assessment['total'] }}</span>
+                    </div>
+                    <div style="font-size: 8pt; color: {{ $assessment['passed'] ? '#047857' : '#b91c1c' }}; font-weight: bold; text-transform: uppercase; letter-spacing: 0.8px;">
+                        {{ $assessment['passed'] ? 'Pass' : 'Below Passing (≥' . $assessment['passing'] . ' required)' }}
+                    </div>
+                </div>
+            </div>
+            @if(!empty($assessment['remarks']))
+            <div style="border-top: 1px dashed #cbd5e1; margin-top: 8px; padding-top: 6px; font-size: 8.5pt; color: #475569;">
+                <strong style="color: #1e3a8a;">Teacher's remarks:</strong> {{ $assessment['remarks'] }}
+            </div>
+            @endif
+        </div>
+    @endif
+
     {{-- Subject-wise trend --}}
     @if(count($subjectTrend) > 0 && $results->count() > 1)
         <p class="section-title">Subject-wise Trend</p>
