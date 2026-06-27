@@ -631,13 +631,20 @@ class ResultProcessingService
         $prevPercentage = null;
 
         foreach ($sorted as $index => $result) {
-            $pct = (float) $result->percentage;
+            // Round to 2 decimals so two students with the same "displayed"
+            // percentage (e.g. 78.50%) actually compare as equal here — a
+            // strict `!==` on raw floats can mis-fire on 78.5000000001 vs
+            // 78.5, which would assign two ranks to tied students.
+            $pct = round((float) $result->percentage, 2);
 
-            if ($prevPercentage === null || $pct !== $prevPercentage) {
+            if ($prevPercentage === null || abs($pct - $prevPercentage) > 0.0001) {
                 // New rank = previous position + number of ties skipped
+                // (standard competition ranking — e.g. 1, 2, 2, 4).
                 $position = $index + 1;
             }
-            // If same percentage as previous, keep the same position (standard competition ranking)
+            // If percentage matches the previous student, keep the same
+            // position — tied students share a rank, the next distinct
+            // percentage gets the rank after the tie span.
 
             $result->position = $position;
             $result->total_students = $totalStudents;
