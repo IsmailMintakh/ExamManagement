@@ -8,7 +8,7 @@ import {
     InformationCircleIcon, PaperAirplaneIcon, ChevronDownIcon,
     MagnifyingGlassIcon, AcademicCapIcon, BoltIcon,
     ArrowPathIcon, ClockIcon, PrinterIcon, DocumentDuplicateIcon,
-    IdentificationIcon, XCircleIcon,
+    IdentificationIcon, XCircleIcon, PencilSquareIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -22,6 +22,10 @@ const props = defineProps({
     // primary sections only. Empty array means there are no primary
     // sections in this exam. Drives the readiness banner.
     assessmentReadiness: { type: Array, default: () => [] },
+    // Per-class "subjects from the curriculum that aren't on this exam".
+    // Surfaces the missing-subject gap so admins can fix it (e.g. via the
+    // Add Missing Subject modal in Exam Edit) before generating results.
+    missingSubjectsPerClass: { type: Array, default: () => [] },
 })
 
 const page = usePage()
@@ -366,6 +370,54 @@ async function generateAllReady() {
                             <MagnifyingGlassIcon class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/35" />
                             <input v-model="search" type="text" placeholder="Search class…"
                                 class="input input-bordered w-full pl-9 text-sm" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ───── Missing-subject coverage gap ─────
+                 Surfaces when a class's curriculum has subjects that aren't
+                 on this exam — admins get one click back to Exam Edit to add
+                 them before the generated results lock the gap in. -->
+            <div v-if="missingSubjectsPerClass.length"
+                class="surface" style="border-left: 4px solid #d97706;">
+                <div class="p-4">
+                    <div class="flex items-start gap-3">
+                        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                            <ExclamationTriangleIcon class="h-5 w-5" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h3 class="text-sm font-bold text-amber-900 dark:text-amber-100">
+                                {{ missingSubjectsPerClass.length }} class{{ missingSubjectsPerClass.length === 1 ? '' : 'es' }} have subjects missing from this exam
+                            </h3>
+                            <p class="text-[11px] text-base-content/55 mt-0.5 leading-relaxed">
+                                Each row below shows a class whose curriculum includes subjects this exam doesn't cover.
+                                Results will be generated only for the subjects mapped to the exam — missing subjects won't appear on report cards.
+                                Open <b>Edit Exam → Subjects</b> to add them.
+                            </p>
+                            <div class="mt-3 space-y-2">
+                                <div v-for="row in missingSubjectsPerClass" :key="row.class_id"
+                                    class="rounded-xl border border-base-300 bg-base-100 px-3 py-2.5">
+                                    <div class="flex items-center justify-between gap-2 flex-wrap">
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span class="font-bold text-sm truncate">{{ row.class_name }}</span>
+                                            <span class="text-[11px] text-amber-700 dark:text-amber-300 font-bold tabular-nums whitespace-nowrap">
+                                                {{ row.on_exam }} / {{ row.total_curriculum }} on exam
+                                            </span>
+                                        </div>
+                                        <Link :href="route('exams.edit', exam.id)"
+                                            class="btn btn-warning btn-xs gap-1 shrink-0">
+                                            <PencilSquareIcon class="w-3 h-3" /> Add missing
+                                        </Link>
+                                    </div>
+                                    <div class="mt-2 flex flex-wrap gap-1">
+                                        <span v-for="s in row.missing" :key="s.id"
+                                            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
+                                            {{ s.name }}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -122,4 +122,27 @@ class Result extends Model
     {
         return $query->where('is_passed', false);
     }
+
+    /**
+     * Order results by the student's roll number, numerically — so "1, 2,
+     * 3 … 9, 10, 11" instead of the lexical "1, 10, 11, 2, 3, …" you get
+     * from a bare orderBy on a varchar column. Used everywhere admins/
+     * teachers/parents look at a result list (result sheet, mark sheets,
+     * tabulation, section view).
+     */
+    public function scopeOrderByRollNo($query)
+    {
+        $needsJoin = !collect($query->getQuery()->joins ?? [])
+            ->pluck('table')->contains('students');
+
+        if ($needsJoin) {
+            $query->join('students', 'results.student_id', '=', 'students.id')
+                ->select('results.*');
+        }
+
+        return $query
+            ->orderBy('results.section_id')
+            ->orderByRaw("LENGTH(COALESCE(students.roll_no, ''))")
+            ->orderBy('students.roll_no');
+    }
 }

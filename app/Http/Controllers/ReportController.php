@@ -243,8 +243,7 @@ class ReportController extends Controller
         $results = Result::where('exam_id', $exam)
             ->where('school_class_id', $schoolClass)
             ->with(['student', 'section'])
-            ->orderBy('section_id')
-            ->orderBy('position')
+            ->orderByRollNo()
             ->get();
 
         $summary = [
@@ -567,7 +566,7 @@ class ReportController extends Controller
         $results = Result::where('exam_id', $exam)
             ->where('section_id', $section)
             ->with(['student'])
-            ->orderBy('position')
+            ->orderByRollNo()
             ->get();
 
         if ($results->isEmpty()) {
@@ -624,8 +623,7 @@ class ReportController extends Controller
                 fn ($q) => $q->where('school_class_id', $validated['school_class_id']))
             ->with(['student', 'schoolClass', 'section'])
             ->orderBy('school_class_id')
-            ->orderBy('section_id')
-            ->orderBy('position');
+            ->orderByRollNo();
 
         // Class-teacher narrow — only their assigned section(s).
         if ($user->isClassTeacher() && !$user->isSchoolAdmin() && !$user->isSuperAdmin()) {
@@ -705,8 +703,7 @@ class ReportController extends Controller
             $results = Result::where('exam_id', $exam)
                 ->where('school_class_id', $class->id)
                 ->with(['student', 'section'])
-                ->orderBy('section_id')
-                ->orderBy('position')
+                ->orderByRollNo()
                 ->get();
 
             // Per-block primary detection — drives the Assessment column +

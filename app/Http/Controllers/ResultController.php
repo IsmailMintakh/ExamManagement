@@ -214,6 +214,45 @@ class ResultController extends Controller
             })->values();
         }
 
+        // Coverage gap — per class, which subjects in the curriculum
+        // (class_subjects pivot OR active subject_teachers) are NOT on
+        // this exam? Empty for fully-covered classes. Surfaced in the UI
+        // so admins notice before generating ("Class 8 has 8 subjects but
+        // this exam covers only 5") and can use Add Missing Subject.
+        $missingSubjectsPerClass = collect();
+        foreach ($classIds as $classId) {
+            $onExamSubjectIds = $exam->examSubjects
+                ->where('school_class_id', $classId)
+                ->pluck('subject_id')
+                ->all();
+            $curriculumSubjectIds = collect()
+                ->merge(\DB::table('class_subjects')
+                    ->where('school_class_id', $classId)
+                    ->where('is_active', true)
+                    ->pluck('subject_id'))
+                ->merge(\DB::table('subject_teachers')
+                    ->where('school_class_id', $classId)
+                    ->where('is_active', true)
+                    ->pluck('subject_id'))
+                ->unique()
+                ->values()
+                ->all();
+            $missingIds = array_values(array_diff($curriculumSubjectIds, $onExamSubjectIds));
+            if (empty($missingIds)) continue;
+
+            $missingSubjects = \App\Models\Subject::whereIn('id', $missingIds)
+                ->orderBy('name')
+                ->get(['id', 'name', 'code']);
+            $clsRow = $classes->firstWhere('id', $classId);
+            $missingSubjectsPerClass->push([
+                'class_id' => $classId,
+                'class_name' => $clsRow?->name,
+                'on_exam' => count($onExamSubjectIds),
+                'total_curriculum' => count($curriculumSubjectIds),
+                'missing' => $missingSubjects,
+            ]);
+        }
+
         return Inertia::render('Results/Generate', [
             'exam' => array_merge($exam->toArray(), [
                 // Surface the publication state to the page so it can show
@@ -227,6 +266,7 @@ class ResultController extends Controller
             'existingResults' => $existingResults,
             'totalGeneratedResults' => Result::where('exam_id', $exam->id)->count(),
             'assessmentReadiness' => $assessmentReadiness,
+            'missingSubjectsPerClass' => $missingSubjectsPerClass,
         ]);
     }
 
@@ -332,9 +372,12 @@ class ResultController extends Controller
             ->where('section_id', $section->id)
             ->whereHas('section.schoolClass', fn ($q) => $q->where('school_id', $section->schoolClass?->school_id));
 
+        // Roll-number sort — admins/teachers/parents expect "1, 2, 3 … 10,
+        // 11" not "1, 10, 11, 2, 3". The scope joins Students for the
+        // numeric-aware ordering.
         $results = (clone $resultsBase)
             ->with('student')
-            ->orderBy('position')
+            ->orderByRollNo()
             ->paginate(50);
 
         $total = (clone $resultsBase)->count();
