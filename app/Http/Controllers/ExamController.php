@@ -97,7 +97,8 @@ class ExamController extends Controller
     {
         $this->authorize('create', Exam::class);
 
-        $user = request()->user();
+        $user = auth()->user() ?? request()->user();
+        abort_unless($user, 403, 'Not authenticated.');
 
         // ─── Prerequisite chain ───
         // An exam is meaningless without: an academic session to live in, an
@@ -440,7 +441,8 @@ class ExamController extends Controller
                 ->with('warning', 'This exam is locked because results have been published. Unpublish results first to edit it.');
         }
 
-        $user = request()->user();
+        $user = auth()->user() ?? request()->user();
+        abort_unless($user, 403, 'Not authenticated.');
         $exam->load(['schools']);
         // Eager-load each exam_subject with a count of marks already entered,
         // so the form can lock down rows that already have data and signal

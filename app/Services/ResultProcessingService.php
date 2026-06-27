@@ -242,7 +242,10 @@ class ResultProcessingService
             'percentage' => $percentage,
             'grade' => $grade,
             'grade_point' => $gradePoint,
-            'position' => null, // will be set by calculatePositions
+            // 0 sentinel; calculatePositions overwrites with the real rank
+            // before the result is saved. Some DB columns can't accept null
+            // here so we send a safe placeholder.
+            'position' => 0,
             'total_students' => $totalStudents,
             'subjects_passed' => $subjectsPassed,
             'subjects_failed' => $subjectsFailed,
@@ -565,16 +568,25 @@ class ResultProcessingService
      *
      * @return array{0: string|null, 1: float|null}
      */
+    /**
+     * Returns [grade, gradePoint] for a percentage.
+     *
+     * When no grading scale is configured on the exam, or the scale doesn't
+     * cover this percentage band, we still return safe non-null defaults
+     * ('—' / 0.0) — the `results.grade_point` column is NOT NULL and the
+     * insert otherwise dies with a constraint-violation 5xx. Admins can
+     * always re-generate after attaching a grading scale.
+     */
     public function calculateGrade(float $percentage, ?GradingScale $gradingScale): array
     {
         if ($gradingScale === null) {
-            return [null, null];
+            return ['—', 0.0];
         }
 
         $entry = $gradingScale->getGrade($percentage);
 
         if ($entry === null) {
-            return [null, null];
+            return ['—', 0.0];
         }
 
         return [$entry->grade, (float) $entry->grade_point];
