@@ -126,23 +126,20 @@ class Result extends Model
     /**
      * Order results by the student's roll number, numerically — so "1, 2,
      * 3 … 9, 10, 11" instead of the lexical "1, 10, 11, 2, 3, …" you get
-     * from a bare orderBy on a varchar column. Used everywhere admins/
-     * teachers/parents look at a result list (result sheet, mark sheets,
-     * tabulation, section view).
+     * from a bare orderBy on a varchar column.
+     *
+     * Implemented as a correlated subquery instead of a JOIN so the scope
+     * doesn't introduce column-name conflicts: Students has its own
+     * `school_id`, `school_class_id`, `section_id` columns, and any
+     * existing `where('section_id', …)` on the Result query would become
+     * ambiguous the moment we joined Students in.
      */
     public function scopeOrderByRollNo($query)
     {
-        $needsJoin = !collect($query->getQuery()->joins ?? [])
-            ->pluck('table')->contains('students');
-
-        if ($needsJoin) {
-            $query->join('students', 'results.student_id', '=', 'students.id')
-                ->select('results.*');
-        }
-
+        $rollSub = "(select `roll_no` from `students` where `students`.`id` = `results`.`student_id` and `students`.`deleted_at` is null)";
         return $query
             ->orderBy('results.section_id')
-            ->orderByRaw("LENGTH(COALESCE(students.roll_no, ''))")
-            ->orderBy('students.roll_no');
+            ->orderByRaw("LENGTH(COALESCE({$rollSub}, ''))")
+            ->orderByRaw("{$rollSub}");
     }
 }
