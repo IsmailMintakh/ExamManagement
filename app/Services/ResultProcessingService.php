@@ -16,6 +16,22 @@ class ResultProcessingService
     /**
      * Generate results for all students in a section for a given exam.
      *
+     * Read-only on the marks table.
+     * This method is a hard guarantee: teacher-submitted marks are the
+     * source of truth, and this method *only reads* from the `marks` table
+     * to compute Result rows. It NEVER calls Mark::update / Mark::delete /
+     * Mark::create. Re-running generateResults is always safe — running it
+     * 100 times produces the same Result rows and leaves the marks data
+     * completely untouched.
+     *
+     * The only DB writes here are:
+     *   - Result::forceDelete() for the section's prior result rows (the
+     *     replacement rows are then created via Result::create).
+     *   - Result::create() and Result::save() for the fresh rows.
+     *
+     * If a future change to this method touches marks_obtained, is_absent
+     * or any other Mark column, that's a bug — re-revert.
+     *
      * @return Collection<int, Result>
      */
     public function generateResults(Exam $exam, int $schoolClassId, int $sectionId): Collection

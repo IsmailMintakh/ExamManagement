@@ -26,7 +26,21 @@ const props = defineProps({
     // Surfaces the missing-subject gap so admins can fix it (e.g. via the
     // Add Missing Subject modal in Exam Edit) before generating results.
     missingSubjectsPerClass: { type: Array, default: () => [] },
+    // Count of soft-deleted Mark rows for this exam. > 0 means recovery
+    // is available — admin clicks the banner and we restore them all.
+    deletedMarksCount: { type: Number, default: 0 },
 })
+
+const restoringMarks = ref(false)
+function restoreDeletedMarks() {
+    if (!exam?.value && !props.exam) return
+    if (!confirm(`Restore ${props.deletedMarksCount} deleted mark(s) for this exam?\n\nMarks where a newer entry already exists will be skipped — the newest teacher entry always wins.`)) return
+    restoringMarks.value = true
+    router.post(route('exams.restore-deleted-marks', props.exam.id), {}, {
+        preserveScroll: true,
+        onFinish: () => { restoringMarks.value = false },
+    })
+}
 
 const page = usePage()
 const roles = page.props.auth?.user?.roles || []
@@ -371,6 +385,39 @@ async function generateAllReady() {
                             <input v-model="search" type="text" placeholder="Search class…"
                                 class="input input-bordered w-full pl-9 text-sm" />
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ───── DELETED MARKS RECOVERY ─────
+                 If anything deleted marks for this exam (via removeSubject /
+                 removeClass), the SoftDeletes trait kept the rows around.
+                 Surface a one-click restore so teacher-submitted marks
+                 aren't silently lost when an admin clicks a destructive
+                 button by mistake. Newer teacher entries always win during
+                 restore — re-entered marks aren't overwritten. -->
+            <div v-if="deletedMarksCount > 0"
+                class="surface" style="border-left: 4px solid #dc2626;">
+                <div class="p-4">
+                    <div class="flex items-start gap-3">
+                        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-500/15 text-rose-700 dark:text-rose-300">
+                            <ArrowPathIcon class="h-5 w-5" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h3 class="text-sm font-bold text-rose-900 dark:text-rose-100">
+                                {{ deletedMarksCount }} previously-submitted mark{{ deletedMarksCount === 1 ? '' : 's' }} on this exam {{ deletedMarksCount === 1 ? 'has' : 'have' }} been deleted
+                            </h3>
+                            <p class="text-[11px] text-base-content/55 mt-0.5 leading-relaxed">
+                                Soft-deleted — they're still in the database. Click <b>Restore now</b> to bring them back into the marks-entry and result pages.
+                                The system skips any mark where a teacher has re-entered a newer value, so existing data is never overwritten.
+                            </p>
+                        </div>
+                        <button type="button" @click="restoreDeletedMarks"
+                            :disabled="restoringMarks"
+                            class="btn btn-error btn-sm gap-1.5 shrink-0">
+                            <ArrowPathIcon class="w-4 h-4" :class="restoringMarks ? 'animate-spin' : ''" />
+                            {{ restoringMarks ? 'Restoring…' : `Restore ${deletedMarksCount}` }}
+                        </button>
                     </div>
                 </div>
             </div>

@@ -732,6 +732,76 @@ class ExamController extends Controller
     }
 
     /**
+     * Recovery — restore every soft-deleted Mark + MarksSubmission for an
+     * exam. Used when a destructive action (removeSubject / removeClass)
+     * was triggered by mistake and the admin needs the marks back.
+     *
+     * Idempotent: only restores rows where there isn't already a non-deleted
+     * Mark for the same (student, subject) — so if the teacher has since
+     * re-entered marks, the newer entry wins. Admin-only.
+     */
+    public function restoreDeletedMarks(Request $request, Exam $exam): RedirectResponse
+    {
+        $this->authorize('update', $exam);
+
+        $trashed = \App\Models\Mark::onlyTrashed()
+            ->where('exam_id', $exam->id)
+            ->get(['id', 'student_id', 'subject_id']);
+
+        if ($trashed->isEmpty()) {
+            return back()->with('info', 'No deleted marks to restore for this exam.');
+        }
+
+        // Identify any (student, subject) pairs that already have a live
+        // mark; those shouldn't be restored — newer entry takes priority.
+        $liveKeys = \App\Models\Mark::where('exam_id', $exam->id)
+            ->get(['student_id', 'subject_id'])
+            ->map(fn ($m) => $m->student_id.'-'.$m->subject_id)
+            ->flip();
+
+        $toRestore = $trashed->filter(fn ($m) => !$liveKeys->has($m->student_id.'-'.$m->subject_id))
+            ->pluck('id');
+
+        $skipped = $trashed->count() - $toRestore->count();
+        $restoredMarks = 0;
+        $restoredSubmissions = 0;
+
+        if ($toRestore->isNotEmpty()) {
+            $restoredMarks = \App\Models\Mark::onlyTrashed()
+                ->whereIn('id', $toRestore)
+                ->update(['deleted_at' => null]);
+        }
+
+        // Rebuild MarksSubmission rows for any (subject, section) tuple
+        // whose restored Marks are flagged as 'submitted' — the original
+        // submission rows were hard-deleted (MarksSubmission has no soft
+        // deletes), but the Mark.status column is the source of truth, so
+        // we can resurrect the submission records from there.
+        $submissionTuples = \App\Models\Mark::whereIn('id', $toRestore)
+            ->where('status', 'submitted')
+            ->select('subject_id', 'section_id')
+            ->distinct()
+            ->get();
+        foreach ($submissionTuples as $t) {
+            \App\Models\MarksSubmission::updateOrCreate(
+                ['exam_id' => $exam->id, 'subject_id' => $t->subject_id, 'section_id' => $t->section_id],
+                ['status' => 'submitted', 'submitted_at' => now(), 'submitted_by' => $request->user()?->id]
+            );
+            $restoredSubmissions++;
+        }
+
+        $msg = "Restored {$restoredMarks} mark".($restoredMarks === 1 ? '' : 's');
+        if ($restoredSubmissions > 0) {
+            $msg .= ' and rebuilt '.$restoredSubmissions.' submission record'.($restoredSubmissions === 1 ? '' : 's');
+        }
+        $msg .= '.';
+        if ($skipped > 0) {
+            $msg .= ' '.$skipped.' skipped — newer marks already exist for those students.';
+        }
+        return back()->with('success', $msg);
+    }
+
+    /**
      * Remove a single (subject, class) row from this exam — protected by
      * the admin's account password when marks have already been entered.
      *

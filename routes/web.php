@@ -228,6 +228,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('exams/{exam}/remove-class', [ExamController::class, 'removeClass'])->name('exams.remove-class');
     // Per-subject destructive remove — password-gated when marks exist.
     Route::post('exams/{exam}/remove-subject', [ExamController::class, 'removeSubject'])->name('exams.remove-subject');
+    // Recovery — restore every soft-deleted Mark for an exam (admin only).
+    Route::post('exams/{exam}/restore-deleted-marks', [ExamController::class, 'restoreDeletedMarks'])->name('exams.restore-deleted-marks');
 
     // GET → edit redirects for the POST-only destructive/inline endpoints
     // above. Without these, landing on the URL directly (typed in the

@@ -267,6 +267,13 @@ class ResultController extends Controller
             'totalGeneratedResults' => Result::where('exam_id', $exam->id)->count(),
             'assessmentReadiness' => $assessmentReadiness,
             'missingSubjectsPerClass' => $missingSubjectsPerClass,
+            // Soft-deleted marks recovery — surfaces a banner that lets the
+            // admin one-click restore any marks that were accidentally
+            // deleted via remove-subject / remove-class. NEVER touches
+            // marks that haven't been soft-deleted; safe to display.
+            'deletedMarksCount' => \App\Models\Mark::onlyTrashed()
+                ->where('exam_id', $exam->id)
+                ->count(),
         ]);
     }
 
