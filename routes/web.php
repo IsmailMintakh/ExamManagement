@@ -256,6 +256,60 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('marks/{exam}/submit/{subject}/{section}', [MarksController::class, 'submit'])->name('marks.submit');
     Route::post('marks/{exam}/restore/{subject}/{section}', [MarksController::class, 'restoreDeletedMarks'])->name('marks.restore');
 
+    // Marks recovery diagnostic — super-admin only. Visit
+    //   /admin/marks-status/{exam}                   (whole exam)
+    //   /admin/marks-status/{exam}/{subject}/{section}  (one paper)
+    // Shows live / trashed / total expected marks counts so we can tell
+    // whether marks are recoverable (trashed > 0) or permanently gone.
+    Route::get('admin/marks-status/{exam}/{subject?}/{section?}', function (
+        \App\Models\Exam $exam, ?int $subject = null, ?int $section = null
+    ) {
+        abort_unless(auth()->user()?->hasRole('super-admin'), 403);
+
+        $live = \App\Models\Mark::where('exam_id', $exam->id)
+            ->when($subject, fn ($q) => $q->where('subject_id', $subject))
+            ->when($section, fn ($q) => $q->where('section_id', $section))
+            ->count();
+        $trashed = \App\Models\Mark::onlyTrashed()
+            ->where('exam_id', $exam->id)
+            ->when($subject, fn ($q) => $q->where('subject_id', $subject))
+            ->when($section, fn ($q) => $q->where('section_id', $section))
+            ->count();
+        $submission = $subject && $section
+            ? \App\Models\MarksSubmission::where('exam_id', $exam->id)
+                ->where('subject_id', $subject)
+                ->where('section_id', $section)
+                ->first()
+            : null;
+        $studentCount = $section
+            ? \App\Models\Student::where('section_id', $section)
+                ->where('status', 'active')
+                ->count()
+            : null;
+
+        $verdict = match (true) {
+            $trashed > 0  => "🔁 RECOVERABLE — {$trashed} marks are soft-deleted. Open the affected (subject, section) entry page and click the red Restore banner.",
+            $live > 0     => "✅ HEALTHY — marks are present and not deleted.",
+            $live === 0 && $trashed === 0
+                          => "❌ NO MARKS FOUND in either live or trashed state. They were either never entered, or hard-deleted via a path we don't audit yet.",
+            default       => "ℹ️ unexpected state",
+        };
+
+        return response()->json([
+            'exam_id' => $exam->id,
+            'exam_name' => $exam->name,
+            'subject_id' => $subject,
+            'section_id' => $section,
+            'live_marks' => $live,
+            'trashed_marks' => $trashed,
+            'student_count' => $studentCount,
+            'submission_status' => $submission?->status,
+            'submission_submitted_at' => $submission?->submitted_at?->toIso8601String(),
+            'verdict' => $verdict,
+            'frontend_check' => 'If you see this JSON, the backend deploy is live. Hard-refresh the marks-entry page (Ctrl+Shift+R) to reload the JS bundle if the red Restore banner still doesn\'t appear.',
+        ], 200, [], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    })->where('subject', '[0-9]+')->where('section', '[0-9]+');
+
     // Results
     Route::get('results', [ResultController::class, 'index'])->name('results.index');
     Route::get('result-review', [ResultController::class, 'reviewQueue'])->name('results.review-queue');

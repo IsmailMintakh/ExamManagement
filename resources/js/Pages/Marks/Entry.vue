@@ -29,6 +29,11 @@ const props = defineProps({
     // one-click restore the marks that were dropped by remove-subject /
     // remove-class. Always 0 in normal operation.
     deletedMarksCount: { type: Number, default: 0 },
+    // Set on the FIRST page load after we auto-un-trashed Mark rows that
+    // were dropped by an earlier remove-subject / remove-class action.
+    // Drives the green "We restored N marks" ribbon so the user knows
+    // their previously-submitted data came back automatically — no clicks.
+    autoRestoredCount: { type: Number, default: 0 },
 })
 
 const restoringMarks = ref(false)
@@ -603,6 +608,26 @@ const absentStudents = computed(() =>
                             <div class="text-base sm:text-lg font-extrabold tabular-nums leading-tight">{{ stats.total }}</div>
                             <div class="text-[9px] uppercase tracking-widest text-base-content/55 font-semibold">Students</div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════ AUTO-RESTORE SUCCESS RIBBON ═══════════
+                 Shown ONLY on the page load where the controller actually
+                 un-trashed Mark rows for this paper. Tells the user their
+                 previously-submitted marks have come back automatically.
+                 Disappears on the next reload (autoRestoredCount becomes 0). -->
+            <div v-if="autoRestoredCount > 0"
+                 class="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4 flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0">
+                    <ArrowPathIcon class="w-5 h-5" />
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="font-bold text-emerald-900 dark:text-emerald-100">
+                        {{ autoRestoredCount }} previously-submitted mark{{ autoRestoredCount === 1 ? '' : 's' }} restored automatically
+                    </div>
+                    <div class="text-xs text-emerald-800/80 dark:text-emerald-200/80 leading-relaxed mt-0.5">
+                        The marks were soft-deleted by an earlier admin action and have been brought back. They appear in the grid below — no re-entry needed.
                     </div>
                 </div>
             </div>

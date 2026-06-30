@@ -210,6 +210,49 @@ class MarksController extends Controller
             ->orderBy('name')
             ->get();
 
+        // Auto-restore — silently un-trash any soft-deleted Marks for
+        // this (exam, subject, section) BEFORE we read the live set.
+        // Reason: earlier remove-subject / remove-class endpoints called
+        // Mark::delete() which only set deleted_at, so the rows are still
+        // physically present in the DB but filtered out by the default
+        // query. We don't ask the user to click anything — if data is
+        // recoverable we just bring it back. Live rows that already exist
+        // for the same student win (newest entry rule), so re-entered
+        // marks are never overwritten.
+        $autoRestoredCount = 0;
+        $trashedForThisPaper = Mark::onlyTrashed()
+            ->where('exam_id', $exam)
+            ->where('subject_id', $subject)
+            ->where('section_id', $section)
+            ->get(['id', 'student_id', 'status']);
+        if ($trashedForThisPaper->isNotEmpty()) {
+            $liveStudentIds = Mark::where('exam_id', $exam)
+                ->where('subject_id', $subject)
+                ->where('section_id', $section)
+                ->pluck('student_id')
+                ->flip();
+            $restorableIds = $trashedForThisPaper
+                ->filter(fn ($m) => !$liveStudentIds->has($m->student_id))
+                ->pluck('id');
+            if ($restorableIds->isNotEmpty()) {
+                $autoRestoredCount = Mark::onlyTrashed()
+                    ->whereIn('id', $restorableIds)
+                    ->update(['deleted_at' => null]);
+                // If any restored mark was previously submitted, rebuild
+                // the submission row so the "Submitted" badge stays
+                // truthful and the post-submit edit policy still applies.
+                $needsSubmission = Mark::whereIn('id', $restorableIds)
+                    ->where('status', 'submitted')
+                    ->exists();
+                if ($needsSubmission) {
+                    MarksSubmission::updateOrCreate(
+                        ['exam_id' => $exam, 'subject_id' => $subject, 'section_id' => $section],
+                        ['status' => 'submitted', 'submitted_at' => now(), 'submitted_by' => $user->id]
+                    );
+                }
+            }
+        }
+
         $existingMarks = Mark::where('exam_id', $exam)
             ->where('subject_id', $subject)
             ->where('section_id', $section)
@@ -221,11 +264,10 @@ class MarksController extends Controller
             ->where('section_id', $section)
             ->first();
 
-        // If this (subject, section) had marks that were soft-deleted (via
-        // remove-subject / remove-class on the admin side), surface a
-        // recovery banner so teachers can restore them in one click instead
-        // of re-entering. This is the "Submitted status but empty grid"
-        // symptom — submission row survived, Mark rows are trashed.
+        // Any leftover trashed rows for this paper after auto-restore
+        // (only happens if every trashed row has a newer live counterpart).
+        // Kept as a prop for transparency, but the banner is rarely shown
+        // now that auto-restore runs on every page load.
         $deletedMarksCount = Mark::onlyTrashed()
             ->where('exam_id', $exam)
             ->where('subject_id', $subject)
@@ -253,6 +295,7 @@ class MarksController extends Controller
             'isSubmitted' => $isSubmitted,
             'canEditAfterSubmit' => $canEditAfterSubmit,
             'deletedMarksCount' => $deletedMarksCount,
+            'autoRestoredCount' => $autoRestoredCount,
         ]);
     }
 
