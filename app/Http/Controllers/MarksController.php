@@ -426,7 +426,14 @@ class MarksController extends Controller
         }
 
         foreach ($data['marks'] as $markData) {
-            $existing = Mark::where('exam_id', $exam->id)
+            // withTrashed: see soft-deleted rows so we can revive them on
+            // save instead of triggering a unique-constraint violation.
+            // The marks_unique index on (exam_id, student_id, subject_id)
+            // does NOT include deleted_at — without withTrashed, the row
+            // is "invisible" to updateOrCreate but the index still
+            // claims the slot, and the INSERT fails with 1062.
+            $existing = Mark::withTrashed()
+                ->where('exam_id', $exam->id)
                 ->where('subject_id', $data['subject_id'])
                 ->where('student_id', $markData['student_id'])
                 ->where('section_id', $data['section_id'])
@@ -437,30 +444,37 @@ class MarksController extends Controller
             // it doesn't unsubmit. Otherwise default to draft for fresh entry.
             $rowStatus = $existing && $existing->status === 'submitted' ? 'submitted' : 'draft';
 
-            Mark::updateOrCreate(
-                [
-                    'exam_id' => $exam->id,
-                    'subject_id' => $data['subject_id'],
-                    'student_id' => $markData['student_id'],
-                    'section_id' => $data['section_id'],
-                ],
-                [
-                    'exam_subject_id' => $examSubject->id,
-                    'school_id' => $section->schoolClass->school_id,
-                    'school_class_id' => $section->school_class_id,
-                    'academic_session_id' => $currentSession?->id,
-                    'marks_obtained' => ($markData['is_absent'] ?? false) ? 0 : ($markData['marks_obtained'] ?? 0),
-                    'total_marks' => $examSubject->total_marks,
-                    'grace_marks' => 0,
-                    'is_absent' => $markData['is_absent'] ?? false,
-                    'remarks' => $markData['remarks'] ?? null,
-                    'status' => $rowStatus,
-                    'entered_by' => $user->id,
-                    'submitted_at' => $rowStatus === 'submitted'
-                        ? ($existing?->submitted_at ?? now())
-                        : null,
-                ]
-            );
+            // firstOrNew + manual deleted_at write — `deleted_at` is not
+            // in $fillable, so mass-assignment via updateOrCreate silently
+            // drops it. Direct property write bypasses the guard.
+            $mark = $existing ?: new Mark([
+                'exam_id' => $exam->id,
+                'subject_id' => $data['subject_id'],
+                'student_id' => $markData['student_id'],
+                'section_id' => $data['section_id'],
+            ]);
+            $mark->fill([
+                'exam_id' => $exam->id,
+                'subject_id' => $data['subject_id'],
+                'student_id' => $markData['student_id'],
+                'section_id' => $data['section_id'],
+                'exam_subject_id' => $examSubject->id,
+                'school_id' => $section->schoolClass->school_id,
+                'school_class_id' => $section->school_class_id,
+                'academic_session_id' => $currentSession?->id,
+                'marks_obtained' => ($markData['is_absent'] ?? false) ? 0 : ($markData['marks_obtained'] ?? 0),
+                'total_marks' => $examSubject->total_marks,
+                'grace_marks' => 0,
+                'is_absent' => $markData['is_absent'] ?? false,
+                'remarks' => $markData['remarks'] ?? null,
+                'status' => $rowStatus,
+                'entered_by' => $user->id,
+                'submitted_at' => $rowStatus === 'submitted'
+                    ? ($existing?->submitted_at ?? now())
+                    : null,
+            ]);
+            $mark->deleted_at = null;
+            $mark->save();
         }
 
         // Post-submission edit path → cascade through ResultProcessingService
@@ -531,38 +545,53 @@ class MarksController extends Controller
             }
 
             // Don't overwrite already-submitted marks via autosave.
-            $existing = Mark::where('exam_id', $exam->id)
+            // withTrashed so we see a soft-deleted row (the unique
+            // constraint marks_unique still occupies its slot without
+            // deleted_at in the key — see store() comment).
+            $existing = Mark::withTrashed()
+                ->where('exam_id', $exam->id)
                 ->where('subject_id', $data['subject_id'])
                 ->where('student_id', $markData['student_id'])
                 ->where('section_id', $data['section_id'])
                 ->first();
 
-            if ($existing && $existing->status === 'submitted') {
+            if ($existing && $existing->status === 'submitted' && !$existing->trashed()) {
                 continue;
             }
 
-            Mark::updateOrCreate(
-                [
-                    'exam_id' => $exam->id,
-                    'subject_id' => $data['subject_id'],
-                    'student_id' => $markData['student_id'],
-                    'section_id' => $data['section_id'],
-                ],
-                [
-                    'exam_subject_id' => $examSubject->id,
-                    'school_id' => $section->schoolClass->school_id,
-                    'school_class_id' => $section->school_class_id,
-                    'academic_session_id' => $currentSession?->id,
-                    'marks_obtained' => $isAbsent ? 0 : (float) $markData['marks_obtained'],
-                    'total_marks' => $examSubject->total_marks,
-                    'grace_marks' => 0,
-                    'is_absent' => $isAbsent,
-                    'remarks' => $markData['remarks'] ?? null,
-                    'status' => 'draft',
-                    'entered_by' => $user->id,
-                    'submitted_at' => null,
-                ]
-            );
+            // Same pattern as store(): firstOrNew + direct deleted_at
+            // write so reviving a trashed row works (deleted_at is not
+            // fillable so mass-assignment via updateOrCreate would be
+            // dropped).
+            $mark = $existing ?: new Mark([
+                'exam_id' => $exam->id,
+                'subject_id' => $data['subject_id'],
+                'student_id' => $markData['student_id'],
+                'section_id' => $data['section_id'],
+            ]);
+            $reviveStatus = $existing && $existing->status === 'submitted' ? 'submitted' : 'draft';
+            $mark->fill([
+                'exam_id' => $exam->id,
+                'subject_id' => $data['subject_id'],
+                'student_id' => $markData['student_id'],
+                'section_id' => $data['section_id'],
+                'exam_subject_id' => $examSubject->id,
+                'school_id' => $section->schoolClass->school_id,
+                'school_class_id' => $section->school_class_id,
+                'academic_session_id' => $currentSession?->id,
+                'marks_obtained' => $isAbsent ? 0 : (float) $markData['marks_obtained'],
+                'total_marks' => $examSubject->total_marks,
+                'grace_marks' => 0,
+                'is_absent' => $isAbsent,
+                'remarks' => $markData['remarks'] ?? null,
+                'status' => $reviveStatus,
+                'entered_by' => $user->id,
+                'submitted_at' => $reviveStatus === 'submitted'
+                    ? $existing->submitted_at
+                    : null,
+            ]);
+            $mark->deleted_at = null;
+            $mark->save();
             $saved++;
         }
 

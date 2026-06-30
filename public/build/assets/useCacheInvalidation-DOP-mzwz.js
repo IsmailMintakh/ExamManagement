@@ -1,1 +1,0 @@
-function r({alsoUploads:e=!1}={}){typeof navigator>"u"||!("serviceWorker"in navigator)||navigator.serviceWorker.controller&&navigator.serviceWorker.controller.postMessage({type:"INVALIDATE_PAGES",alsoUploads:e})}export{r as i};
