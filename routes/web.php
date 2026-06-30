@@ -256,6 +256,68 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('marks/{exam}/submit/{subject}/{section}', [MarksController::class, 'submit'])->name('marks.submit');
     Route::post('marks/{exam}/restore/{subject}/{section}', [MarksController::class, 'restoreDeletedMarks'])->name('marks.restore');
 
+    // ─── ONE-CLICK MARKS RECOVERY (super-admin only) ───
+    // Visit /admin/marks-restore-all in your browser. Runs the same code
+    // as `php artisan marks:restore-deleted` but from the browser — no
+    // SSH, no CLI access needed. Use this if you can't deploy a fresh JS
+    // bundle right now and just need the marks back in the DB.
+    Route::get('admin/marks-restore-all', function () {
+        abort_unless(auth()->user()?->hasRole('super-admin'), 403);
+
+        $trashed = \App\Models\Mark::onlyTrashed()->get(['id', 'exam_id', 'subject_id', 'section_id', 'student_id', 'status']);
+        if ($trashed->isEmpty()) {
+            return response()->json([
+                'ok' => true,
+                'restored' => 0,
+                'message' => 'No soft-deleted marks found in the entire database. If marks are still missing from the UI, they were either never entered or hard-deleted. Check Hostinger hPanel → Files → Backups to restore from a snapshot.',
+            ], 200, [], JSON_PRETTY_PRINT);
+        }
+
+        $liveKeys = \App\Models\Mark::query()
+            ->select('exam_id', 'subject_id', 'section_id', 'student_id')
+            ->get()
+            ->map(fn ($m) => "{$m->exam_id}-{$m->subject_id}-{$m->section_id}-{$m->student_id}")
+            ->flip();
+
+        $restorableIds = $trashed
+            ->filter(fn ($m) => !$liveKeys->has("{$m->exam_id}-{$m->subject_id}-{$m->section_id}-{$m->student_id}"))
+            ->pluck('id');
+
+        $skipped = $trashed->count() - $restorableIds->count();
+        $restored = 0;
+        $rebuiltSubmissions = 0;
+
+        if ($restorableIds->isNotEmpty()) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($restorableIds, &$restored, &$rebuiltSubmissions) {
+                $restored = \App\Models\Mark::onlyTrashed()
+                    ->whereIn('id', $restorableIds)
+                    ->update(['deleted_at' => null]);
+
+                $tuples = \App\Models\Mark::whereIn('id', $restorableIds)
+                    ->where('status', 'submitted')
+                    ->select('exam_id', 'subject_id', 'section_id')
+                    ->distinct()
+                    ->get();
+
+                foreach ($tuples as $t) {
+                    \App\Models\MarksSubmission::updateOrCreate(
+                        ['exam_id' => $t->exam_id, 'subject_id' => $t->subject_id, 'section_id' => $t->section_id],
+                        ['status' => 'submitted', 'submitted_at' => now()]
+                    );
+                    $rebuiltSubmissions++;
+                }
+            });
+        }
+
+        return response()->json([
+            'ok' => true,
+            'restored' => $restored,
+            'skipped' => $skipped,
+            'rebuilt_submissions' => $rebuiltSubmissions,
+            'message' => "Restored {$restored} marks across the whole system. Rebuilt {$rebuiltSubmissions} submission records. Refresh your marks-entry pages — the marks are back.",
+        ], 200, [], JSON_PRETTY_PRINT);
+    });
+
     // Marks recovery diagnostic — super-admin only. Visit
     //   /admin/marks-status/{exam}                   (whole exam)
     //   /admin/marks-status/{exam}/{subject}/{section}  (one paper)
