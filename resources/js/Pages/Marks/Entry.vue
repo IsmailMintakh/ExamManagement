@@ -24,7 +24,27 @@ const props = defineProps({
     // section)? When true and isSubmitted is also true, an "Edit Marks"
     // button appears that flips the form into editMode.
     canEditAfterSubmit: { type: Boolean, default: false },
+    // Soft-deleted Mark count for this exact (exam, subject, section).
+    // When > 0, the recovery banner appears so the teacher / admin can
+    // one-click restore the marks that were dropped by remove-subject /
+    // remove-class. Always 0 in normal operation.
+    deletedMarksCount: { type: Number, default: 0 },
 })
+
+const restoringMarks = ref(false)
+function restoreDeletedMarks() {
+    if (!props.deletedMarksCount) return
+    if (!confirm(`Restore ${props.deletedMarksCount} previously-submitted mark(s) for this subject?\n\nMarks where a newer entry already exists will be skipped — the newest entry always wins.`)) return
+    restoringMarks.value = true
+    router.post(
+        route('marks.restore', [props.exam.id, props.subject.id, props.section.id]),
+        {},
+        {
+            preserveScroll: true,
+            onFinish: () => { restoringMarks.value = false },
+        }
+    )
+}
 
 // editMode: user-controlled flag — flips on when the teacher clicks
 // "Edit Marks" on a submitted section that the admin has unlocked. While
@@ -585,6 +605,35 @@ const absentStudents = computed(() =>
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- ═══════════ DELETED-MARKS RECOVERY BANNER ═══════════
+                 Surfaces when this (exam, subject, section) has soft-deleted
+                 Mark rows in the database — usually the result of an admin
+                 clicking remove-subject / remove-class earlier. The marks
+                 aren't lost; one click brings them back. Renders above the
+                 normal submitted/editing banners because recovery is the
+                 most urgent thing the user needs to act on. -->
+            <div v-if="deletedMarksCount > 0"
+                 class="rounded-2xl border-2 border-rose-500/40 bg-rose-500/10 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-rose-500 text-white flex items-center justify-center flex-shrink-0">
+                    <ExclamationTriangleIcon class="w-5 h-5" />
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="font-bold text-rose-900 dark:text-rose-100">
+                        {{ deletedMarksCount }} previously-submitted mark{{ deletedMarksCount === 1 ? '' : 's' }} {{ deletedMarksCount === 1 ? 'is' : 'are' }} hidden
+                    </div>
+                    <div class="text-xs text-rose-800/80 dark:text-rose-200/80 leading-relaxed mt-0.5">
+                        The marks are still in the database — soft-deleted by an earlier admin action.
+                        Click <b>Restore marks</b> to bring them back. Existing fresh entries (if any) won't be overwritten — the newest entry always wins.
+                    </div>
+                </div>
+                <button type="button" @click="restoreDeletedMarks"
+                        :disabled="restoringMarks"
+                        class="btn btn-error btn-sm gap-1.5 rounded-xl shrink-0">
+                    <ArrowPathIcon class="w-4 h-4" :class="restoringMarks ? 'animate-spin' : ''" />
+                    {{ restoringMarks ? 'Restoring…' : `Restore ${deletedMarksCount} mark${deletedMarksCount === 1 ? '' : 's'}` }}
+                </button>
             </div>
 
             <!-- ═══════════ SUBMITTED BANNER ═══════════ -->

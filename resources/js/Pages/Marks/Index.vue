@@ -10,7 +10,7 @@ import {
     PencilSquareIcon, EyeIcon, LockClosedIcon, UserGroupIcon,
     ChevronRightIcon, DocumentTextIcon, MagnifyingGlassIcon,
     XCircleIcon, AdjustmentsHorizontalIcon, Squares2X2Icon,
-    AcademicCapIcon, UserIcon,
+    AcademicCapIcon, UserIcon, ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -333,6 +333,12 @@ function getLockedBadge(row) {
                                 </div>
                             </div>
 
+                            <span v-if="r.deleted_marks_count > 0"
+                                class="badge badge-sm gap-1 shrink-0 bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30"
+                                :title="`${r.deleted_marks_count} previously-submitted marks are soft-deleted. Open this row to restore them.`">
+                                <ExclamationTriangleIcon class="w-3 h-3" />
+                                {{ r.deleted_marks_count }} hidden
+                            </span>
                             <span class="badge badge-sm gap-1 shrink-0" :class="getStatus(r.status).class">
                                 {{ getStatus(r.status).label }}
                             </span>

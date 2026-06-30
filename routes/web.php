@@ -254,6 +254,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('marks/{exam}/store', [MarksController::class, 'store'])->name('marks.store');
     Route::post('marks/{exam}/autosave', [MarksController::class, 'autosave'])->name('marks.autosave');
     Route::post('marks/{exam}/submit/{subject}/{section}', [MarksController::class, 'submit'])->name('marks.submit');
+    Route::post('marks/{exam}/restore/{subject}/{section}', [MarksController::class, 'restoreDeletedMarks'])->name('marks.restore');
 
     // Results
     Route::get('results', [ResultController::class, 'index'])->name('results.index');

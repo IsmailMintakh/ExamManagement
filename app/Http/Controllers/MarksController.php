@@ -94,6 +94,18 @@ class MarksController extends Controller
             ->groupBy('section_id')
             ->pluck('cnt', 'section_id');
 
+        // Bulk-load soft-deleted Mark counts per (exam, subject, section)
+        // so the index can flag rows that have hidden marks (and link the
+        // teacher straight to the entry page where the restore banner
+        // appears). One grouped query covers every assignment we render.
+        $trashedMarksMap = Mark::onlyTrashed()
+            ->whereIn('exam_id', $examsRaw->pluck('id'))
+            ->whereIn('section_id', $sectionIds)
+            ->selectRaw('exam_id, subject_id, section_id, COUNT(*) as cnt')
+            ->groupBy('exam_id', 'subject_id', 'section_id')
+            ->get()
+            ->mapWithKeys(fn ($r) => ["{$r->exam_id}-{$r->subject_id}-{$r->section_id}" => (int) $r->cnt]);
+
         // For admin view: pre-load all subject-teacher assignments for the
         // classes/sections in scope so each row carries the responsible
         // teacher's name. Lets DDO/Principal filter "by teacher" on the page.
@@ -108,7 +120,7 @@ class MarksController extends Controller
                 ->keyBy(fn ($st) => "{$st->subject_id}|{$st->school_class_id}|{$st->section_id}");
         }
 
-        $exams = $examsRaw->map(function ($exam) use ($isAdmin, $teacherAssignments, $allSections, $submissionsMap, $studentCountMap, $adminTeacherMap) {
+        $exams = $examsRaw->map(function ($exam) use ($isAdmin, $teacherAssignments, $allSections, $submissionsMap, $studentCountMap, $adminTeacherMap, $trashedMarksMap) {
             $assignments = [];
 
             foreach ($exam->examSubjects as $es) {
@@ -147,6 +159,9 @@ class MarksController extends Controller
                         'teacher_name' => $teacherCell?->user?->name,
                         'student_count' => (int) ($studentCountMap[$sec->id] ?? 0),
                         'status' => $submission?->status,
+                        // Hidden Mark count for this row — drives the
+                        // "N hidden" indicator + restore prompt in the list.
+                        'deleted_marks_count' => (int) ($trashedMarksMap["{$exam->id}-{$es->subject_id}-{$sec->id}"] ?? 0),
                     ];
                 }
             }
@@ -206,6 +221,17 @@ class MarksController extends Controller
             ->where('section_id', $section)
             ->first();
 
+        // If this (subject, section) had marks that were soft-deleted (via
+        // remove-subject / remove-class on the admin side), surface a
+        // recovery banner so teachers can restore them in one click instead
+        // of re-entering. This is the "Submitted status but empty grid"
+        // symptom — submission row survived, Mark rows are trashed.
+        $deletedMarksCount = Mark::onlyTrashed()
+            ->where('exam_id', $exam)
+            ->where('subject_id', $subject)
+            ->where('section_id', $section)
+            ->count();
+
         $subjectModel = Subject::findOrFail($subject);
         $isSubmitted = $submission && $submission->status === 'submitted';
 
@@ -226,7 +252,70 @@ class MarksController extends Controller
             'existingMarks' => $existingMarks,
             'isSubmitted' => $isSubmitted,
             'canEditAfterSubmit' => $canEditAfterSubmit,
+            'deletedMarksCount' => $deletedMarksCount,
         ]);
+    }
+
+    /**
+     * Restore soft-deleted marks for THIS (exam, subject, section) only.
+     * Scoped variant of ExamController::restoreDeletedMarks — keeps the
+     * blast radius tight so a teacher recovering one subject doesn't
+     * accidentally bring back marks for a different paper. Same safety
+     * rule: skip any (student, subject) where a live (re-entered) mark
+     * already exists.
+     */
+    public function restoreDeletedMarks(Request $request, int $exam, int $subject, int $section): RedirectResponse
+    {
+        $user = $request->user();
+        // Admins always; teachers only when they're the assigned subject
+        // teacher for this (subject, section). Reuse the existing gate.
+        if (!$this->canEnterMarks($user, $subject, $section)) {
+            abort(403, 'You can only restore marks for subjects assigned to you.');
+        }
+
+        $trashed = Mark::onlyTrashed()
+            ->where('exam_id', $exam)
+            ->where('subject_id', $subject)
+            ->where('section_id', $section)
+            ->get(['id', 'student_id']);
+
+        if ($trashed->isEmpty()) {
+            return back()->with('info', 'No deleted marks to restore for this subject.');
+        }
+
+        $liveStudentIds = Mark::where('exam_id', $exam)
+            ->where('subject_id', $subject)
+            ->where('section_id', $section)
+            ->pluck('student_id')
+            ->flip();
+
+        $toRestoreIds = $trashed->filter(fn ($m) => !$liveStudentIds->has($m->student_id))->pluck('id');
+        $skipped = $trashed->count() - $toRestoreIds->count();
+        $restored = 0;
+
+        if ($toRestoreIds->isNotEmpty()) {
+            $restored = Mark::onlyTrashed()
+                ->whereIn('id', $toRestoreIds)
+                ->update(['deleted_at' => null]);
+        }
+
+        // Rebuild the submission record if any restored Marks are in
+        // 'submitted' status — submission row may have been hard-deleted.
+        $hasSubmittedRestored = Mark::whereIn('id', $toRestoreIds)
+            ->where('status', 'submitted')
+            ->exists();
+        if ($hasSubmittedRestored) {
+            MarksSubmission::updateOrCreate(
+                ['exam_id' => $exam, 'subject_id' => $subject, 'section_id' => $section],
+                ['status' => 'submitted', 'submitted_at' => now(), 'submitted_by' => $user->id]
+            );
+        }
+
+        $msg = "Restored {$restored} mark".($restored === 1 ? '' : 's').'.';
+        if ($skipped > 0) {
+            $msg .= ' '.$skipped.' skipped — newer marks already exist for those students.';
+        }
+        return back()->with('success', $msg);
     }
 
     public function store(Request $request, Exam $exam): RedirectResponse
