@@ -165,125 +165,63 @@
                 </td>
             </tr>
             @endforeach
-        </tbody>
-    </table>
 
-    {{-- ═══════════ FOOTER — matches the school's reference sheet ═══════════
-         One unified table so column widths line up exactly like the
-         Excel screenshot the school shared. Layout:
-
-           row 1: "Result Summary" | "Qualitative Result in Grades" | "Criteria"
-                                                                     (banner row)
-           row 2: 7 vertical-header cols       5 grade-band cols     N subject-teacher cols
-                  (Total Students … Target %)  (80-84% … 60% >)      (one per subject)
-           row 3: values                       values + letter grade  Teacher's Name row
-           row 4:                                                     Pass %  row
-           row 5:                                                     Target % row
-
-         Column widths are chosen so left+middle sit at fixed pixel widths
-         and the subject block fills the remainder. Vertical column labels
-         via CSS transform (DomPDF v2+ supports rotate()).                    --}}
-    @php
-        $sumCols  = ['Total Students', 'Appeared', 'Absent', 'Successful', 'Unsuccessful', 'Pass %', 'Target %'];
-        $sumVals  = [
-            $summary['total'], $summary['appeared'], $summary['absent'],
-            $summary['successful'], $summary['unsuccessful'],
-            $summary['passPercentage'] . '%',
-            $summary['targetPercentage'] ? $summary['targetPercentage'].'%' : '',
-        ];
-        $subjectN = ($subjectTeacherRows ?? collect())->count();
-    @endphp
-
-    <table style="width:100%; border-collapse:collapse; margin-top:8px; font-size:7.5px; border:1px solid #333">
-        {{-- Banner row --}}
-        <tr>
-            <td colspan="{{ count($sumCols) }}" style="border:1px solid #333; padding:3px; text-align:center; font-weight:bold; background:#f0fdf4">
-                Result Summary
-            </td>
-            <td colspan="{{ count($gradeBands) }}" style="border:1px solid #333; padding:3px; text-align:center; font-weight:bold; background:#f0fdf4">
-                Qualitative Result in Grades
-            </td>
-            @if($subjectN > 0)
-                <td colspan="{{ $subjectN + 1 }}" style="border:1px solid #333; padding:3px; text-align:center; font-weight:bold; background:#f0fdf4">
-                    Criteria
-                </td>
-            @endif
-        </tr>
-
-        {{-- Column headers: 7 summary cols + 5 grade band cols + N subject cols
-             (subject cols are pushed to a row-labeled block below via the
-              Teacher's Name / Pass % / Target % rows). Grade band gets an
-              extra letter-grade sub-row per the reference. --}}
-        <tr style="background:#e7f5ec">
-            @foreach($sumCols as $c)
-                <th style="border:1px solid #333; padding:2px; height:52px; vertical-align:middle; width:26px">
-                    <div style="transform:rotate(-90deg); white-space:nowrap; font-size:7px; font-weight:bold">
-                        {{ $c }}
-                    </div>
-                </th>
-            @endforeach
-            @foreach($gradeBands as $b)
-                <th style="border:1px solid #333; padding:2px; text-align:center; font-size:7px; vertical-align:middle; width:32px">
-                    {{ $b['label'] }}<br><span style="font-weight:normal; color:#065f46">{{ $b['letter'] }}</span>
-                </th>
-            @endforeach
-            @if($subjectN > 0)
-                <th style="border:1px solid #333; padding:2px 4px; text-align:left; font-size:7px; width:60px">
-                    &nbsp;
-                </th>
-                @foreach($subjectTeacherRows as $row)
-                    <th style="border:1px solid #333; padding:2px; text-align:center; font-size:7px; font-weight:bold; text-transform:uppercase">
-                        {{ $row['code'] }}
-                    </th>
-                @endforeach
-            @endif
-        </tr>
-
-        {{-- Value row (aligns with all headers above) --}}
-        <tr>
-            @foreach($sumVals as $v)
-                <td style="border:1px solid #333; padding:3px; text-align:center; font-weight:bold">{{ $v }}</td>
-            @endforeach
-            @foreach($gradeBands as $b)
-                <td style="border:1px solid #333; padding:3px; text-align:center; font-weight:bold">{{ $b['count'] }}</td>
-            @endforeach
-            @if($subjectN > 0)
-                <td style="border:1px solid #333; padding:3px 4px; text-align:left; font-weight:bold; background:#f8fafc">
+            {{-- ═════════ FOOTER ROWS — appended inside the main table
+                 so subject columns align perfectly with the top marks
+                 grid (no repeated subject codes, no banner labels).
+                 Layout mirrors the school's reference sheet:
+                   Teacher's Name / Pass % / Target %
+                 The first 4 columns (Adm/Roll/Name/Father) become the
+                 label cell; the right-side aggregate columns
+                 (Obtained/Total/%/Grade/Rank/Result [+Assessment]) merge
+                 into a single compact summary cell that spans all three
+                 footer rows via rowspan. ═════════ --}}
+            @php
+                $rightColCount = ($isPrimary ?? false) ? 7 : 6;
+            @endphp
+            <tr style="background:#e7f5ec">
+                <td colspan="4" style="text-align:right; font-weight:bold; padding:4px 8px; border:1px solid #333">
                     Teacher's Name
                 </td>
                 @foreach($subjectTeacherRows as $row)
-                    <td style="border:1px solid #333; padding:3px 2px; text-align:center; text-transform:uppercase; font-size:7px">
+                    <td style="text-align:center; text-transform:uppercase; font-weight:bold; font-size:7.5px; padding:4px 2px; border:1px solid #333">
                         {{ $row['teacher_name'] }}
                     </td>
                 @endforeach
-            @endif
-        </tr>
-
-        {{-- Pass % row (only spans Criteria columns — leaves left/middle blank
-             on that row, matching the reference). --}}
-        @if($subjectN > 0)
-        <tr>
-            <td colspan="{{ count($sumCols) + count($gradeBands) }}" style="border:1px solid #333"></td>
-            <td style="border:1px solid #333; padding:3px 4px; text-align:left; font-weight:bold; background:#f8fafc">
-                Pass %
-            </td>
-            @foreach($subjectTeacherRows as $row)
-                <td style="border:1px solid #333; padding:3px 2px; text-align:center; font-weight:bold;
-                    color:{{ $row['pass_percentage'] >= 80 ? '#059669' : ($row['pass_percentage'] >= 50 ? '#d97706' : '#dc2626') }}">
-                    {{ $row['pass_percentage'] }}
+                {{-- Right-side aggregate columns get the compact summary
+                     block, spanning all three footer rows so the empty
+                     space isn't wasted. --}}
+                <td rowspan="3" colspan="{{ $rightColCount }}" style="vertical-align:top; padding:6px 8px; border:1px solid #333; background:#f8fafc; font-size:8px; line-height:1.6; text-align:left">
+                    <div>Total: <b>{{ $summary['total'] }}</b> · Appeared: <b>{{ $summary['appeared'] }}</b> · Absent: <b>{{ $summary['absent'] }}</b></div>
+                    <div>Successful: <b style="color:#059669">{{ $summary['successful'] }}</b> · Unsuccessful: <b style="color:#dc2626">{{ $summary['unsuccessful'] }}</b></div>
+                    <div>Pass %: <b>{{ $summary['passPercentage'] }}%</b>@if($summary['targetPercentage']) · Target: {{ $summary['targetPercentage'] }}%@endif</div>
+                    <div style="margin-top:3px; padding-top:3px; border-top:1px solid #cbd5e1; font-size:7.5px">
+                        @foreach($gradeBands as $b)
+                            {{ $b['letter'] }} ({{ $b['label'] }}): <b>{{ $b['count'] }}</b>{{ !$loop->last ? ' &nbsp; ' : '' }}
+                        @endforeach
+                    </div>
                 </td>
-            @endforeach
-        </tr>
-        <tr>
-            <td colspan="{{ count($sumCols) + count($gradeBands) }}" style="border:1px solid #333"></td>
-            <td style="border:1px solid #333; padding:3px 4px; text-align:left; font-weight:bold; background:#f8fafc">
-                Target %
-            </td>
-            @foreach($subjectTeacherRows as $row)
-                <td style="border:1px solid #333; padding:3px 2px; text-align:center; color:#94a3b8">&nbsp;</td>
-            @endforeach
-        </tr>
-        @endif
+            </tr>
+            <tr>
+                <td colspan="4" style="text-align:right; font-weight:bold; padding:4px 8px; border:1px solid #333">
+                    Pass %
+                </td>
+                @foreach($subjectTeacherRows as $row)
+                    <td style="text-align:center; font-weight:bold; padding:4px 2px; border:1px solid #333;
+                        color:{{ $row['pass_percentage'] >= 80 ? '#059669' : ($row['pass_percentage'] >= 50 ? '#d97706' : '#dc2626') }}">
+                        {{ $row['pass_percentage'] }}
+                    </td>
+                @endforeach
+            </tr>
+            <tr style="background:#e7f5ec">
+                <td colspan="4" style="text-align:right; font-weight:bold; padding:4px 8px; border:1px solid #333">
+                    Target %
+                </td>
+                @foreach($subjectTeacherRows as $row)
+                    <td style="padding:4px 2px; border:1px solid #333">&nbsp;</td>
+                @endforeach
+            </tr>
+        </tbody>
     </table>
 
     {{-- Signature row — Class Teacher · Principal (with stamp) · Exam Controller --}}
