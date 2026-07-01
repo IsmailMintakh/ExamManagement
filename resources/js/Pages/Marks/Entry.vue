@@ -757,7 +757,7 @@ const absentStudents = computed(() =>
                     <div class="font-bold text-amber-900 dark:text-amber-100">Editing submitted marks</div>
                     <div class="text-xs text-amber-800/80 dark:text-amber-200/80">
                         Changes won't apply until you click <b>Save changes</b> below.
-                        Result percentages, grades and pass/fail will recalculate automatically.
+                        Result percentages, grades and pass/retry will recalculate automatically.
                     </div>
                 </div>
                 <button type="button" @click="cancelEdit"
@@ -1264,7 +1264,7 @@ const absentStudents = computed(() =>
                             </div>
                             <div class="rounded-xl bg-rose-100 p-3 text-center">
                                 <div class="text-xl font-extrabold text-rose-700 tabular-nums">{{ stats.failed }}</div>
-                                <div class="text-[10px] uppercase tracking-wider text-rose-700 font-semibold">Failed</div>
+                                <div class="text-[10px] uppercase tracking-wider text-rose-700 font-semibold">Retry</div>
                             </div>
                             <div class="rounded-xl bg-amber-100 p-3 text-center">
                                 <div class="text-xl font-extrabold text-amber-700 tabular-nums">{{ stats.absent }}</div>
@@ -1356,7 +1356,7 @@ const absentStudents = computed(() =>
                         <p class="text-base-content/65 text-xs leading-relaxed">
                             On save: the new marks are recorded against the existing submission,
                             and the system automatically recalculates total marks, percentages, grades,
-                            pass/fail and merit positions for every affected student. Updated
+                            pass/retry and merit positions for every affected student. Updated
                             values flow straight into result cards and result sheets.
                         </p>
                     </div>

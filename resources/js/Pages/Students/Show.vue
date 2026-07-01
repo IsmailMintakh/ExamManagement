@@ -455,7 +455,7 @@ function eventColorClasses(c) {
                                 <th class="text-right px-3 py-3 font-bold">%</th>
                                 <th class="text-center px-3 py-3 font-bold">Grade</th>
                                 <th class="text-center px-3 py-3 font-bold">Position</th>
-                                <th class="text-center px-3 py-3 font-bold">Pass / Fail</th>
+                                <th class="text-center px-3 py-3 font-bold">Pass / Retry</th>
                                 <th class="text-right px-6 py-3 font-bold">Report Card</th>
                             </tr>
                         </thead>
@@ -481,7 +481,7 @@ function eventColorClasses(c) {
                                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1"
                                         :class="r.is_passed ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-rose-50 text-rose-700 ring-rose-200'">
                                         <component :is="r.is_passed ? CheckCircleIcon : XCircleIcon" class="w-3 h-3" />
-                                        {{ r.is_passed ? 'Pass' : 'Fail' }}
+                                        {{ r.is_passed ? 'Pass' : 'Retry' }}
                                     </span>
                                 </td>
                                 <td class="px-6 py-3 text-right">

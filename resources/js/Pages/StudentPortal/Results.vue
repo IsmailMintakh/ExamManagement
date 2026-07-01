@@ -95,7 +95,7 @@ function fmtPct(v) {
                                 >
                                     <CheckCircleIcon v-if="r.is_passed" class="h-3 w-3" />
                                     <XCircleIcon v-else class="h-3 w-3" />
-                                    {{ r.is_passed ? 'Pass' : 'Fail' }}
+                                    {{ r.is_passed ? 'Pass' : 'Retry' }}
                                 </span>
                             </div>
 

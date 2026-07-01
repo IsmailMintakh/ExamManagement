@@ -38,7 +38,7 @@ const articles = [
     { category: 'results', title: 'Generating results', content: 'Principal goes to Results → View Exam → Generate. System auto-calculates totals, percentages, grades, positions using the exam rules.' },
     { category: 'results', title: 'Submitting to DDO', content: 'After review, Principal clicks "Submit to DDO". DDO sees the submission in Result Review queue and can approve or return for correction.' },
     { category: 'results', title: 'Generating mark sheets', content: 'From Results → View Section, click a student\'s name to download their mark sheet. Or click "All Mark Sheets" to get a multi-page PDF for the whole section.' },
-    { category: 'results', title: 'Supplementary exams', content: 'Students who failed within threshold can appear for supplementary. Go to Supplementary → Select exam → Mark eligible students → Enter supplementary marks.' },
+    { category: 'results', title: 'Supplementary exams', content: 'Students who need to retry within threshold can appear for supplementary. Go to Supplementary → Select exam → Mark eligible students → Enter supplementary marks.' },
 
     { category: 'students', title: 'Adding a student', content: 'Class Teachers add students of their section. Go to Students → Add Student. Fill in admission number, name, father\'s name, DOB, and assign to class/section.' },
     { category: 'students', title: 'Bulk importing students', content: 'Use Students → Import to upload a CSV/Excel file. Download the sample template first. System validates and reports any errors.' },

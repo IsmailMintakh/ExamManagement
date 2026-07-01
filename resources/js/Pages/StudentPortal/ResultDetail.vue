@@ -98,7 +98,7 @@ function downloadReportCard() {
                         >
                             <CheckCircleIcon v-if="result?.is_passed" class="h-3 w-3" />
                             <XCircleIcon v-else class="h-3 w-3" />
-                            {{ result?.is_passed ? 'Pass' : 'Fail' }}
+                            {{ result?.is_passed ? 'Pass' : 'Retry' }}
                         </span>
                     </div>
                 </div>
@@ -137,7 +137,7 @@ function downloadReportCard() {
                                             class="badge badge-sm"
                                             :class="s.is_passed ? 'badge-success' : 'badge-error'"
                                         >
-                                            {{ s.is_passed ? 'Pass' : 'Fail' }}
+                                            {{ s.is_passed ? 'Pass' : 'Retry' }}
                                         </span>
                                         <span v-else class="text-base-content/40">-</span>
                                     </td>
@@ -165,7 +165,7 @@ function downloadReportCard() {
                                     <td class="text-center text-base-content/40">—</td>
                                     <td class="text-center">
                                         <span class="badge badge-sm" :class="assessment.passed ? 'badge-success' : 'badge-error'">
-                                            {{ assessment.passed ? 'Pass' : 'Fail' }}
+                                            {{ assessment.passed ? 'Pass' : 'Retry' }}
                                         </span>
                                     </td>
                                 </tr>

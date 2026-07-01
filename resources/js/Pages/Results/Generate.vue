@@ -492,7 +492,7 @@ async function generateAllReady() {
                             </h3>
                             <p class="text-[11px] text-base-content/55 mt-0.5 leading-relaxed">
                                 Annual results for ECD–5 use the class teacher's overall Assessment (10 marks, pass 4).
-                                Students whose assessment is missing will be treated as 0 — likely flipping them to Fail.
+                                Students whose assessment is missing will be treated as 0 — likely flipping them to Retry.
                                 Ask each class teacher to enter assessment marks from <b>Assessment</b> in the sidebar before generating.
                             </p>
                             <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -616,7 +616,7 @@ async function generateAllReady() {
                             <div v-if="sec.generated" class="flex items-center gap-3 mt-2 text-[11px] text-base-content/65">
                                 <span><strong class="text-base-content">{{ sec.generated.total }}</strong> students</span>
                                 <span class="text-success font-semibold">{{ sec.generated.passed }} pass</span>
-                                <span class="text-error font-semibold">{{ sec.generated.failed }} fail</span>
+                                <span class="text-error font-semibold">{{ sec.generated.failed }} retry</span>
                                 <span>{{ sec.generated.pass_percentage }}% avg</span>
                             </div>
                         </div>
@@ -654,7 +654,7 @@ async function generateAllReady() {
                         <ul class="list-disc ml-4 space-y-0.5">
                             <li>Each class is collapsed by default. Classes with sections ready to generate auto-expand.</li>
                             <li>A section turns <strong class="text-info">Ready</strong> once every subject's marks are submitted by teachers.</li>
-                            <li>Click <strong>Generate</strong> on a section to calculate totals, pass/fail, grades, and ranks.</li>
+                            <li>Click <strong>Generate</strong> on a section to calculate totals, pass/retry, grades, and ranks.</li>
                             <li>Use <strong>Generate All Ready</strong> to process every prepared section at once.</li>
                         </ul>
                     </div>
@@ -667,7 +667,7 @@ async function generateAllReady() {
             :title="pendingSection?.isRegenerate ? 'Re-generate Results' : 'Generate Results'"
             :message="pendingSection?.isRegenerate
                 ? `Re-calculate results for Section ${pendingSection?.name}? Existing data will be overwritten with the latest marks.`
-                : `Calculate results for Section ${pendingSection?.name}? Pass/fail, grades, and positions will be computed automatically.`"
+                : `Calculate results for Section ${pendingSection?.name}? Pass/retry, grades, and positions will be computed automatically.`"
             :type="pendingSection?.isRegenerate ? 'warning' : 'info'"
             :confirm-text="pendingSection?.isRegenerate ? 'Re-generate' : 'Generate'"
             @confirm="generateResults"

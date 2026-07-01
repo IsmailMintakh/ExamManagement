@@ -35,7 +35,7 @@ function statusBadge(status) {
         case 'passed':
             return { class: 'badge-success', label: 'Passed' }
         case 'failed':
-            return { class: 'badge-error', label: 'Failed' }
+            return { class: 'badge-error', label: 'Retry' }
         case 'appeared':
             return { class: 'badge-info', label: 'Appeared' }
         case 'eligible':
@@ -134,7 +134,7 @@ function runFinalize() {
                             <XCircleIcon class="h-4 w-4" />
                         </div>
                         <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Total Failed</p>
+                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Total Retry</p>
                             <p class="text-lg font-bold">{{ stats.total_failed }}</p>
                         </div>
                     </div>
@@ -178,7 +178,7 @@ function runFinalize() {
                             <XCircleIcon class="h-4 w-4" />
                         </div>
                         <div>
-                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Failed (Supp.)</p>
+                            <p class="text-2xs uppercase tracking-wider text-base-content/40">Retry (Supp.)</p>
                             <p class="text-lg font-bold">{{ stats.failed }}</p>
                         </div>
                     </div>
@@ -190,7 +190,7 @@ function runFinalize() {
                 <div class="text-sm">
                     <p class="font-semibold">No eligible students yet</p>
                     <p class="text-xs opacity-80 mt-0.5">
-                        Click "Auto-detect Eligible Students" to flag students who failed up to {{ stats.threshold }} subject(s).
+                        Click "Auto-detect Eligible Students" to flag students who need to retry up to {{ stats.threshold }} subject(s).
                     </p>
                 </div>
             </div>
@@ -208,7 +208,7 @@ function runFinalize() {
                                     <th class="w-12">#</th>
                                     <th>Roll No</th>
                                     <th>Student</th>
-                                    <th>Failed Subjects</th>
+                                    <th>Retry Subjects</th>
                                     <th class="w-32">Status</th>
                                     <th class="w-44 text-right">Action</th>
                                 </tr>
@@ -271,14 +271,14 @@ function runFinalize() {
             <EmptyState
                 v-if="rows.length === 0"
                 title="Nothing to show yet"
-                description="Run auto-detect to flag failed students within threshold."
+                description="Run auto-detect to flag retry-eligible students within threshold."
             />
         </div>
 
         <ConfirmDialog
             :show="detectOpen"
             title="Auto-detect Eligible Students"
-            :message="`This will scan all failed results in this exam and mark students as supplementary-eligible if they failed up to ${stats.threshold} subject(s). Continue?`"
+            :message="`This will scan all retry-eligible results in this exam and mark students as supplementary-eligible if they need to retry up to ${stats.threshold} subject(s). Continue?`"
             confirm-text="Yes, Detect"
             type="warning"
             @confirm="runDetect"
@@ -289,7 +289,7 @@ function runFinalize() {
             :show="!!finalizeTarget"
             title="Finalize Supplementary Result"
             :message="finalizeTarget
-                ? `Finalize result for ${finalizeTarget.student_name}? The better of the original and supplementary marks will be used to recalculate pass/fail.`
+                ? `Finalize result for ${finalizeTarget.student_name}? The better of the original and supplementary marks will be used to recalculate pass/retry.`
                 : ''"
             confirm-text="Yes, Finalize"
             type="warning"

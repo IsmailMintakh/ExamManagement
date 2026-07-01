@@ -195,7 +195,7 @@ function submitReturn() {
                                             {{ submission.pass_count }} passed
                                         </span>
                                         <span class="text-error font-semibold">
-                                            {{ submission.fail_count }} failed
+                                            {{ submission.fail_count }} retry
                                         </span>
                                     </div>
                                 </div>

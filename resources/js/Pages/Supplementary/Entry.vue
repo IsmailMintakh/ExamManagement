@@ -59,7 +59,7 @@ function fieldError(subjectId) {
                         Enter Supplementary Marks
                     </h1>
                     <p class="mt-1 text-sm text-base-content/60">
-                        Record marks for the student's failed subjects only.
+                        Record marks for the student's retry subjects only.
                     </p>
                 </div>
                 <Link :href="route('supplementary.show', exam.id)" class="btn btn-ghost btn-sm gap-2">
@@ -93,7 +93,7 @@ function fieldError(subjectId) {
 
             <div v-if="!subjects.length" class="alert alert-warning">
                 <InformationCircleIcon class="h-5 w-5 shrink-0" />
-                <span class="text-sm">There are no failed subjects flagged for this student.</span>
+                <span class="text-sm">There are no retry subjects flagged for this student.</span>
             </div>
 
             <!-- Marks Form -->

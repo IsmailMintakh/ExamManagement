@@ -79,7 +79,7 @@ const totalGraded = computed(() =>
                     </p>
                 </div>
                 <div class="rounded-2xl border-2 border-rose-500/30 bg-rose-500/5 px-4 py-3">
-                    <p class="text-[10px] uppercase tracking-wider font-bold text-rose-700 dark:text-rose-400">Failed</p>
+                    <p class="text-[10px] uppercase tracking-wider font-bold text-rose-700 dark:text-rose-400">Retry</p>
                     <p class="text-2xl font-extrabold tabular-nums text-rose-600 dark:text-rose-400">
                         {{ headline.failed || 0 }}
                     </p>
@@ -124,7 +124,7 @@ const totalGraded = computed(() =>
                         <p class="text-xl font-extrabold tabular-nums text-amber-700 dark:text-amber-300">{{ primaryAssessment.missing }}</p>
                     </div>
                     <div class="rounded-xl bg-rose-500/10 px-3 py-2.5">
-                        <p class="text-[10px] uppercase tracking-wider font-bold text-rose-800 dark:text-rose-300">Failed assessment</p>
+                        <p class="text-[10px] uppercase tracking-wider font-bold text-rose-800 dark:text-rose-300">Retry (assessment)</p>
                         <p class="text-xl font-extrabold tabular-nums text-rose-700 dark:text-rose-300">{{ primaryAssessment.failed_assessment }}</p>
                     </div>
                     <div class="rounded-xl bg-base-200/40 px-3 py-2.5">
@@ -137,10 +137,10 @@ const totalGraded = computed(() =>
                     <span v-if="primaryAssessment.missing > 0" class="font-bold text-amber-700 dark:text-amber-300">
                         {{ primaryAssessment.missing }} student{{ primaryAssessment.missing === 1 ? '' : 's' }} have no assessment yet —
                     </span>
-                    annual results for these students will treat the assessment as 0 and flip them to Fail.
+                    annual results for these students will treat the assessment as 0 and flip them to Retry.
                     <span v-if="primaryAssessment.failed_assessment > 0" class="block mt-1">
                         <span class="font-bold text-rose-700 dark:text-rose-300">{{ primaryAssessment.failed_assessment }} student{{ primaryAssessment.failed_assessment === 1 ? '' : 's' }} scored below 4</span>
-                        — they're failed in the annual result regardless of subject performance per spec.
+                        — they need to retry in the annual result regardless of subject performance per spec.
                     </span>
                 </p>
             </section>
@@ -160,7 +160,7 @@ const totalGraded = computed(() =>
                                 <th class="text-left px-3 py-2.5 font-bold">#</th>
                                 <th class="text-left px-3 py-2.5 font-bold">School</th>
                                 <th class="text-center px-3 py-2.5 font-bold">Students</th>
-                                <th class="text-center px-3 py-2.5 font-bold">Pass / Fail</th>
+                                <th class="text-center px-3 py-2.5 font-bold">Pass / Retry</th>
                                 <th class="text-center px-3 py-2.5 font-bold">Pass rate</th>
                                 <th class="text-center px-3 py-2.5 font-bold">Average</th>
                                 <th class="text-center px-3 py-2.5 font-bold">Top</th>
@@ -271,7 +271,7 @@ const totalGraded = computed(() =>
                     </header>
                     <div class="p-4 space-y-2">
                         <div v-for="[grade, count] in sortedGrades" :key="grade" class="flex items-center gap-3 text-sm">
-                            <span class="font-bold w-12 tabular-nums">{{ grade || '—' }}</span>
+                            <span class="font-bold w-12 tabular-nums">{{ grade === 'FAIL' ? 'RETRY' : (grade || '—') }}</span>
                             <div class="flex-1 h-3 bg-base-200 rounded-full overflow-hidden">
                                 <div class="h-full bg-violet-500"
                                     :style="{ width: ((count / totalGraded) * 100).toFixed(1) + '%' }"></div>

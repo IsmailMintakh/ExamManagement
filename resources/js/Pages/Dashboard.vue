@@ -226,7 +226,9 @@ const gradeRows = computed(() => {
             return ai - bi
         })
         .map(([grade, count]) => ({
-            label: `Grade ${grade}`,
+            // 'FAIL' is a backend grade code; show it as 'Retry' in the UI
+            // without changing the underlying data key used for color lookup.
+            label: grade === 'FAIL' ? 'Grade Retry' : `Grade ${grade}`,
             value: count,
             color: colors[grade] || 'primary',
         }))
@@ -523,7 +525,7 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
                     <article class="rounded-xl bg-base-100 border border-base-300 shadow-sm p-4 sm:p-5">
                         <header class="mb-3">
                             <p class="text-[10px] uppercase tracking-[0.18em] font-bold text-base-content/45">Breakdown</p>
-                            <h3 class="text-sm font-bold mt-0.5">Pass / Fail</h3>
+                            <h3 class="text-sm font-bold mt-0.5">Pass / Retry</h3>
                         </header>
                         <DonutChart :segments="charts.passFail" center-label="Pass" :center-value="overallPassRate + '%'"
                             :size="140" :stroke="20" />

@@ -63,8 +63,8 @@ function statusLabel(exam) {
                 <div class="text-sm">
                     <p class="font-semibold">Supplementary Exam Workflow</p>
                     <p class="text-xs opacity-80 mt-0.5">
-                        Auto-detect students who narrowly failed, let subject teachers enter supplementary marks,
-                        and finalize results to update pass/fail status using the better of the two attempts.
+                        Auto-detect students who narrowly need to retry, let subject teachers enter supplementary marks,
+                        and finalize results to update pass/retry status using the better of the two attempts.
                     </p>
                 </div>
             </div>
@@ -145,7 +145,7 @@ function statusLabel(exam) {
                             <p class="text-lg font-extrabold text-success tabular-nums">{{ exam.passed_count }}</p>
                         </div>
                         <div>
-                            <p class="section-eyebrow text-error/70">Failed</p>
+                            <p class="section-eyebrow text-error/70">Retry</p>
                             <p class="text-lg font-extrabold text-error tabular-nums">{{ exam.failed_count }}</p>
                         </div>
                     </div>
@@ -163,7 +163,7 @@ function statusLabel(exam) {
                     </div>
                     <h2 class="text-lg font-bold">No supplementary-eligible students yet</h2>
                     <p class="mt-2 text-sm text-base-content/60 max-w-xl mx-auto">
-                        Supplementary exams give students who failed 1–2 subjects a second chance. Students become eligible once their main exam results are finalized and the Principal explicitly flags them.
+                        Supplementary exams give students who need to retry 1–2 subjects a second chance. Students become eligible once their main exam results are finalized and the Principal explicitly flags them.
                     </p>
 
                     <div class="mt-6 text-left max-w-xl mx-auto">
@@ -175,11 +175,11 @@ function statusLabel(exam) {
                             </li>
                             <li class="flex gap-2">
                                 <span class="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-content text-xs font-bold shrink-0 mt-0.5">2</span>
-                                <span>Come back here and open that exam. As Principal, click <b>"Mark Eligible"</b> — students who failed 1–2 subjects will be auto-flagged.</span>
+                                <span>Come back here and open that exam. As Principal, click <b>"Mark Eligible"</b> — students who need to retry 1–2 subjects will be auto-flagged.</span>
                             </li>
                             <li class="flex gap-2">
                                 <span class="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-content text-xs font-bold shrink-0 mt-0.5">3</span>
-                                <span>Subject teachers enter supplementary marks; Principal finalizes to update pass/fail.</span>
+                                <span>Subject teachers enter supplementary marks; Principal finalizes to update pass/retry.</span>
                             </li>
                         </ol>
                     </div>

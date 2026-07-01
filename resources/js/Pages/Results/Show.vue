@@ -145,7 +145,7 @@ function downloadAllMarkSheets(examId, sectionId) {
                                 <XCircleIcon class="w-4 h-4 text-error" />
                             </div>
                             <div>
-                                <p class="text-[11px] text-base-content/50 uppercase tracking-wide">Failed</p>
+                                <p class="text-[11px] text-base-content/50 uppercase tracking-wide">Retry</p>
                                 <p class="text-2xl font-bold leading-tight text-error">{{ summary.failed }}</p>
                             </div>
                         </div>
@@ -249,7 +249,7 @@ function downloadAllMarkSheets(examId, sectionId) {
                                     <td class="text-center">
                                         <div class="flex items-center justify-center gap-1">
                                             <span :class="['badge badge-sm', result.is_passed ? 'badge-success' : 'badge-error']">
-                                                {{ result.is_passed ? 'PASS' : 'FAIL' }}
+                                                {{ result.is_passed ? 'PASS' : 'RETRY' }}
                                             </span>
                                             <span v-if="result.last_amended_iso"
                                                 class="badge badge-xs badge-warning"

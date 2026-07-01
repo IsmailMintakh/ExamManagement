@@ -85,7 +85,7 @@ function fmtPct(v) {
                                 >
                                     <CheckCircleIcon v-if="child.latest_result.is_passed" class="h-2.5 w-2.5" />
                                     <XCircleIcon v-else class="h-2.5 w-2.5" />
-                                    {{ child.latest_result.is_passed ? 'Pass' : 'Fail' }}
+                                    {{ child.latest_result.is_passed ? 'Pass' : 'Retry' }}
                                 </span>
                             </div>
                             <p class="text-sm font-semibold truncate">{{ child.latest_result.exam_name }}</p>

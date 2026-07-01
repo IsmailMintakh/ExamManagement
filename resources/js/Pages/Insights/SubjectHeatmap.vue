@@ -116,7 +116,7 @@ const hasMatrix = computed(() => props.students.length > 0 && props.subjects.len
                         <div class="flex items-center gap-2"><div class="h-5 w-5 rounded bg-green-400" /><span class="text-xs">Good (60–79)</span></div>
                         <div class="flex items-center gap-2"><div class="h-5 w-5 rounded bg-yellow-300" /><span class="text-xs">Average (40–59)</span></div>
                         <div class="flex items-center gap-2"><div class="h-5 w-5 rounded bg-orange-400" /><span class="text-xs">Weak (33–39)</span></div>
-                        <div class="flex items-center gap-2"><div class="h-5 w-5 rounded bg-red-500" /><span class="text-xs">Fail (&lt;33)</span></div>
+                        <div class="flex items-center gap-2"><div class="h-5 w-5 rounded bg-red-500" /><span class="text-xs">Retry (&lt;33)</span></div>
                         <div class="flex items-center gap-2"><div class="h-5 w-5 rounded bg-slate-300" /><span class="text-xs">Absent</span></div>
                     </div>
                 </div>

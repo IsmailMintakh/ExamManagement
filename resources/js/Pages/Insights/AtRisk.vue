@@ -18,10 +18,10 @@ const activeFilter = ref('all')
 
 const filters = [
     { key: 'all', label: 'All' },
-    { key: 'consistently_failing', label: 'Consistently Failing' },
+    { key: 'consistently_failing', label: 'Consistently Retry' },
     { key: 'declining', label: 'Declining' },
     { key: 'below_class_avg', label: 'Below Class Avg' },
-    { key: 'multiple_subject_failures', label: 'Multiple Failures' },
+    { key: 'multiple_subject_failures', label: 'Multiple Retries' },
 ]
 
 const filtered = computed(() => {

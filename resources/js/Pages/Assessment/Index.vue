@@ -135,7 +135,7 @@ const rowsWithMeta = computed(() =>
                         attendance, discipline and classroom activities.
                         <b>{{ config.passing }}</b> or higher is a pass.
                         A student who scores below <b>{{ config.passing }}</b> is declared
-                        <b>Fail</b> in the Annual Result even if every subject is passed.
+                        needing <b>Retry</b> in the Annual Result even if every subject is passed.
                     </div>
                 </div>
 
@@ -228,7 +228,7 @@ const rowsWithMeta = computed(() =>
                                             <CheckCircleIcon class="w-3 h-3" /> Pass
                                         </span>
                                         <span v-else-if="m.passed === false" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-rose-500/15 text-rose-700 dark:text-rose-300">
-                                            <ExclamationTriangleIcon class="w-3 h-3" /> Fail
+                                            <ExclamationTriangleIcon class="w-3 h-3" /> Retry
                                         </span>
                                         <span v-else class="text-[10px] text-base-content/45 uppercase tracking-wider font-bold">—</span>
                                     </td>

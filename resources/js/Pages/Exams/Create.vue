@@ -884,7 +884,7 @@ function evaluateStudent(studentMarks /* { [subjectId]: % } */) {
 
     // Custom: all subjects must pass
     if (form.all_subjects_must_pass && failed.length > 0) {
-        reasons.push(`Failed ${failed.length} subject(s); rule requires all subjects passed`)
+        reasons.push(`Needs retry in ${failed.length} subject(s); rule requires all subjects passed`)
         return { passed: false, reasons, subjectRows, overallPct, gracePromotedSubjects }
     }
 
@@ -892,7 +892,7 @@ function evaluateStudent(studentMarks /* { [subjectId]: % } */) {
     if (form.main_subjects_must_pass) {
         const mainFailed = failed.filter(r => r.is_main)
         if (mainFailed.length > 0) {
-            reasons.push(`Failed main subject(s): ${mainFailed.map(r => r.name).join(', ')}`)
+            reasons.push(`Needs retry in main subject(s): ${mainFailed.map(r => r.name).join(', ')}`)
             return { passed: false, reasons, subjectRows, overallPct, gracePromotedSubjects }
         }
     }
@@ -902,7 +902,7 @@ function evaluateStudent(studentMarks /* { [subjectId]: % } */) {
     if (mandatory.length > 0) {
         const mandatoryFailed = subjectRows.filter(r => mandatory.includes(r.id) && !r.is_passed)
         if (mandatoryFailed.length > 0) {
-            reasons.push(`Failed mandatory subject(s): ${mandatoryFailed.map(r => r.name).join(', ')}`)
+            reasons.push(`Needs retry in mandatory subject(s): ${mandatoryFailed.map(r => r.name).join(', ')}`)
             return { passed: false, reasons, subjectRows, overallPct, gracePromotedSubjects }
         }
     }
@@ -914,7 +914,7 @@ function evaluateStudent(studentMarks /* { [subjectId]: % } */) {
     }
 
     if (failed.length > 0) {
-        reasons.push(`Failed ${failed.length} subject(s) but no rule prevents promotion`)
+        reasons.push(`Needs retry in ${failed.length} subject(s) but no rule prevents promotion`)
     } else if (gracePromotedSubjects.length > 0) {
         reasons.push(`Promoted with grace marks on ${gracePromotedSubjects.length} subject(s)`)
     } else {
@@ -1496,7 +1496,7 @@ function submit() {
                             <span class="font-bold">Some subjects already have marks entered.</span>
                             You can still correct their <span class="font-semibold">total or passing marks</span> —
                             students' obtained marks stay the same, and the system
-                            will recalculate percentages, grades, and pass/fail status
+                            will recalculate percentages, grades, and pass/retry status
                             for every affected result automatically. The subject &amp; class
                             pair can't be moved or removed without first clearing marks.
                         </p>
@@ -1706,7 +1706,7 @@ function submit() {
                                 class="checkbox checkbox-primary mt-0.5" />
                             <div>
                                 <div class="font-semibold text-sm">ALL subjects must pass <span class="badge badge-warning badge-xs ml-1">Strict</span></div>
-                                <p class="text-[11px] text-base-content/55 mt-0.5">Even one failed subject = overall fail. Common for board-style exams.</p>
+                                <p class="text-[11px] text-base-content/55 mt-0.5">Even one retry subject = overall retry. Common for board-style exams.</p>
                             </div>
                         </label>
 
@@ -1731,7 +1731,7 @@ function submit() {
                             </div>
                         </div>
                         <p class="text-[11px] text-base-content/55 leading-relaxed">
-                            💡 <b>Grace example:</b> "5 grace marks on max 2 subjects" means a student failing up to 2 subjects by ≤5 marks each is auto-promoted.
+                            💡 <b>Grace example:</b> "5 grace marks on max 2 subjects" means a student needing retry in up to 2 subjects by ≤5 marks each is auto-promoted.
                         </p>
                     </div>
                 </section>
@@ -1748,7 +1748,7 @@ function submit() {
                         <span class="text-[10px] text-base-content/45">Custom · Pick specific subjects</span>
                     </header>
                     <div class="surface-body">
-                        <p class="text-xs text-base-content/65 mb-3">Even more strict than "main subjects must pass" — these specific subjects are non-negotiable. Pass these or fail overall.</p>
+                        <p class="text-xs text-base-content/65 mb-3">Even more strict than "main subjects must pass" — these specific subjects are non-negotiable. Pass these or retry overall.</p>
 
                         <div v-if="subjectsInUse.length === 0" class="text-xs text-base-content/45 p-4 bg-base-200/40 rounded-xl">
                             Map subjects in Step 3 first to choose mandatory ones.
@@ -1887,7 +1887,7 @@ function submit() {
                                             : 'bg-base-200 text-base-content/60 ring-base-300'">
                                     <CheckCircleIcon v-if="s.eval.passed === true" class="w-3.5 h-3.5 inline mr-0.5" />
                                     <XCircleIcon v-else-if="s.eval.passed === false" class="w-3.5 h-3.5 inline mr-0.5" />
-                                    {{ s.eval.passed === true ? 'PASSES' : s.eval.passed === false ? 'FAILS' : '—' }}
+                                    {{ s.eval.passed === true ? 'PASSES' : s.eval.passed === false ? 'RETRIES' : '—' }}
                                 </span>
                             </div>
 
