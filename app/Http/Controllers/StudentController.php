@@ -467,6 +467,10 @@ class StudentController extends Controller
             // Up to 4 MB so modern phone camera photos pass without
             // pre-compression. Keep mime list permissive for phone uploads.
             'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+            // Flag from the edit form's trash button. When true (and no new
+            // photo is being uploaded), we delete the stored file and null
+            // the DB column. Uploading a new file wins over this flag.
+            'remove_photo' => ['nullable', 'boolean'],
             'address' => ['nullable', 'string', 'max:500'],
             'blood_group' => ['nullable', 'string', 'max:5'],
             'religion' => ['nullable', 'string', 'max:50'],
@@ -484,7 +488,18 @@ class StudentController extends Controller
                 Storage::disk('public')->delete($student->photo);
             }
             $validated['photo'] = $request->file('photo')->store('students/photos', 'public');
+        } elseif (!empty($validated['remove_photo'])) {
+            // Trash-icon path: user explicitly asked to clear the photo
+            // without uploading a replacement. Delete the file so we
+            // don't leave orphans on disk, then null the column.
+            if ($student->photo) {
+                Storage::disk('public')->delete($student->photo);
+            }
+            $validated['photo'] = null;
         }
+        // remove_photo is a UI intent flag, not a DB column — strip it
+        // before update so Eloquent doesn't complain about an unknown attr.
+        unset($validated['remove_photo']);
 
         $student->update($validated);
 

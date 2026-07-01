@@ -7,6 +7,7 @@ import FileUpload from '@/Components/FileUpload.vue'
 import { Head, useForm, Link } from '@inertiajs/vue3'
 import { invalidatePageCache } from '@/Composables/useCacheInvalidation'
 import { ref, watch } from 'vue'
+import { TrashIcon } from '@heroicons/vue/24/outline'
 
 // today in YYYY-MM-DD for the DOB max — students obviously can't be born in the future.
 const today = new Date().toISOString().slice(0, 10)
@@ -50,6 +51,10 @@ const form = useForm({
     academic_session_id: props.student?.academic_session_id
         || (isEdit ? '' : (props.smartDefaults?.academic_session_id || props.currentSession?.id || '')),
     photo: null,
+    // Flag: when true, the controller clears the stored photo path and
+    // deletes the underlying file. Reset by picking a new file (mutually
+    // exclusive with an upload — pick one intent per save).
+    remove_photo: false,
 })
 
 // ─── Re-fetch smart defaults when school/section change ───
@@ -90,6 +95,9 @@ async function fetchSmartDefaults() {
 
 watch(() => form.school_id, fetchSmartDefaults)
 watch(() => form.section_id, fetchSmartDefaults)
+
+// Picking a new file overrides "remove" — one intent per save.
+watch(() => form.photo, (v) => { if (v) form.remove_photo = false })
 
 function submit() {
     const url = isEdit
@@ -212,14 +220,31 @@ function submit() {
                         </div>
                         <div>
                             <label class="text-[12px] font-semibold text-base-content/75 mb-1.5 block">Student Photo</label>
-                            <div v-if="isEdit && student?.photo_url && !form.photo"
+                            <div v-if="isEdit && student?.photo_url && !form.photo && !form.remove_photo"
                                  class="flex items-center gap-4 p-3 rounded-xl bg-base-200/40 mb-3 border border-base-200">
                                 <img :src="student.photo_url" alt="Current photo"
                                      class="h-24 w-24 object-cover rounded-xl" />
-                                <div class="text-xs text-base-content/65">
+                                <div class="text-xs text-base-content/65 flex-1 min-w-0">
                                     <div class="font-semibold text-base-content">Current photo</div>
                                     <div class="mt-1">Pick a new file below to replace it.</div>
                                 </div>
+                                <button type="button"
+                                    class="btn btn-error btn-sm btn-outline gap-1.5 shrink-0"
+                                    :title="'Remove photo'"
+                                    @click="form.remove_photo = true">
+                                    <TrashIcon class="w-4 h-4" />
+                                    Remove
+                                </button>
+                            </div>
+                            <div v-else-if="isEdit && student?.photo_url && form.remove_photo"
+                                 class="flex items-center gap-3 p-3 rounded-xl bg-rose-500/10 mb-3 border border-rose-500/30">
+                                <div class="text-xs text-rose-800 dark:text-rose-200 flex-1">
+                                    <div class="font-semibold">Photo will be removed on save.</div>
+                                    <div class="mt-0.5 opacity-80">Click Undo if you didn't mean to, or pick a new file below to replace instead.</div>
+                                </div>
+                                <button type="button" class="btn btn-ghost btn-xs" @click="form.remove_photo = false">
+                                    Undo
+                                </button>
                             </div>
                             <FileUpload v-model="form.photo"
                                 accept="image/jpeg,image/png,image/webp"
