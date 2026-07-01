@@ -127,8 +127,8 @@
     <!-- HEADER -->
     <div class="hdr">
         <div class="hdr-logo">
-            @if(!empty($school->logo) && file_exists(public_path('storage/' . $school->logo)))
-                <img src="{{ public_path('storage/' . $school->logo) }}" alt="">
+            @if(!empty($school->logo) && $school?->getLogoAbsolutePath())
+                <img src="{{ $school?->getLogoAbsolutePath() }}" alt="">
             @else
                 <span class="logo-ph">{{ strtoupper(substr($school->name ?? 'S', 0, 1)) }}</span>
             @endif

@@ -1,6 +1,6 @@
 @php
-    $logoPath = !empty($school->logo) && file_exists(public_path('storage/' . $school->logo))
-        ? public_path('storage/' . $school->logo) : null;
+    $logoPath = !empty($school->logo) && $school?->getLogoAbsolutePath()
+        ? $school?->getLogoAbsolutePath() : null;
 
     // 1 = full A4 portrait, 2 = side-by-side A5 on A4 landscape (cut once).
     $slipsPerPage = $slipsPerPage ?? 1;

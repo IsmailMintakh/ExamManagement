@@ -1,6 +1,6 @@
 @php
-    $logoPath = !empty($school?->logo) && file_exists(public_path('storage/' . $school->logo))
-        ? public_path('storage/' . $school->logo) : null;
+    $logoPath = !empty($school?->logo) && $school?->getLogoAbsolutePath()
+        ? $school?->getLogoAbsolutePath() : null;
     $sigPath = !empty($school?->principal_signature ?? null) && file_exists(public_path('storage/' . $school->principal_signature))
         ? public_path('storage/' . $school->principal_signature) : null;
     $principalName = !empty($school?->principal_name)

@@ -11,13 +11,13 @@
       - $logoSize     (int)                     px, defaults to 55
 --}}
 @php
-    $logoPath = null;
-    if (!empty($school?->logo)) {
-        $candidate = public_path('storage/' . $school->logo);
-        if (file_exists($candidate)) {
-            $logoPath = $candidate;
-        }
-    }
+    // Delegate to School::getLogoAbsolutePath — checks storage:link, direct
+    // storage_path, /uploads legacy, and a couple of cPanel-flavoured
+    // fallbacks so PDF renders find the file whichever way the deploy
+    // ended up laying out /public.
+    $logoPath = method_exists($school, 'getLogoAbsolutePath')
+        ? $school->getLogoAbsolutePath()
+        : null;
     $logoSize = $logoSize ?? 55;
 @endphp
 
@@ -25,7 +25,10 @@
     <tr>
         <td style="width:{{ $logoSize + 10 }}px; vertical-align:middle; text-align:center;">
             @if($logoPath)
-                <img src="{{ $logoPath }}" alt=""
+                {{-- file:// prefix guarantees DomPDF treats it as an
+                     on-disk path, not a URL to fetch (fetching would
+                     fail behind auth on the same host). --}}
+                <img src="file://{{ $logoPath }}" alt=""
                      style="width:{{ $logoSize }}px; height:{{ $logoSize }}px; object-fit:contain;">
             @else
                 <div style="width:{{ $logoSize }}px; height:{{ $logoSize }}px; background:#1e3a8a;

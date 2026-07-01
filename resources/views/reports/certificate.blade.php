@@ -7,8 +7,8 @@
     $primary = $template->primary_color ?? '#0f3d2e';   // deep teal-green
     $accent = $template->accent_color  ?? '#b8860b';    // antique gold
 
-    $logoPath = (!empty($school->logo ?? null) && file_exists(public_path('storage/' . $school->logo)))
-        ? public_path('storage/' . $school->logo) : null;
+    $logoPath = (!empty($school->logo ?? null) && $school?->getLogoAbsolutePath())
+        ? $school?->getLogoAbsolutePath() : null;
     $signaturePath = (!empty($school->principal_signature ?? null) && file_exists(public_path('storage/' . $school->principal_signature)))
         ? public_path('storage/' . $school->principal_signature) : null;
     $stampPath = (!empty($school->school_stamp ?? null) && file_exists(public_path('storage/' . $school->school_stamp)))

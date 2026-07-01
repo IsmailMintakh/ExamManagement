@@ -256,6 +256,56 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('marks/{exam}/submit/{subject}/{section}', [MarksController::class, 'submit'])->name('marks.submit');
     Route::post('marks/{exam}/restore/{subject}/{section}', [MarksController::class, 'restoreDeletedMarks'])->name('marks.restore');
 
+    // Logo path diagnostic — super-admin visits
+    //   /admin/logo-diagnostic  (defaults to first school)
+    //   /admin/logo-diagnostic/{schoolId}
+    // to see EXACTLY which disk paths were tried and whether each exists.
+    // Use this when reports show the initials placeholder instead of the
+    // uploaded logo — it tells us whether the file is on disk or the
+    // storage:link symlink is broken.
+    Route::get('admin/logo-diagnostic/{schoolId?}', function ($schoolId = null) {
+        abort_unless(auth()->user()?->hasRole('super-admin'), 403);
+
+        $school = $schoolId
+            ? \App\Models\School::find($schoolId)
+            : \App\Models\School::first();
+        abort_unless($school, 404, 'No school found.');
+
+        $rel = ltrim($school->logo ?? '', '/');
+        $candidates = [
+            'public_path(storage/…)'          => public_path('storage/' . $rel),
+            'storage_path(app/public/…)'      => storage_path('app/public/' . $rel),
+            'public_path(uploads/…)'          => public_path('uploads/' . $rel),
+            'public_path(<raw>)'              => public_path($rel),
+            'base_path(public_html/storage/…)'=> base_path('public_html/storage/' . $rel),
+            'base_path(public_html/uploads/…)'=> base_path('public_html/uploads/' . $rel),
+        ];
+        $report = [];
+        foreach ($candidates as $label => $path) {
+            $report[] = [
+                'label' => $label,
+                'path' => $path,
+                'exists' => $rel && file_exists($path),
+                'readable' => $rel && is_readable($path),
+                'size' => ($rel && file_exists($path)) ? filesize($path) : null,
+            ];
+        }
+        $resolved = $school->getLogoAbsolutePath();
+
+        return response()->json([
+            'school_id' => $school->id,
+            'school_name' => $school->name,
+            'logo_column' => $school->logo,
+            'logo_url_attr' => $school->logo_url,
+            'resolved_path' => $resolved,
+            'resolved_exists' => $resolved ? file_exists($resolved) : false,
+            'storage_link_target' => is_link(public_path('storage'))
+                ? readlink(public_path('storage'))
+                : '(NOT A SYMLINK — run `php artisan storage:link` on the server)',
+            'candidates_tried' => $report,
+        ], 200, [], JSON_PRETTY_PRINT);
+    });
+
     // ─── ONE-CLICK MARKS RECOVERY (super-admin only) ───
     // Visit /admin/marks-restore-all in your browser. Runs the same code
     // as `php artisan marks:restore-deleted` but from the browser — no

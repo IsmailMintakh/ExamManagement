@@ -1,7 +1,7 @@
 @php
     // Resolve image paths once for the whole batch (every card uses the same school).
-    $logoPath = !empty($school?->logo) && file_exists(public_path('storage/' . $school->logo))
-        ? public_path('storage/' . $school->logo) : null;
+    $logoPath = !empty($school?->logo) && $school?->getLogoAbsolutePath()
+        ? $school?->getLogoAbsolutePath() : null;
     $principalSigPath = !empty($school?->principal_signature) && file_exists(public_path('storage/' . $school->principal_signature))
         ? public_path('storage/' . $school->principal_signature) : null;
     $officerSigPath = !empty($school?->exam_officer_signature) && file_exists(public_path('storage/' . $school->exam_officer_signature))

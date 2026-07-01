@@ -82,4 +82,35 @@ class School extends Model
     {
         return $query->where('is_active', true);
     }
+
+    /**
+     * Resolve the on-disk absolute path to the school's logo, checking every
+     * plausible location. Returns null if nothing exists — templates use
+     * this to decide between rendering <img> vs the initials placeholder.
+     *
+     * Why so many candidates: on Hostinger and other shared hosts the
+     * public/storage symlink is fragile, deploys can strip it, and older
+     * builds of this app uploaded logos under public/uploads/ directly.
+     * Trying each path in order means the PDF renderer finds the file
+     * regardless of which storage layout the deploy ended up with.
+     */
+    public function getLogoAbsolutePath(): ?string
+    {
+        if (empty($this->logo)) return null;
+        $rel = ltrim($this->logo, '/');
+
+        $candidates = [
+            public_path('storage/' . $rel),           // standard storage:link symlink
+            storage_path('app/public/' . $rel),       // real path behind the symlink
+            public_path('uploads/' . $rel),           // legacy /uploads route target
+            public_path($rel),                        // if stored directly under public/
+            base_path('public_html/storage/' . $rel), // some cPanel layouts
+            base_path('public_html/uploads/' . $rel),
+        ];
+
+        foreach ($candidates as $p) {
+            if (is_string($p) && file_exists($p)) return $p;
+        }
+        return null;
+    }
 }

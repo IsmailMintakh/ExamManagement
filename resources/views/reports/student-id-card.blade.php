@@ -3,8 +3,8 @@
     $canEmbedImages = extension_loaded('gd');
 
     $school = $student->school;
-    $logoPath = ($canEmbedImages && !empty($school?->logo) && file_exists(public_path('storage/' . $school->logo)))
-        ? public_path('storage/' . $school->logo) : null;
+    $logoPath = ($canEmbedImages && !empty($school?->logo) && $school?->getLogoAbsolutePath())
+        ? $school?->getLogoAbsolutePath() : null;
     $stampPath = ($canEmbedImages && !empty($school?->school_stamp) && file_exists(public_path('storage/' . $school->school_stamp)))
         ? public_path('storage/' . $school->school_stamp) : null;
     $signaturePath = ($canEmbedImages && !empty($school?->principal_signature) && file_exists(public_path('storage/' . $school->principal_signature)))

@@ -1,8 +1,8 @@
 @php
     // Resolve image paths. file_exists checks keep dom-pdf from rendering broken-image
     // placeholders if the file went missing.
-    $logoPath = !empty($school->logo) && file_exists(public_path('storage/' . $school->logo))
-        ? public_path('storage/' . $school->logo) : null;
+    $logoPath = !empty($school->logo) && $school?->getLogoAbsolutePath()
+        ? $school?->getLogoAbsolutePath() : null;
     $sigPath = !empty($school->principal_signature ?? null) && file_exists(public_path('storage/' . $school->principal_signature))
         ? public_path('storage/' . $school->principal_signature) : null;
     $officerSigPath = !empty($school->exam_officer_signature ?? null) && file_exists(public_path('storage/' . $school->exam_officer_signature))
