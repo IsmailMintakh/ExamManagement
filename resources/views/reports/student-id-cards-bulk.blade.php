@@ -250,8 +250,8 @@
                 $school = $student->school;
                 $logoPath = ($canEmbedImages && !empty($school?->logo) && $school?->getLogoAbsolutePath())
                     ? $school?->getLogoAbsolutePath() : null;
-                $photoPath = ($canEmbedImages && !empty($student->photo) && file_exists(public_path('storage/' . $student->photo)))
-                    ? public_path('storage/' . $student->photo) : null;
+                $photoPath = ($canEmbedImages && !empty($student->photo) && $student?->getPhotoAbsolutePath())
+                    ? $student?->getPhotoAbsolutePath() : null;
                 $session = $student->academicSession?->name ?? now()->year . '-' . substr(now()->year + 1, 2);
             @endphp
             <div class="cell">

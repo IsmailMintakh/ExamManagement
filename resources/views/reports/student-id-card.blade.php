@@ -9,8 +9,8 @@
         ? public_path('storage/' . $school->school_stamp) : null;
     $signaturePath = ($canEmbedImages && !empty($school?->principal_signature) && file_exists(public_path('storage/' . $school->principal_signature)))
         ? public_path('storage/' . $school->principal_signature) : null;
-    $photoPath = ($canEmbedImages && !empty($student->photo) && file_exists(public_path('storage/' . $student->photo)))
-        ? public_path('storage/' . $student->photo) : null;
+    $photoPath = ($canEmbedImages && !empty($student->photo) && $student?->getPhotoAbsolutePath())
+        ? $student?->getPhotoAbsolutePath() : null;
 
     $session = $student->academicSession?->name ?? now()->year . '-' . substr(now()->year + 1, 2);
     $code = $student->admission_no;

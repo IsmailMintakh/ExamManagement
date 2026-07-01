@@ -94,8 +94,8 @@
 <body>
 
 @php
-    $photoPath = !empty($student->photo) && file_exists(public_path('storage/' . $student->photo))
-        ? public_path('storage/' . $student->photo) : null;
+    $photoPath = !empty($student->photo) && $student?->getPhotoAbsolutePath()
+        ? $student?->getPhotoAbsolutePath() : null;
 @endphp
 
 {{-- ─── PAGE 1 — Cover + Profile + Summary ─── --}}

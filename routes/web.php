@@ -269,7 +269,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         $school = $schoolId
             ? \App\Models\School::find($schoolId)
             : \App\Models\School::first();
-        abort_unless($school, 404, 'No school found.');
+        abort_unless($school !== null, 404, 'No school found.');
 
         $rel = ltrim($school->logo ?? '', '/');
         $candidates = [
@@ -292,6 +292,28 @@ Route::middleware(['auth', 'verified'])->group(function () {
         }
         $resolved = $school->getLogoAbsolutePath();
 
+        // Also probe the first student with a photo so the user can
+        // confirm student-image resolution works the same way.
+        $studentSample = null;
+        $sampleStudent = \App\Models\Student::whereNotNull('photo')
+            ->when(!auth()->user()->isSuperAdmin(), fn ($q) => $q->where('school_id', $school->id))
+            ->first();
+        if ($sampleStudent) {
+            $srel = ltrim($sampleStudent->photo, '/');
+            $studentSample = [
+                'student_id' => $sampleStudent->id,
+                'student_name' => $sampleStudent->name,
+                'photo_column' => $sampleStudent->photo,
+                'resolved_path' => $sampleStudent->getPhotoAbsolutePath(),
+                'resolved_exists' => $sampleStudent->getPhotoAbsolutePath() !== null,
+                'candidates_tried' => collect([
+                    'public_path(storage/…)'          => public_path('storage/' . $srel),
+                    'storage_path(app/public/…)'      => storage_path('app/public/' . $srel),
+                    'public_path(uploads/…)'          => public_path('uploads/' . $srel),
+                ])->map(fn ($p, $l) => ['label' => $l, 'path' => $p, 'exists' => file_exists($p)])->values(),
+            ];
+        }
+
         return response()->json([
             'school_id' => $school->id,
             'school_name' => $school->name,
@@ -303,6 +325,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 ? readlink(public_path('storage'))
                 : '(NOT A SYMLINK — run `php artisan storage:link` on the server)',
             'candidates_tried' => $report,
+            'student_photo_sample' => $studentSample ?? '(no student with a photo in this scope)',
         ], 200, [], JSON_PRETTY_PRINT);
     });
 

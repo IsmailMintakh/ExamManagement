@@ -191,6 +191,32 @@ class Student extends Model
         return url($prefix.'/'.ltrim($this->photo, '/'));
     }
 
+    /**
+     * On-disk absolute path to the photo, checking every plausible
+     * storage layout (standard symlink, direct storage_path, legacy
+     * /uploads, cPanel /public_html variants). Returns null only when
+     * the file is genuinely missing from every candidate. Used by PDF
+     * reports that need a filesystem path — see School::getLogoAbsolutePath
+     * for the same pattern applied to logos.
+     */
+    public function getPhotoAbsolutePath(): ?string
+    {
+        if (empty($this->photo)) return null;
+        $rel = ltrim($this->photo, '/');
+        $candidates = [
+            public_path('storage/' . $rel),
+            storage_path('app/public/' . $rel),
+            public_path('uploads/' . $rel),
+            public_path($rel),
+            base_path('public_html/storage/' . $rel),
+            base_path('public_html/uploads/' . $rel),
+        ];
+        foreach ($candidates as $p) {
+            if (is_string($p) && file_exists($p)) return $p;
+        }
+        return null;
+    }
+
     public function scopeActive($query)
     {
         return $query->where('status', 'active');

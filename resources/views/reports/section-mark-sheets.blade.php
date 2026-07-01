@@ -177,8 +177,8 @@
         <div class="stu-bar">
             <div class="stu-photo-cell">
                 <div class="stu-photo">
-                    @if(!empty($student->photo) && file_exists(public_path('storage/' . $student->photo)))
-                        <img src="{{ public_path('storage/' . $student->photo) }}" alt="">
+                    @if(!empty($student->photo) && $student?->getPhotoAbsolutePath())
+                        <img src="{{ $student?->getPhotoAbsolutePath() }}" alt="">
                     @else
                         {{ strtoupper(substr($student->name ?? 'S', 0, 1)) }}
                     @endif
