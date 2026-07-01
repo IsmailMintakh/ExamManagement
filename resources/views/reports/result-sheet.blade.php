@@ -168,73 +168,115 @@
         </tbody>
     </table>
 
-    <div class="summary">
-        <div class="summary-grid">
-            <div class="summary-item">
-                <div class="summary-value">{{ $summary['total'] }}</div>
-                <div class="summary-label">Total Students</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value" style="color:#059669">{{ $summary['passed'] }}</div>
-                <div class="summary-label">Passed</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value" style="color:#dc2626">{{ $summary['failed'] }}</div>
-                <div class="summary-label">Retry</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{{ $summary['passPercentage'] }}%</div>
-                <div class="summary-label">Pass Rate</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{{ $summary['averagePercentage'] }}%</div>
-                <div class="summary-label">Class Average</div>
-            </div>
-        </div>
-    </div>
+    {{-- ═══════════ RESULT SUMMARY + QUALITATIVE GRADES ═══════════
+         Two-column footer block, styled to match the reference sheet the
+         school provided. Left half: headline counts (Total / Appeared /
+         Absent / Successful / Unsuccessful / Pass % / Target %). Right
+         half: grade-band histogram (80-84% A+, 75-79% A, etc.). --}}
+    <table style="width:100%; border-collapse:collapse; margin-top:10px; font-size:8px">
+        <tr>
+            <td colspan="7" style="border:1px solid #666; padding:4px; text-align:center; font-weight:bold; background:#f0fdf4">
+                Result Summary
+            </td>
+            <td colspan="5" style="border:1px solid #666; padding:4px; text-align:center; font-weight:bold; background:#f0fdf4">
+                Qualitative Result in Grades
+            </td>
+        </tr>
+        <tr style="background:#e7f5ec">
+            <th style="border:1px solid #666; padding:3px 2px; font-size:7px">Total<br>Students</th>
+            <th style="border:1px solid #666; padding:3px 2px; font-size:7px">Appeared</th>
+            <th style="border:1px solid #666; padding:3px 2px; font-size:7px">Absent</th>
+            <th style="border:1px solid #666; padding:3px 2px; font-size:7px">Successful</th>
+            <th style="border:1px solid #666; padding:3px 2px; font-size:7px">Unsuccessful</th>
+            <th style="border:1px solid #666; padding:3px 2px; font-size:7px">Pass %</th>
+            <th style="border:1px solid #666; padding:3px 2px; font-size:7px">Target %</th>
+            @foreach($gradeBands as $b)
+                <th style="border:1px solid #666; padding:3px 2px; font-size:7px">{{ $b['label'] }}</th>
+            @endforeach
+        </tr>
+        {{-- Second header row: letter grade label under each band cell. --}}
+        <tr style="background:#f0fdf4">
+            <td colspan="7" style="border:1px solid #666"></td>
+            @foreach($gradeBands as $b)
+                <td style="border:1px solid #666; padding:2px; text-align:center; font-weight:bold; color:#064e3b">{{ $b['letter'] }}</td>
+            @endforeach
+        </tr>
+        <tr>
+            <td style="border:1px solid #666; padding:4px; text-align:center; font-weight:bold">{{ $summary['total'] }}</td>
+            <td style="border:1px solid #666; padding:4px; text-align:center; font-weight:bold">{{ $summary['appeared'] }}</td>
+            <td style="border:1px solid #666; padding:4px; text-align:center">{{ $summary['absent'] }}</td>
+            <td style="border:1px solid #666; padding:4px; text-align:center; color:#059669; font-weight:bold">{{ $summary['successful'] }}</td>
+            <td style="border:1px solid #666; padding:4px; text-align:center; color:#dc2626; font-weight:bold">{{ $summary['unsuccessful'] }}</td>
+            <td style="border:1px solid #666; padding:4px; text-align:center; font-weight:bold">{{ $summary['passPercentage'] }}%</td>
+            <td style="border:1px solid #666; padding:4px; text-align:center">{{ $summary['targetPercentage'] ? $summary['targetPercentage'].'%' : '—' }}</td>
+            @foreach($gradeBands as $b)
+                <td style="border:1px solid #666; padding:4px; text-align:center; font-weight:bold">{{ $b['count'] }}</td>
+            @endforeach
+        </tr>
+    </table>
 
     {{-- ═══════════ SUBJECT-TEACHER PERFORMANCE ═══════════
-         For each subject: teacher name + how many students passed / total
-         appeared / pass %. Gives the principal a one-glance view of which
-         subject teachers are pulling the class up or dragging it down. --}}
+         Teacher's Name / Pass % / Target % — one column per subject, in
+         the SAME order as the top marks table so the columns line up
+         visually. Matches the layout the school shared. --}}
     @if(($subjectTeacherRows ?? collect())->isNotEmpty())
-    <div style="margin-top:12px">
-        <div style="font-size:9px;font-weight:bold;color:#064e3b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;padding-left:2px">
-            Subject-wise Teacher Performance
-        </div>
-        <table class="r" style="font-size:8px">
-            <thead>
-                <tr>
-                    <th style="width:15%;text-align:left;padding-left:6px">Subject</th>
-                    <th style="width:22%;text-align:left;padding-left:6px">Teacher</th>
-                    <th>Appeared</th>
-                    <th>Passed</th>
-                    <th>Retry</th>
-                    <th>Absent</th>
-                    <th>Pass %</th>
-                </tr>
-            </thead>
-            <tbody>
+    <table style="width:100%; border-collapse:collapse; margin-top:6px; font-size:8px">
+        <thead>
+            <tr style="background:#e7f5ec">
+                <th style="border:1px solid #666; padding:3px 6px; text-align:left; width:18%">Subject</th>
                 @foreach($subjectTeacherRows as $row)
-                <tr>
-                    <td class="left" style="font-weight:bold;text-transform:uppercase">
-                        {{ $row['code'] }}<span style="font-weight:normal;color:#6b7280"> · {{ $row['name'] }}</span>
-                    </td>
-                    <td class="left" style="text-transform:uppercase">{{ $row['teacher_name'] }}</td>
-                    <td>{{ $row['appeared'] }}</td>
-                    <td style="color:#059669;font-weight:bold">{{ $row['passed'] }}</td>
-                    <td style="color:#dc2626;font-weight:bold">{{ $row['failed'] }}</td>
-                    <td>{{ $row['absent'] }}</td>
-                    <td style="font-weight:bold;
-                        color:{{ $row['pass_percentage'] >= 80 ? '#059669' : ($row['pass_percentage'] >= 50 ? '#d97706' : '#dc2626') }}">
-                        {{ $row['pass_percentage'] }}%
-                    </td>
-                </tr>
+                    <th style="border:1px solid #666; padding:3px; font-weight:bold; text-transform:uppercase; letter-spacing:0.3px">
+                        {{ $row['code'] }}
+                    </th>
                 @endforeach
-            </tbody>
-        </table>
-    </div>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td style="border:1px solid #666; padding:3px 6px; font-weight:bold; text-align:left">Teacher's Name</td>
+                @foreach($subjectTeacherRows as $row)
+                    <td style="border:1px solid #666; padding:3px; text-align:center; text-transform:uppercase; font-size:7.5px">
+                        {{ $row['teacher_name'] }}
+                    </td>
+                @endforeach
+            </tr>
+            <tr>
+                <td style="border:1px solid #666; padding:3px 6px; font-weight:bold; text-align:left">Pass %</td>
+                @foreach($subjectTeacherRows as $row)
+                    <td style="border:1px solid #666; padding:3px; text-align:center; font-weight:bold;
+                        color:{{ $row['pass_percentage'] >= 80 ? '#059669' : ($row['pass_percentage'] >= 50 ? '#d97706' : '#dc2626') }}">
+                        {{ $row['pass_percentage'] }}
+                    </td>
+                @endforeach
+            </tr>
+            <tr>
+                <td style="border:1px solid #666; padding:3px 6px; font-weight:bold; text-align:left">Target %</td>
+                @foreach($subjectTeacherRows as $row)
+                    <td style="border:1px solid #666; padding:3px; text-align:center; color:#6b7280">—</td>
+                @endforeach
+            </tr>
+        </tbody>
+    </table>
     @endif
+
+    {{-- Prepared/Verified/Countersigned strip — matches the school's
+         reference layout, sits above the signature row. --}}
+    <table style="width:100%; margin-top:14px; font-size:9px">
+        <tr>
+            <td style="width:33.33%; padding:0 10px 0 4px; text-align:left">
+                <span style="font-weight:bold">Prepared by:</span>
+                <span style="display:inline-block; border-bottom:1px solid #334155; min-width:120px; margin-left:4px">&nbsp;</span>
+            </td>
+            <td style="width:33.33%; padding:0 10px; text-align:center">
+                <span style="font-weight:bold">Verified by:</span>
+                <span style="display:inline-block; border-bottom:1px solid #334155; min-width:120px; margin-left:4px">&nbsp;</span>
+            </td>
+            <td style="width:33.33%; padding:0 4px 0 10px; text-align:right">
+                <span style="font-weight:bold">Countersigned by:</span>
+                <span style="display:inline-block; border-bottom:1px solid #334155; min-width:120px; margin-left:4px">&nbsp;</span>
+            </td>
+        </tr>
+    </table>
 
     {{-- Signature row — Class Teacher · Principal (with stamp) · Exam Controller --}}
     <div class="sig">

@@ -259,17 +259,51 @@ class ReportController extends Controller
             ->orderByRollNo()
             ->get();
 
+        // "Absent" is defined as students who missed EVERY subject in the
+        // exam (all subject cells absent) — matches the traditional
+        // Pakistani result-sheet convention where "appeared" = took at
+        // least one paper.
+        $absentCount = $results->filter(function ($r) {
+            $subs = collect($r->subject_results ?? []);
+            return $subs->isNotEmpty() && $subs->every(fn ($c) => $c['is_absent'] ?? false);
+        })->count();
+        $appearedCount = $results->count() - $absentCount;
+        $successfulCount = $results->where('is_passed', true)->count();
+
         $summary = [
             'total' => $results->count(),
-            'passed' => $results->where('is_passed', true)->count(),
+            'appeared' => $appearedCount,
+            'absent' => $absentCount,
+            'passed' => $successfulCount,
             'failed' => $results->where('is_passed', false)->count(),
-            'passPercentage' => $results->count() > 0
-                ? round($results->where('is_passed', true)->count() / $results->count() * 100, 2)
+            'successful' => $successfulCount,
+            'unsuccessful' => $appearedCount - $successfulCount,
+            'passPercentage' => $appearedCount > 0
+                ? round($successfulCount / $appearedCount * 100, 2)
                 : 0,
+            'targetPercentage' => $examModel->target_pass_percentage ?? null,
             'highestPercentage' => $results->max('percentage'),
             'lowestPercentage' => $results->min('percentage'),
             'averagePercentage' => round($results->avg('percentage'), 2),
         ];
+
+        // Grade band histogram — powers the "Qualitative Result in Grades"
+        // block. Bands match the reference sheet the school shared. Each
+        // band is [low, high, letter grade label].
+        $bands = [
+            ['label' => '80-84%', 'letter' => 'A+', 'lo' => 80, 'hi' => 84],
+            ['label' => '75-79%', 'letter' => 'A',  'lo' => 75, 'hi' => 79],
+            ['label' => '70-74%', 'letter' => 'B+', 'lo' => 70, 'hi' => 74],
+            ['label' => '65-69%', 'letter' => 'B',  'lo' => 65, 'hi' => 69],
+            ['label' => '60% >',  'letter' => 'C',  'lo' => 60, 'hi' => 64],
+        ];
+        $gradeBands = collect($bands)->map(function ($b) use ($results) {
+            $count = $results->filter(function ($r) use ($b) {
+                $p = (float) ($r->percentage ?? 0);
+                return $p >= $b['lo'] && $p <= $b['hi'];
+            })->count();
+            return $b + ['count' => $count];
+        })->values();
 
         $school = $schoolClassModel->school;
         $academicSession = $examModel->academicSession;
@@ -396,6 +430,7 @@ class ReportController extends Controller
             'subjects' => $subjects,
             'isPrimary' => $isPrimary,
             'subjectTeacherRows' => $subjectTeacherRows,
+            'gradeBands' => $gradeBands,
         ]);
         $suffix = $sectionModel ? "-sec-{$sectionModel->name}" : '';
         return $pdf->stream("result-sheet-{$examModel->slug}-{$schoolClassModel->slug}{$suffix}.pdf");
