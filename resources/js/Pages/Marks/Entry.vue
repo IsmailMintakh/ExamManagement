@@ -127,7 +127,11 @@ const filterCounts = computed(() => ({
 }))
 const submitProcessing = ref(false)
 const lastSavedAt = ref(null)
-const saveStatus = ref('idle') // idle | saving | saved | error | queued
+const saveStatus = ref('idle') // idle | saving | retrying | saved | error | queued
+const retryAttempt = ref(0)
+const MAX_RETRIES = 3
+// Exponential backoff between retries — 500ms → 1.5s → 4s.
+const RETRY_BACKOFF_MS = [500, 1500, 4000]
 const saveError = ref(null)
 const lastSavedAgo = ref('')
 let savedAgoTimer = null
@@ -255,42 +259,65 @@ async function autosave() {
         return
     }
 
-    try {
-        const res = await window.axios.post(route('marks.autosave', props.exam.id), payload)
+    // Retry policy —
+    //   4xx: user-fixable (validation, permission). Surface immediately.
+    //   5xx: server hiccup (DB lock, unique-constraint race, timeout).
+    //        Retry with exponential backoff — the same payload will
+    //        usually succeed on the next attempt now that saves use
+    //        withTrashed. After MAX_RETRIES, queue offline as durable
+    //        fallback so no marks are ever lost.
+    //   network (no response): treat like 5xx — retry, then queue.
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        retryAttempt.value = attempt
+        if (attempt > 0) saveStatus.value = 'retrying'
 
-        dirtyRows.forEach(r => {
-            r._snap = {
-                marks_obtained: r.marks_obtained,
-                is_absent: r.is_absent,
-                remarks: r.remarks,
+        try {
+            const res = await window.axios.post(route('marks.autosave', props.exam.id), payload)
+
+            dirtyRows.forEach(r => {
+                r._snap = {
+                    marks_obtained: r.marks_obtained,
+                    is_absent: r.is_absent,
+                    remarks: r.remarks,
+                }
+                r.dirty = false
+            })
+
+            lastSavedAt.value = new Date(res.data?.saved_at || Date.now())
+            saveStatus.value = 'saved'
+            retryAttempt.value = 0
+            updateSavedAgoLabel()
+
+            if (hasQueuedSnapshot.value) {
+                try {
+                    await deleteSnapshot({
+                        examId: props.exam.id,
+                        subjectId: props.subject.id,
+                        sectionId: props.section.id,
+                    })
+                    hasQueuedSnapshot.value = false
+                } catch (e) { /* best-effort */ }
             }
-            r.dirty = false
-        })
-
-        lastSavedAt.value = new Date(res.data?.saved_at || Date.now())
-        saveStatus.value = 'saved'
-        updateSavedAgoLabel()
-
-        // If we had a queued snapshot for this scope, that POST just superseded it.
-        if (hasQueuedSnapshot.value) {
-            try {
-                await deleteSnapshot({
-                    examId: props.exam.id,
-                    subjectId: props.subject.id,
-                    sectionId: props.section.id,
-                })
-                hasQueuedSnapshot.value = false
-            } catch (e) { /* best-effort */ }
-        }
-    } catch (e) {
-        // Network-class failures (no response, status 0) → queue for later.
-        // Validation/server-side errors (status 4xx) → real error, surface it.
-        const isNetwork = !e.response || e.code === 'ERR_NETWORK'
-        if (isNetwork) {
+            return
+        } catch (e) {
+            const status = e.response?.status
+            const isValidation = status >= 400 && status < 500
+            // Client-side validation / permission — retry won't help.
+            if (isValidation) {
+                saveStatus.value = 'error'
+                saveError.value = e.response?.data?.error || 'Could not autosave. Try again.'
+                retryAttempt.value = 0
+                return
+            }
+            // Retryable — 5xx / no response. Back off and try again.
+            if (attempt < MAX_RETRIES) {
+                await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt]))
+                continue
+            }
+            // Exhausted retries → durable fallback (offline queue).
             await queuePayloadOffline(payload, dirtyRows)
-        } else {
-            saveStatus.value = 'error'
-            saveError.value = e.response?.data?.error || 'Could not autosave. Try again.'
+            retryAttempt.value = 0
+            return
         }
     }
 }
@@ -494,9 +521,34 @@ async function openReview() {
     showReviewModal.value = true
 }
 
+// postWithRetry — Inertia router.post wrapper with exponential backoff.
+// 4xx surfaces immediately (validation/permission — retry can't fix it);
+// 5xx / network retries up to MAX_RETRIES with the same backoff schedule
+// as autosave() so the user sees consistent behavior across paths.
+function postWithRetry(url, payload, options = {}) {
+    let attempt = 0
+    const attemptPost = () => {
+        router.post(url, payload, {
+            ...options,
+            onError: errors => {
+                const status = (typeof window !== 'undefined' && window.__lastInertiaStatus) || 0
+                const isValidation = errors && Object.keys(errors).length > 0 && status >= 400 && status < 500
+                if (isValidation || attempt >= MAX_RETRIES) {
+                    options.onError?.(errors)
+                    options.onFinish?.()
+                    return
+                }
+                attempt++
+                setTimeout(attemptPost, RETRY_BACKOFF_MS[Math.min(attempt - 1, RETRY_BACKOFF_MS.length - 1)])
+            },
+        })
+    }
+    attemptPost()
+}
+
 function submitMarks() {
     submitProcessing.value = true
-    router.post(route('marks.submit', [props.exam.id, props.subject.id, props.section.id]), {}, {
+    postWithRetry(route('marks.submit', [props.exam.id, props.subject.id, props.section.id]), {}, {
         onSuccess: () => { showReviewModal.value = false },
         onFinish: () => { submitProcessing.value = false },
     })
@@ -541,7 +593,7 @@ function savePostSubmitEdits() {
             remarks: r.remarks || null,
         })),
     }
-    router.post(route('marks.store', props.exam.id), payload, {
+    postWithRetry(route('marks.store', props.exam.id), payload, {
         preserveScroll: true,
         onSuccess: () => {
             showPostEditConfirm.value = false
@@ -756,6 +808,10 @@ const absentStudents = computed(() =>
                         <div v-if="saveStatus === 'saving'" class="text-xs text-base-content/55 flex items-center gap-1.5">
                             <span class="loading loading-spinner loading-xs"></span>
                             Saving...
+                        </div>
+                        <div v-else-if="saveStatus === 'retrying'" class="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5 font-medium">
+                            <span class="loading loading-spinner loading-xs"></span>
+                            Retrying save (attempt {{ retryAttempt }} of {{ MAX_RETRIES }})...
                         </div>
                         <div v-else-if="saveStatus === 'queued' || hasQueuedSnapshot" class="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5 font-medium">
                             <CloudIcon class="w-3.5 h-3.5" />
