@@ -214,8 +214,13 @@ class ReportController extends Controller
         return $pdf->stream("award-list-{$examModel->slug}.pdf");
     }
 
-    public function resultSheet(int $exam, int $schoolClass)
+    public function resultSheet(Request $request, int $exam, int $schoolClass)
     {
+        // Optional ?section=ID — when the user clicked a specific section
+        // (not the whole class), scope the sheet to that section only.
+        // Prevents "class 8 section B" from showing students from A and C.
+        $sectionId = $request->integer('section') ?: null;
+
         $examModel = Exam::with([
             'examType', 'gradingScale.entries', 'examController:id,name',
             'examSubjects' => function ($q) use ($schoolClass) {
@@ -224,6 +229,13 @@ class ReportController extends Controller
         ])->findOrFail($exam);
 
         $schoolClassModel = SchoolClass::with(['sections.classTeacher:id,name,signature_image', 'school'])->findOrFail($schoolClass);
+
+        $sectionModel = $sectionId
+            ? $schoolClassModel->sections->firstWhere('id', $sectionId)
+            : null;
+        if ($sectionId && !$sectionModel) {
+            abort(404, 'Section does not belong to this class.');
+        }
 
         $user = request()->user();
         if (!$user->isSuperAdmin() && $schoolClassModel->school_id !== $user->school_id) {
@@ -242,6 +254,7 @@ class ReportController extends Controller
 
         $results = Result::where('exam_id', $exam)
             ->where('school_class_id', $schoolClass)
+            ->when($sectionId, fn ($q) => $q->where('section_id', $sectionId))
             ->with(['student', 'section'])
             ->orderByRollNo()
             ->get();
@@ -310,17 +323,82 @@ class ReportController extends Controller
             }
         });
 
+        // ─── Fallback grade band ───
+        // When an exam has no grading scale attached, Result->grade often
+        // ends up '—'. Rather than showing empty cells, derive a sensible
+        // display grade from the percentage. Preference: real grade →
+        // scale entry lookup → hardcoded band → '—'.
+        $scaleEntries = $examModel->gradingScale?->entries ?? collect();
+        $gradeFor = function ($pct) use ($scaleEntries) {
+            if ($pct === null) return '—';
+            foreach ($scaleEntries as $e) {
+                if ($pct >= $e->min_percentage && $pct <= $e->max_percentage) return $e->grade;
+            }
+            // Hardcoded fallback (aligned to typical Pakistani school bands).
+            if ($pct >= 80) return 'A+';
+            if ($pct >= 70) return 'A';
+            if ($pct >= 60) return 'B';
+            if ($pct >= 50) return 'C';
+            if ($pct >= 40) return 'D';
+            if ($pct >= 33) return 'E';
+            return 'RETRY';
+        };
+        $results->each(function ($r) use ($gradeFor) {
+            // Only overwrite if the stored grade is missing/placeholder.
+            if (empty($r->grade) || $r->grade === '—' || $r->grade === '-') {
+                $r->grade = $gradeFor($r->percentage);
+            }
+        });
+
+        // ─── Teacher-wise subject performance ───
+        // For each subject, find the assigned teacher (scoped to the
+        // section when the sheet is section-scoped, otherwise across the
+        // whole class) and compute the pass rate for that subject. Powers
+        // the footer table the user asked for.
+        $subjectTeacherRows = collect($subjects)->map(function ($subj) use ($results, $schoolClass, $sectionId, $examModel) {
+            $teacher = \App\Models\SubjectTeacher::query()
+                ->where('subject_id', $subj['id'])
+                ->where('school_class_id', $schoolClass)
+                ->when($sectionId, fn ($q) => $q->where('section_id', $sectionId))
+                ->where('academic_session_id', $examModel->academic_session_id)
+                ->where('is_active', true)
+                ->with('user:id,name')
+                ->first();
+
+            $cells = $results->map(fn ($r) => $r->subject_results[$subj['id']] ?? null)->filter();
+            $total = $cells->count();
+            $passed = $cells->reject(fn ($c) => $c['failed'] ?? false)->count();
+            $absent = $cells->filter(fn ($c) => $c['is_absent'] ?? false)->count();
+
+            return [
+                'code' => $subj['code'],
+                'name' => $subj['name'],
+                'teacher_name' => $teacher?->user?->name ?? '—',
+                'total_students' => $total,
+                'appeared' => $total - $absent,
+                'absent' => $absent,
+                'passed' => $passed,
+                'failed' => max(0, $total - $absent - $passed),
+                'pass_percentage' => $total - $absent > 0
+                    ? round($passed / ($total - $absent) * 100)
+                    : 0,
+            ];
+        })->values();
+
         $pdf = Pdf::loadView('reports.result-sheet', [
             'exam' => $examModel,
             'school' => $school,
             'schoolClass' => $schoolClassModel,
+            'section' => $sectionModel,
             'academicSession' => $academicSession,
             'results' => $results,
             'summary' => $summary,
             'subjects' => $subjects,
             'isPrimary' => $isPrimary,
+            'subjectTeacherRows' => $subjectTeacherRows,
         ]);
-        return $pdf->stream("result-sheet-{$examModel->slug}-{$schoolClassModel->slug}.pdf");
+        $suffix = $sectionModel ? "-sec-{$sectionModel->name}" : '';
+        return $pdf->stream("result-sheet-{$examModel->slug}-{$schoolClassModel->slug}{$suffix}.pdf");
     }
 
     public function reportCard(int $exam, int $student)

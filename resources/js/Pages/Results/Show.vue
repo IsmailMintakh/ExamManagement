@@ -64,8 +64,13 @@ function submitAmendment() {
     })
 }
 
-function printResultSheet(examId, classId) {
-    window.open(route('reports.result-sheet', [examId, classId]), '_blank')
+function printResultSheet(examId, classId, sectionId = null) {
+    // sectionId is included as a query param — the controller filters
+    // Results to that section only when present. Without it, the sheet
+    // covers the whole class (all sections combined).
+    const base = route('reports.result-sheet', [examId, classId])
+    const url = sectionId ? `${base}?section=${sectionId}` : base
+    window.open(url, '_blank')
 }
 
 function exportResults(examId) {
@@ -101,7 +106,7 @@ function downloadAllMarkSheets(examId, sectionId) {
                     <button @click="downloadAllMarkSheets(exam?.id, section?.id)" class="btn btn-primary btn-sm gap-1.5">
                         <IdentificationIcon class="w-4 h-4" /> All Mark Sheets
                     </button>
-                    <button @click="printResultSheet(exam?.id, schoolClass?.id)" class="btn btn-outline btn-sm gap-1.5">
+                    <button @click="printResultSheet(exam?.id, schoolClass?.id, section?.id)" class="btn btn-outline btn-sm gap-1.5">
                         <PrinterIcon class="w-4 h-4" /> Result Sheet
                     </button>
                     <button @click="exportResults(exam?.id)" class="btn btn-outline btn-sm gap-1.5">

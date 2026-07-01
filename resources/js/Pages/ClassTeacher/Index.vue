@@ -83,7 +83,9 @@ const printUrls = computed(() => {
     if (!examId || !section) return null
     return {
         markSheets: route('reports.section-mark-sheets', [examId, section.id]),
-        resultSheet: route('reports.result-sheet', [examId, section.school_class_id]),
+        // ?section=X scopes the sheet to just this section (class-teacher
+        // view is always section-specific — no need to show the whole class).
+        resultSheet: route('reports.result-sheet', [examId, section.school_class_id]) + `?section=${section.id}`,
         attendanceSheet: route('reports.attendance-sheet', [examId, section.school_class_id]),
         admitCards: route('scheduling.admit-cards-download', examId) + `?section_id=${section.id}`,
         awardList: route('reports.award-list', examId),

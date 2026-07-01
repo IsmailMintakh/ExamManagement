@@ -10,7 +10,20 @@
     $controllerName = $exam->examController?->name ?? ($school->exam_officer_name ?? null);
     // Class teacher = first section's teacher (a class result sheet may span
     // multiple sections; show the first one's teacher as a representative).
-    $classTeacherName = $schoolClass->sections->pluck('classTeacher.name')->filter()->first();
+    // Section-scoped sheets prefer that section's class teacher; otherwise
+    // fall back to the first section's teacher (representative sample).
+    $classTeacherName = isset($section) && $section
+        ? ($section->classTeacher?->name)
+        : $schoolClass->sections->pluck('classTeacher.name')->filter()->first();
+
+    // Ordinal formatter — 1 → 1st, 2 → 2nd, 3 → 3rd, 4-20 → Nth, then repeats.
+    $ordinal = function ($n) {
+        if ($n === null || $n === 0) return '—';
+        $n = (int) $n;
+        $mod100 = $n % 100;
+        if ($mod100 >= 11 && $mod100 <= 13) return $n . 'th';
+        return $n . match ($n % 10) { 1 => 'st', 2 => 'nd', 3 => 'rd', default => 'th' };
+    };
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -18,11 +31,13 @@
     <meta charset="UTF-8">
     <title>Result Sheet - {{ $exam->name }}</title>
     <style>
-        @page { size: A4 landscape; margin: 8mm; }
+        /* Wider page margin so the logo has breathing room from the page
+           border — was 8mm, felt cramped in the first render. */
+        @page { size: A4 landscape; margin: 14mm 12mm 12mm 12mm; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 9px; color: #1a1a1a; }
-        .header { display: table; width: 100%; padding-bottom: 8px; border-bottom: 2px solid #064e3b; margin-bottom: 8px; }
-        .hdr-logo { display: table-cell; width: 60px; vertical-align: middle; }
+        .header { display: table; width: 100%; padding: 4px 0 10px; border-bottom: 2px solid #064e3b; margin-bottom: 10px; }
+        .hdr-logo { display: table-cell; width: 70px; vertical-align: middle; padding-left: 6px; }
         .hdr-logo img { width: 50px; height: 50px; object-fit: contain; }
         .logo-ph { width: 50px; height: 50px; background: #064e3b; border-radius: 50%; display: inline-block; line-height: 50px; text-align: center; color: #fff; font-size: 18pt; font-weight: bold; }
         .hdr-c { display: table-cell; text-align: center; vertical-align: middle; }
@@ -74,7 +89,8 @@
             <div class="school-name">{{ $school->name }}</div>
             <div class="exam-title">{{ $exam->name }} — RESULT SHEET</div>
             <div class="meta">
-                Class {{ $schoolClass->name }} · Session {{ $academicSession->name }} ·
+                Class {{ $schoolClass->name }}@if(isset($section) && $section) · Section {{ $section->name }} @endif ·
+                Session {{ $academicSession->name }} ·
                 Generated {{ now()->format('d M Y') }}
             </div>
         </div>
@@ -99,10 +115,11 @@
                 @if($isPrimary ?? false)
                     <th style="background:#ecfdf5">Assess<br><span style="font-weight:normal;font-size:7px">(10)</span></th>
                 @endif
+                <th>Obtained</th>
                 <th>Total</th>
                 <th>%</th>
                 <th>Grade</th>
-                <th>Pos</th>
+                <th>Rank</th>
                 <th>Result</th>
             </tr>
         </thead>
@@ -111,8 +128,13 @@
             <tr>
                 <td style="font-family:'DejaVu Sans Mono',monospace;font-size:7.5px">{{ $result->student->admission_no }}</td>
                 <td>{{ $result->student->roll_no }}</td>
-                <td class="left" style="font-weight:500">{{ $result->student->name }}</td>
-                <td class="left">{{ $result->student->father_name }}</td>
+                {{-- Uppercase student + father names so mixed-casing data
+                     ("Awais Haider" vs "SULTAN SALAHUDIN" vs "M abid")
+                     renders consistently across the whole sheet. --}}
+                <td class="left" style="font-weight:bold;text-transform:uppercase;letter-spacing:0.2px">
+                    {{ $result->student->name }}
+                </td>
+                <td class="left" style="text-transform:uppercase">{{ $result->student->father_name }}</td>
                 @foreach($subjects as $subject)
                     @php $sr = $result->subject_results[$subject['id']] ?? null; @endphp
                     <td class="{{ ($sr['failed'] ?? false) ? 'fail' : '' }}">
@@ -131,10 +153,11 @@
                         @endif
                     </td>
                 @endif
-                <td style="font-weight:bold">{{ $result->obtained_marks }}/{{ $result->total_marks }}</td>
+                <td style="font-weight:bold">{{ number_format((float) $result->obtained_marks, 2) }}</td>
+                <td>{{ number_format((float) $result->total_marks, 2) }}</td>
                 <td style="font-weight:bold">{{ $result->percentage }}%</td>
-                <td>{{ $result->grade }}</td>
-                <td style="font-weight:bold">{{ $result->position ?? '—' }}</td>
+                <td style="font-weight:bold">{{ $result->grade ?: '—' }}</td>
+                <td style="font-weight:bold">{{ $ordinal($result->position) }}</td>
                 <td>
                     <span class="{{ $result->is_passed ? 'pass-badge' : 'fail-badge' }}">
                         {{ $result->is_passed ? 'PASS' : 'RETRY' }}
@@ -169,6 +192,49 @@
             </div>
         </div>
     </div>
+
+    {{-- ═══════════ SUBJECT-TEACHER PERFORMANCE ═══════════
+         For each subject: teacher name + how many students passed / total
+         appeared / pass %. Gives the principal a one-glance view of which
+         subject teachers are pulling the class up or dragging it down. --}}
+    @if(($subjectTeacherRows ?? collect())->isNotEmpty())
+    <div style="margin-top:12px">
+        <div style="font-size:9px;font-weight:bold;color:#064e3b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;padding-left:2px">
+            Subject-wise Teacher Performance
+        </div>
+        <table class="r" style="font-size:8px">
+            <thead>
+                <tr>
+                    <th style="width:15%;text-align:left;padding-left:6px">Subject</th>
+                    <th style="width:22%;text-align:left;padding-left:6px">Teacher</th>
+                    <th>Appeared</th>
+                    <th>Passed</th>
+                    <th>Retry</th>
+                    <th>Absent</th>
+                    <th>Pass %</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($subjectTeacherRows as $row)
+                <tr>
+                    <td class="left" style="font-weight:bold;text-transform:uppercase">
+                        {{ $row['code'] }}<span style="font-weight:normal;color:#6b7280"> · {{ $row['name'] }}</span>
+                    </td>
+                    <td class="left" style="text-transform:uppercase">{{ $row['teacher_name'] }}</td>
+                    <td>{{ $row['appeared'] }}</td>
+                    <td style="color:#059669;font-weight:bold">{{ $row['passed'] }}</td>
+                    <td style="color:#dc2626;font-weight:bold">{{ $row['failed'] }}</td>
+                    <td>{{ $row['absent'] }}</td>
+                    <td style="font-weight:bold;
+                        color:{{ $row['pass_percentage'] >= 80 ? '#059669' : ($row['pass_percentage'] >= 50 ? '#d97706' : '#dc2626') }}">
+                        {{ $row['pass_percentage'] }}%
+                    </td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+    @endif
 
     {{-- Signature row — Class Teacher · Principal (with stamp) · Exam Controller --}}
     <div class="sig">
