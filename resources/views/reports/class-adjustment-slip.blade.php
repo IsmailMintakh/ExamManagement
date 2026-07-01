@@ -59,11 +59,12 @@
 <body>
 <div class="frame"><div class="frame-inner">
 
-<div class="hdr">
-    <div class="sch-tag">Daily Class Adjustment Slip</div>
-    <div class="sch-name">Teacher Adjustment Roster</div>
-    <div class="date-line">{{ $date->format('l, d F Y') }}</div>
-</div>
+@include('reports.partials.logo-header', [
+    'school' => $school ?? null,
+    'title' => 'Daily Class Adjustment Slip',
+    'subtitle' => $date->format('l, d F Y'),
+    'logoSize' => 55,
+])
 
 <div class="title-bar">Today's Class Adjustments</div>
 

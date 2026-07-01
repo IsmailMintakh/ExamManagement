@@ -67,14 +67,11 @@
 </head>
 <body>
 
-<div class="hdr">
-    <div class="sch-name">{{ $school->name ?? 'School Name' }}</div>
-    @if(!empty($school->address))
-        <div class="sch-addr">{{ $school->address }}</div>
-    @endif
-</div>
-
-<div class="key-title">Answer Key</div>
+@include('reports.partials.logo-header', [
+    'school' => $school,
+    'title' => 'Answer Key',
+    'logoSize' => 55,
+])
 
 <div class="meta-row">
     <div class="meta-cell"><span class="meta-lbl">Paper:</span> {{ $paper->title }}</div>

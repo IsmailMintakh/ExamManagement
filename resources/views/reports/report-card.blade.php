@@ -216,7 +216,7 @@
                 <td class="t-c">{{ number_format($sr['percentage'], 1) }}</td>
                 <td class="t-c" style="font-weight:bold;color:#1e3a8a">{{ $sr['grade'] }}</td>
                 <td class="t-c" style="font-weight:bold;color:{{ $sr['failed'] ? '#dc2626' : '#059669' }}">
-                    {{ $sr['failed'] ? 'FAIL' : 'PASS' }}
+                    {{ $sr['failed'] ? 'RETRY' : 'PASS' }}
                 </td>
             </tr>
             {{-- Primary section per-term breakdown row — only rendered when
@@ -257,7 +257,7 @@
                 <td class="t-c">{{ $assessment['total'] > 0 ? number_format($assessment['obtained'] / $assessment['total'] * 100, 1) : '-' }}</td>
                 <td class="t-c">—</td>
                 <td class="t-c" style="font-weight:bold;color:{{ $assessment['passed'] ? '#059669' : '#dc2626' }}">
-                    {{ $assessment['passed'] ? 'PASS' : 'FAIL' }}
+                    {{ $assessment['passed'] ? 'PASS' : 'RETRY' }}
                 </td>
             </tr>
             @endif
@@ -268,7 +268,7 @@
                 <td class="t-c">{{ $result->obtained_marks }}</td>
                 <td class="t-c">{{ number_format($result->percentage, 2) }}</td>
                 <td class="t-c">{{ $result->grade ?? '-' }}</td>
-                <td class="t-c">{{ $result->is_passed ? 'PASS' : 'FAIL' }}</td>
+                <td class="t-c">{{ $result->is_passed ? 'PASS' : 'RETRY' }}</td>
             </tr>
         </tbody>
     </table>
@@ -288,11 +288,11 @@
     <div class="verdict {{ $result->is_passed ? 'vd-pass' : 'vd-fail' }}">
         <div class="vd-l">
             <div class="vd-lbl">Final Result</div>
-            <div class="vd-val">{{ $result->is_passed ? 'PASSED' : 'FAILED' }}</div>
+            <div class="vd-val">{{ $result->is_passed ? 'PASSED' : 'NEEDS RETRY' }}</div>
         </div>
         <div class="vd-r">
             <strong>{{ $result->subjects_passed ?? 0 }}</strong> Passed &nbsp;·&nbsp;
-            <strong>{{ $result->subjects_failed ?? 0 }}</strong> Failed<br>
+            <strong>{{ $result->subjects_failed ?? 0 }}</strong> Retry<br>
             <span style="font-size:7.5pt;opacity:0.85">of {{ count($subjectResults) }} subjects</span>
         </div>
     </div>

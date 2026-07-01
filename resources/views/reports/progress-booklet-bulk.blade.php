@@ -112,7 +112,7 @@
                                 <td class="center"><span class="grade-pill">{{ $r->grade ?? '—' }}</span></td>
                                 <td class="center">{{ $r->position ?? '—' }}</td>
                                 <td class="center {{ $r->is_passed ? 'pass-yes' : 'pass-no' }}">
-                                    {{ $r->is_passed ? 'PASS' : 'FAIL' }}
+                                    {{ $r->is_passed ? 'PASS' : 'RETRY' }}
                                 </td>
                             </tr>
                         @endforeach
@@ -120,7 +120,7 @@
                             <td><strong>Summary</strong></td>
                             <td class="center" colspan="2"><strong>Avg {{ $avgPct }}%</strong></td>
                             <td class="center pass-yes">{{ $passedCount }} passed</td>
-                            <td class="center pass-no">{{ $totalExams - $passedCount }} failed</td>
+                            <td class="center pass-no">{{ $totalExams - $passedCount }} retry</td>
                             <td class="center"><strong>{{ $totalExams }} exam(s)</strong></td>
                         </tr>
                     </tbody>
@@ -149,7 +149,7 @@
                                     {{ (float) $am->marks_obtained }}<span style="font-size: 9pt; color: #94a3b8; font-weight: normal;">/{{ (float) $am->marks_total }}</span>
                                 </span>
                                 <span style="font-size: 7pt; font-weight: bold; color: {{ $asmtPassed ? '#047857' : '#b91c1c' }}; margin-left: 6px;">
-                                    {{ $asmtPassed ? 'PASS' : 'FAIL' }}
+                                    {{ $asmtPassed ? 'PASS' : 'RETRY' }}
                                 </span>
                             </div>
                         </div>

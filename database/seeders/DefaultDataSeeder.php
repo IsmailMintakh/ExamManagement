@@ -102,7 +102,7 @@ class DefaultDataSeeder extends Seeder
             ['grade' => 'C',  'label' => 'Satisfactory', 'min_percentage' => 50,    'max_percentage' => 59.99, 'grade_point' => 6,  'remark' => 'Average',           'sort_order' => 5],
             ['grade' => 'D',  'label' => 'Pass',         'min_percentage' => 40,    'max_percentage' => 49.99, 'grade_point' => 5,  'remark' => 'Below Average',     'sort_order' => 6],
             ['grade' => 'E',  'label' => 'Bare Pass',    'min_percentage' => 33,    'max_percentage' => 39.99, 'grade_point' => 4,  'remark' => 'Needs Improvement', 'sort_order' => 7],
-            ['grade' => 'F',  'label' => 'Fail',         'min_percentage' => 0,     'max_percentage' => 32.99, 'grade_point' => 0,  'remark' => 'Failed',            'sort_order' => 8],
+            ['grade' => 'F',  'label' => 'Retry',        'min_percentage' => 0,     'max_percentage' => 32.99, 'grade_point' => 0,  'remark' => 'Needs Retry',       'sort_order' => 8],
         ];
         foreach ($grades as $grade) {
             $scale->entries()->firstOrCreate(['grade' => $grade['grade']], $grade);

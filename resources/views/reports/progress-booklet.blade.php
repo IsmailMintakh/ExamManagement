@@ -151,7 +151,7 @@
             <div class="val">{{ $passedCount }}</div>
         </div>
         <div class="summary-cell {{ $totalExams - $passedCount > 0 ? 'failed' : '' }}">
-            <div class="lbl">Failed</div>
+            <div class="lbl">Retry</div>
             <div class="val">{{ $totalExams - $passedCount }}</div>
         </div>
         <div class="summary-cell avg">
@@ -185,7 +185,7 @@
                         <td class="center"><span class="grade-pill">{{ $r->grade ?? '—' }}</span></td>
                         <td class="center">{{ $r->position ?? '—' }}</td>
                         <td class="center {{ $r->is_passed ? 'pass-yes' : 'pass-no' }}">
-                            {{ $r->is_passed ? 'PASS' : 'FAIL' }}
+                            {{ $r->is_passed ? 'PASS' : 'RETRY' }}
                         </td>
                     </tr>
                 @endforeach

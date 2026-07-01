@@ -40,11 +40,12 @@
 </head>
 <body>
     <div class="page">
-        <div class="header">
-            <div class="school-name">{{ $school->name }}</div>
-            <div class="title">MERIT / AWARD LIST</div>
-            <div class="meta">{{ $exam->name }} | Session: {{ $academicSession->name }} | Date: {{ now()->format('d/m/Y') }}</div>
-        </div>
+        @include('reports.partials.logo-header', [
+            'school' => $school,
+            'title' => 'MERIT / AWARD LIST',
+            'subtitle' => $exam->name . ' | Session: ' . $academicSession->name . ' | Date: ' . now()->format('d/m/Y'),
+            'logoSize' => 60,
+        ])
 
         @foreach($classResults as $className => $sections)
             @foreach($sections as $sectionName => $results)

@@ -137,7 +137,7 @@
                 <td style="font-weight:bold">{{ $result->position ?? '—' }}</td>
                 <td>
                     <span class="{{ $result->is_passed ? 'pass-badge' : 'fail-badge' }}">
-                        {{ $result->is_passed ? 'PASS' : 'FAIL' }}
+                        {{ $result->is_passed ? 'PASS' : 'RETRY' }}
                     </span>
                 </td>
             </tr>
@@ -157,7 +157,7 @@
             </div>
             <div class="summary-item">
                 <div class="summary-value" style="color:#dc2626">{{ $summary['failed'] }}</div>
-                <div class="summary-label">Failed</div>
+                <div class="summary-label">Retry</div>
             </div>
             <div class="summary-item">
                 <div class="summary-value">{{ $summary['passPercentage'] }}%</div>

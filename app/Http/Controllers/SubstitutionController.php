@@ -474,10 +474,22 @@ class SubstitutionController extends Controller
             ];
         })->values();
 
+        // Resolve a school for the header: school-admins have their own;
+        // super-admins fall back to the first assignment's school so the
+        // slip is still branded.
+        $school = null;
+        if (!$user->isSuperAdmin()) {
+            $school = \App\Models\School::find($user->school_id);
+        } elseif ($assignments->isNotEmpty()) {
+            $schoolId = $assignments->first()?->timetableEntry?->schoolClass?->school_id;
+            $school = $schoolId ? \App\Models\School::find($schoolId) : null;
+        }
+
         $pdf = Pdf::loadView('reports.class-adjustment-slip', [
             'date' => $date,
             'bySub' => $bySub,
             'totalAssignments' => $assignments->count(),
+            'school' => $school,
         ])->setPaper('a4', 'portrait');
 
         return $pdf->stream("class-adjustments-{$date->toDateString()}.pdf");

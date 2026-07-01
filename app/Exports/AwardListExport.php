@@ -32,8 +32,21 @@ class AwardListExport
                 ->keyBy('student_id');
         }
 
-        return new StreamedResponse(function () use ($hasPrimary, $assessmentByStudent) {
+        // CSV can't carry a raster logo; surface the school name/address
+        // and exam title as leading meta rows so the file is identifiable
+        // when opened in Excel / Sheets.
+        $school = $this->results->first()?->school ?? null;
+
+        return new StreamedResponse(function () use ($hasPrimary, $assessmentByStudent, $school) {
             $handle = fopen('php://output', 'w');
+            if ($school) {
+                fputcsv($handle, [$school->name]);
+                if (!empty($school->address)) fputcsv($handle, [$school->address]);
+            }
+            fputcsv($handle, ['Merit / Award List — ' . $this->exam->name]);
+            fputcsv($handle, ['Generated: ' . now()->format('d M Y, H:i')]);
+            fputcsv($handle, []);
+
             $header = ['Position', 'Roll No', 'Student Name', 'Father Name', 'Class', 'Section', 'School',
                        'Obtained', 'Total', 'Percentage', 'Grade'];
             if ($hasPrimary) {

@@ -19,8 +19,18 @@ class MarksExport
             'Content-Disposition' => "attachment; filename=\"{$filename}\"",
         ];
 
-        return new StreamedResponse(function () {
+        $school = $this->marks->first()?->school ?? null;
+
+        return new StreamedResponse(function () use ($school) {
             $handle = fopen('php://output', 'w');
+            if ($school) {
+                fputcsv($handle, [$school->name]);
+                if (!empty($school->address)) fputcsv($handle, [$school->address]);
+            }
+            fputcsv($handle, ['Marks Sheet — ' . ($this->exam->name ?? '')]);
+            fputcsv($handle, ['Generated: ' . now()->format('d M Y, H:i')]);
+            fputcsv($handle, []);
+
             fputcsv($handle, ['Roll No', 'Student Name', 'Class', 'Section', 'Subject', 'Total Marks', 'Obtained', 'Absent', 'Status']);
 
             foreach ($this->marks as $m) {

@@ -36,8 +36,23 @@ class ResultsExport
                 ->keyBy('student_id');
         }
 
-        return new StreamedResponse(function () use ($hasPrimary, $assessmentByStudent) {
+        // Resolve a branded header for the CSV — CSV can't embed a raster
+        // logo, so we surface the school name, address and exam title as
+        // leading meta rows so the file identifies itself when opened.
+        $school = $this->results->first()?->school ?? null;
+
+        return new StreamedResponse(function () use ($hasPrimary, $assessmentByStudent, $school) {
             $handle = fopen('php://output', 'w');
+            // Leading branding block. Excel/Sheets treat these as normal
+            // rows above the data table.
+            if ($school) {
+                fputcsv($handle, [$school->name]);
+                if (!empty($school->address)) fputcsv($handle, [$school->address]);
+            }
+            fputcsv($handle, ['Exam Result Sheet — ' . $this->exam->name]);
+            fputcsv($handle, ['Generated: ' . now()->format('d M Y, H:i')]);
+            fputcsv($handle, []);
+
             $header = ['Position', 'Roll No', 'Student Name', 'Father Name', 'Class', 'Section', 'School',
                        'Total Marks', 'Obtained Marks', 'Percentage', 'Grade', 'Status'];
             if ($hasPrimary) {
@@ -58,7 +73,7 @@ class ResultsExport
                     $r->obtained_marks,
                     $r->percentage . '%',
                     $r->grade,
-                    $r->is_passed ? 'PASS' : 'FAIL',
+                    $r->is_passed ? 'PASS' : 'RETRY',
                 ];
                 if ($hasPrimary) {
                     $isPrimary = $r->schoolClass?->isPrimaryStage();
@@ -67,7 +82,7 @@ class ResultsExport
                         $row,
                         $am ? (float) $am->marks_obtained : ($isPrimary ? '' : '—'),
                         $am ? (float) $am->marks_total    : ($isPrimary ? '' : '—'),
-                        $am ? ($am->isPassed() ? 'PASS' : 'FAIL') : ($isPrimary ? 'NOT ENTERED' : '—'),
+                        $am ? ($am->isPassed() ? 'PASS' : 'RETRY') : ($isPrimary ? 'NOT ENTERED' : '—'),
                     );
                 }
                 fputcsv($handle, $row);

@@ -549,10 +549,24 @@ class StudentController extends Controller
 
         $filename = 'students-' . now()->format('Y-m-d-His') . '.csv';
 
-        return response()->streamDownload(function () use ($students) {
+        // Resolve one school for the branded CSV header. When the export
+        // spans multiple schools (super-admin) we still fall back to the
+        // first student's school so the file identifies itself in Excel.
+        $headerSchool = $students->first()?->school ?? null;
+
+        return response()->streamDownload(function () use ($students, $headerSchool) {
             $out = fopen('php://output', 'w');
             // BOM for Excel UTF-8 compatibility
             fwrite($out, "\xEF\xBB\xBF");
+
+            if ($headerSchool) {
+                fputcsv($out, [$headerSchool->name]);
+                if (!empty($headerSchool->address)) fputcsv($out, [$headerSchool->address]);
+            }
+            fputcsv($out, ['Students Export']);
+            fputcsv($out, ['Generated: ' . now()->format('d M Y, H:i')]);
+            fputcsv($out, []);
+
             fputcsv($out, [
                 'Admission No', 'Roll No', 'Name', 'Father Name', 'Mother Name',
                 'Gender', 'Date of Birth', 'Guardian Phone', 'Address', 'Blood Group',

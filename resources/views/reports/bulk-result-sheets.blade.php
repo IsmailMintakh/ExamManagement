@@ -149,7 +149,7 @@
                             @if($result->is_passed)
                                 <span class="pass-badge">PASS</span>
                             @else
-                                <span class="fail-badge">FAIL</span>
+                                <span class="fail-badge">RETRY</span>
                             @endif
                         </td>
                     </tr>
@@ -169,7 +169,7 @@
                 </div>
                 <div class="summary-item">
                     <div class="summary-value" style="color:#dc2626">{{ $block->summary['failed'] }}</div>
-                    <div class="summary-label">Failed</div>
+                    <div class="summary-label">Retry</div>
                 </div>
                 <div class="summary-item">
                     <div class="summary-value">{{ $block->summary['passPercentage'] }}%</div>

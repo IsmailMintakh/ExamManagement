@@ -109,9 +109,21 @@
 </head>
 <body>
 
-    <div class="dept">{{ $lbl['dept'] }}</div>
-    <div class="sub-dept">{{ $school->name ?? '' }}</div>
-    <div class="title-wrap"><span class="title">{{ $lbl['title'] }}</span></div>
+    {{-- Include the standard logo header when a School model is passed.
+         In the Urdu variant the mPDF engine still renders the raster logo
+         and Latin-alphabet school name correctly alongside the RTL body. --}}
+    @if(is_object($school ?? null))
+        @include('reports.partials.logo-header', [
+            'school' => $school,
+            'title' => $lbl['title'],
+            'subtitle' => $lbl['dept'],
+            'logoSize' => 55,
+        ])
+    @else
+        <div class="dept">{{ $lbl['dept'] }}</div>
+        <div class="sub-dept">{{ $school->name ?? '' }}</div>
+        <div class="title-wrap"><span class="title">{{ $lbl['title'] }}</span></div>
+    @endif
 
     {{-- Meta table — Class/Section, Subject/Date, Teacher/No of Students, Topic --}}
     <table class="meta">

@@ -384,7 +384,7 @@ class ResultProcessingService
         $remarks = $finalResult->remarks;
         if (!$assessmentPassed && $assessment) {
             $remarks = trim(($remarks ? $remarks.' · ' : '').sprintf(
-                'Failed assessment (%s/%s).',
+                'Needs retry (assessment %s/%s).',
                 rtrim(rtrim(number_format($assessmentObtained, 2, '.', ''), '0'), '.'),
                 rtrim(rtrim(number_format($assessmentTotal,    2, '.', ''), '0'), '.'),
             ));
