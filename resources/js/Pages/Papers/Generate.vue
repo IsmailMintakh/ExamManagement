@@ -286,7 +286,7 @@ function submit() {
     form.post(route('papers.store'), {
         onError: (errors) => {
             const first = Object.values(errors)[0]
-            submitError.value = (Array.isArray(first) ? first[0] : first) || 'Validation failed.'
+            submitError.value = (Array.isArray(first) ? first[0] : first) || "Couldn't validate — please review inputs and retry."
             console.error('Paper generation errors:', errors)
         },
     })

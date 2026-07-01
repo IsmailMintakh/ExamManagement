@@ -99,7 +99,7 @@ function loadPreview() {
             })
             previewHtml.value = res.data.html
         } catch (e) {
-            previewHtml.value = '<p class="p-4 text-error">Preview failed.</p>'
+            previewHtml.value = '<p class="p-4 text-error">Preview didn\'t render — retry.</p>'
         } finally {
             previewLoading.value = false
         }

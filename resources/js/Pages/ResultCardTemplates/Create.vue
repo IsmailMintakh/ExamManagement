@@ -94,7 +94,7 @@ async function loadPreview() {
         })
         previewHtml.value = res.data.html
     } catch (e) {
-        previewHtml.value = '<p style="color:red;">Failed to render preview.</p>'
+        previewHtml.value = '<p style="color:red;">Preview didn\'t render — retry.</p>'
     } finally {
         previewLoading.value = false
     }

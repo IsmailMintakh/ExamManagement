@@ -138,7 +138,7 @@ async function sendTest() {
     } catch (e) {
         lastTestResult.value = {
             ok: false,
-            msg: e.response?.data?.error || e.message || 'Failed to send test.',
+            msg: e.response?.data?.error || e.message || "Test didn't send — tap to retry.",
         }
     } finally {
         sendingTest.value = false

@@ -825,7 +825,7 @@ const absentStudents = computed(() =>
                         </div>
                         <div v-else-if="saveStatus === 'error'" class="text-xs text-rose-700 flex items-center gap-1.5 font-medium" :title="saveError">
                             <ExclamationTriangleIcon class="w-3.5 h-3.5" />
-                            {{ saveError || 'Save failed' }} <button @click="autosave" class="underline">Retry</button>
+                            {{ saveError || "Save didn't go through" }} <button @click="autosave" class="underline">Retry</button>
                         </div>
                         <div v-else class="text-xs text-base-content/45 flex items-center gap-1.5">
                             <CloudIcon class="w-3.5 h-3.5" />
