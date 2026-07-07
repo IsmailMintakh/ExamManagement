@@ -601,6 +601,59 @@ class MarksController extends Controller
         ]);
     }
 
+    /**
+     * Partial submit: flip every current DRAFT mark for this paper to
+     * "submitted" (no "all students must have marks" gate). Powers the
+     * "Submit drafts (N)" button on the marks entry page, which appears
+     * when the teacher has autosaved values for some students but the
+     * usual Submit button is blocked because a few students are still
+     * missing marks. Cascades to result regeneration like submit() does.
+     */
+    public function submitDrafts(int $exam, int $subject, int $section): RedirectResponse
+    {
+        $user = request()->user();
+        $examModel = Exam::findOrFail($exam);
+        $sectionModel = Section::with('schoolClass')->findOrFail($section);
+
+        if (!$examModel->isMarksEntryOpen()) {
+            return redirect()->back()->with('error', 'Marks entry is not open for this exam.');
+        }
+
+        if (!$this->canEnterMarks($user, $subject, $section)) {
+            abort(403, 'You can only submit marks for subjects assigned to you.');
+        }
+
+        $flipped = Mark::where('exam_id', $exam)
+            ->where('subject_id', $subject)
+            ->where('section_id', $section)
+            ->where('status', 'draft')
+            ->update(['status' => 'submitted', 'submitted_at' => now()]);
+
+        if ($flipped === 0) {
+            return redirect()->back()->with('info', 'No draft marks to submit for this paper.');
+        }
+
+        MarksSubmission::updateOrCreate(
+            ['exam_id' => $exam, 'subject_id' => $subject, 'section_id' => $section],
+            [
+                'school_class_id' => $sectionModel->school_class_id,
+                'school_id' => $sectionModel->schoolClass->school_id,
+                'submitted_by' => $user->id,
+                'status' => 'submitted',
+                'submitted_at' => now(),
+            ]
+        );
+
+        try {
+            app(\App\Services\ResultProcessingService::class)
+                ->generateResults($examModel, (int) $sectionModel->school_class_id, $section);
+        } catch (\Throwable $e) {
+            \Log::warning('Result regeneration after submitDrafts failed: ' . $e->getMessage());
+        }
+
+        return redirect()->back()->with('success', "Submitted {$flipped} draft mark(s). Results updated.");
+    }
+
     public function submit(int $exam, int $subject, int $section): RedirectResponse
     {
         $user = request()->user();
@@ -678,6 +731,21 @@ class MarksController extends Controller
             }
         } catch (\Throwable $e) {
             \Log::warning('MarksSubmittedNotification failed: ' . $e->getMessage());
+        }
+
+        // ─── Cascade to Result table ───
+        // Without this, submitting a subject only flips Mark.status to
+        // "submitted" — the Result rows keep their old subject_results
+        // JSON so the new subject is missing from the /results view and
+        // the grand total. Re-running generateResults after every submit
+        // makes results reflect the marks that were just finalized.
+        // The service is read-only on Marks and idempotent, so this is
+        // cheap and safe to call whether Results exist yet or not.
+        try {
+            app(\App\Services\ResultProcessingService::class)
+                ->generateResults($examModel, (int) $sectionModel->school_class_id, $section);
+        } catch (\Throwable $e) {
+            \Log::warning('Result regeneration after submit failed: ' . $e->getMessage());
         }
 
         return redirect()->back()->with('success', 'Marks submitted successfully.');

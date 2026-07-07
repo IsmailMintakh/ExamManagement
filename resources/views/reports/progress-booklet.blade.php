@@ -96,6 +96,14 @@
 @php
     $photoPath = !empty($student->photo) && $student?->getPhotoAbsolutePath()
         ? $student?->getPhotoAbsolutePath() : null;
+    // Ordinal formatter for the Position column in the exam-history table.
+    $ordinal = function ($n) {
+        if ($n === null || $n === 0) return '—';
+        $n = (int) $n;
+        $mod100 = $n % 100;
+        if ($mod100 >= 11 && $mod100 <= 13) return $n . 'th';
+        return $n . match ($n % 10) { 1 => 'st', 2 => 'nd', 3 => 'rd', default => 'th' };
+    };
 @endphp
 
 {{-- ─── PAGE 1 — Cover + Profile + Summary ─── --}}
@@ -183,7 +191,7 @@
                         <td class="center">{{ number_format($r->obtained_marks, 1) }} / {{ number_format($r->total_marks, 0) }}</td>
                         <td class="center percent">{{ number_format($r->percentage, 1) }}%</td>
                         <td class="center"><span class="grade-pill">{{ $r->grade ?? '—' }}</span></td>
-                        <td class="center">{{ $r->position ?? '—' }}</td>
+                        <td class="center">{{ $ordinal($r->position) }}</td>
                         <td class="center {{ $r->is_passed ? 'pass-yes' : 'pass-no' }}">
                             {{ $r->is_passed ? 'PASS' : 'RETRY' }}
                         </td>

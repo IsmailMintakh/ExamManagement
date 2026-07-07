@@ -254,6 +254,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('marks/{exam}/store', [MarksController::class, 'store'])->name('marks.store');
     Route::post('marks/{exam}/autosave', [MarksController::class, 'autosave'])->name('marks.autosave');
     Route::post('marks/{exam}/submit/{subject}/{section}', [MarksController::class, 'submit'])->name('marks.submit');
+    // Partial submit — flips just the draft rows to submitted, no
+    // "all students required" gate. Powers the "Submit drafts" button.
+    Route::post('marks/{exam}/submit-drafts/{subject}/{section}', [MarksController::class, 'submitDrafts'])->name('marks.submit-drafts');
     Route::post('marks/{exam}/restore/{subject}/{section}', [MarksController::class, 'restoreDeletedMarks'])->name('marks.restore');
 
     // Logo path diagnostic — super-admin visits
@@ -326,6 +329,209 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 : '(NOT A SYMLINK — run `php artisan storage:link` on the server)',
             'candidates_tried' => $report,
             'student_photo_sample' => $studentSample ?? '(no student with a photo in this scope)',
+        ], 200, [], JSON_PRETTY_PRINT);
+    });
+
+    // ─── MARKS vs RESULT DIAGNOSTIC + ONE-CLICK REGEN ───
+    // GET /admin/marks-vs-result/{exam}/{section}         → JSON dump
+    //     of every Mark row for the (exam, section) side-by-side with
+    //     what that student's Result.subject_results currently says.
+    //     Also shows the MarksSubmission status per subject.
+    //
+    // GET /admin/marks-vs-result/{exam}/{section}?regen=1 → same as above
+    //     BUT first re-runs ResultProcessingService for this section, so
+    //     the "after" column reflects a fresh regeneration. Use when
+    //     Results show AB but Marks are clearly submitted.
+    Route::get('admin/marks-vs-result/{exam}/{section}', function (int $exam, int $section) {
+        abort_unless(auth()->user()?->hasRole('super-admin'), 403);
+
+        $examModel = \App\Models\Exam::findOrFail($exam);
+        $sectionModel = \App\Models\Section::with('schoolClass')->findOrFail($section);
+
+        $regen = request()->boolean('regen');
+        if ($regen) {
+            app(\App\Services\ResultProcessingService::class)->generateResults(
+                $examModel,
+                (int) $sectionModel->school_class_id,
+                $section
+            );
+        }
+
+        $marks = \App\Models\Mark::where('exam_id', $exam)
+            ->where('section_id', $section)
+            ->with('subject:id,name,code')
+            ->get()
+            ->groupBy('student_id');
+
+        $submissions = \App\Models\MarksSubmission::where('exam_id', $exam)
+            ->where('section_id', $section)
+            ->get()
+            ->keyBy('subject_id')
+            ->map(fn ($s) => ['status' => $s->status, 'submitted_at' => $s->submitted_at]);
+
+        $results = \App\Models\Result::where('exam_id', $exam)
+            ->where('section_id', $section)
+            ->with('student:id,name,roll_no')
+            ->get()
+            ->keyBy('student_id');
+
+        $rows = $results->map(function ($r) use ($marks) {
+            $studentMarks = $marks->get($r->student_id, collect());
+            $srBySubj = collect($r->subject_results ?? [])->keyBy('subject_id');
+            return [
+                'student' => $r->student?->name,
+                'roll' => $r->student?->roll_no,
+                'result_grand_total' => $r->obtained_marks . '/' . $r->total_marks,
+                'per_subject' => $studentMarks->map(function ($m) use ($srBySubj) {
+                    $sr = $srBySubj->get($m->subject_id);
+                    return [
+                        'subject' => $m->subject?->code ?? $m->subject?->name,
+                        'mark_row' => [
+                            'obtained' => (float) $m->marks_obtained,
+                            'is_absent' => (bool) $m->is_absent,
+                            'status' => $m->status,
+                        ],
+                        'result_json' => $sr ? [
+                            'obtained' => $sr['marks_obtained'] ?? null,
+                            'is_absent' => $sr['is_absent'] ?? null,
+                        ] : '(MISSING FROM RESULT JSON)',
+                        'match' => $sr
+                            && (float) ($sr['marks_obtained'] ?? 0) === (float) $m->marks_obtained
+                            && (bool) ($sr['is_absent'] ?? false) === (bool) $m->is_absent
+                            ? 'yes' : 'NO ← stale Result',
+                    ];
+                })->values(),
+            ];
+        })->values();
+
+        // Per-subject health check — the exact filter generateResults()
+        // uses, broken down per subject so you can see *why* a subject
+        // is showing AB across the whole class.
+        $classId = (int) $sectionModel->school_class_id;
+        $activeStudentIds = \App\Models\Student::where('section_id', $section)
+            ->where('status', 'active')->pluck('id');
+
+        $examSubjects = \App\Models\ExamSubject::where('exam_id', $exam)
+            ->where('school_class_id', $classId)
+            ->with('subject:id,name,code')
+            ->get();
+
+        $subjectHealth = $examSubjects->map(function ($es) use ($exam, $classId, $section, $activeStudentIds) {
+            $base = \App\Models\Mark::where('exam_id', $exam)
+                ->where('subject_id', $es->subject_id)
+                ->where('section_id', $section);
+
+            $withClassFilter = (clone $base)->where('school_class_id', $classId);
+            $forActiveStudents = (clone $withClassFilter)->whereIn('student_id', $activeStudentIds);
+            $submitted = (clone $forActiveStudents)->where('status', 'submitted');
+
+            $absentSubmitted = (clone $submitted)->where('is_absent', true)->count();
+            $nullSchoolClass = (clone $base)->whereNull('school_class_id')->count();
+            $wrongSchoolClass = (clone $base)->where(function($q) use ($classId) {
+                $q->whereNull('school_class_id')->orWhere('school_class_id', '!=', $classId);
+            })->count();
+
+            return [
+                'subject' => $es->subject?->code ?? $es->subject?->name,
+                'subject_id' => $es->subject_id,
+                'total_marks_rows_for_paper' => (clone $base)->count(),
+                'with_matching_class_id' => (clone $withClassFilter)->count(),
+                'for_active_students' => (clone $forActiveStudents)->count(),
+                'status_submitted' => (clone $submitted)->count(),
+                'status_draft' => (clone $forActiveStudents)->where('status', 'draft')->count(),
+                'is_absent_flagged_but_submitted' => $absentSubmitted,
+                'null_school_class_id' => $nullSchoolClass,
+                'wrong_or_null_school_class_id' => $wrongSchoolClass,
+                'trashed' => \App\Models\Mark::onlyTrashed()
+                    ->where('exam_id', $exam)->where('subject_id', $es->subject_id)
+                    ->where('section_id', $section)->count(),
+                'verdict' => $submitted->count() === 0
+                    ? '❌ NO submitted marks reach generateResults() — will show AB for every student. Reason: '
+                        . ((clone $forActiveStudents)->where('status', 'draft')->count() > 0
+                            ? 'marks are DRAFT (Submit was never clicked, or Submit failed silently)'
+                            : ($wrongSchoolClass > 0
+                                ? 'school_class_id on Mark rows does NOT match the section\'s class — data corruption'
+                                : ($nullSchoolClass > 0
+                                    ? 'school_class_id column is NULL on Mark rows'
+                                    : 'no Mark rows exist at all for this (subject, section, active students)')))
+                    : ($submitted->count() < $activeStudentIds->count() ? '⚠ Only ' . $submitted->count() . '/' . $activeStudentIds->count() . ' students have submitted marks' : '✓ healthy'),
+            ];
+        })->values();
+
+        return response()->json([
+            'exam' => $examModel->name,
+            'class' => $sectionModel->schoolClass?->name,
+            'section' => $sectionModel->name,
+            'active_students_in_section' => $activeStudentIds->count(),
+            'regen_ran' => $regen,
+            'submissions' => $submissions,
+            'subject_health' => $subjectHealth,
+            'students' => $rows,
+            'next_step' => $regen
+                ? 'Results have been regenerated. Reload /results/'.$exam.'/section/'.$section.' to see the updated view.'
+                : 'Read subject_health above — the "verdict" line for each subject explains why it does or does not appear in Results. If any row has match=NO after that, append ?regen=1 to this URL.',
+        ], 200, [], JSON_PRETTY_PRINT);
+    });
+
+    // ─── FORCE-SUBMIT stuck draft marks + regenerate results ───
+    // GET /admin/force-submit/{exam}/{subject}/{section}
+    // Flips every draft Mark row for this (exam, subject, section) to
+    // "submitted", writes/updates the MarksSubmission row, then re-runs
+    // the result service. Use when the diagnostic shows a subject's
+    // marks are stuck as drafts (usually because Submit was never
+    // clicked but autosave saved values) so the Results page shows AB.
+    Route::get('admin/force-submit/{exam}/{subject}/{section}', function (int $exam, int $subject, int $section) {
+        abort_unless(auth()->user()?->hasRole('super-admin'), 403);
+
+        $examModel = \App\Models\Exam::findOrFail($exam);
+        $sectionModel = \App\Models\Section::with('schoolClass')->findOrFail($section);
+
+        $draftCount = \App\Models\Mark::where('exam_id', $exam)
+            ->where('subject_id', $subject)
+            ->where('section_id', $section)
+            ->where('status', 'draft')
+            ->count();
+
+        if ($draftCount === 0) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'No draft marks to submit for this paper. Marks may already be submitted, or no marks exist at all.',
+            ], 200, [], JSON_PRETTY_PRINT);
+        }
+
+        $flipped = \App\Models\Mark::where('exam_id', $exam)
+            ->where('subject_id', $subject)
+            ->where('section_id', $section)
+            ->where('status', 'draft')
+            ->update(['status' => 'submitted', 'submitted_at' => now()]);
+
+        \App\Models\MarksSubmission::updateOrCreate(
+            ['exam_id' => $exam, 'subject_id' => $subject, 'section_id' => $section],
+            [
+                'school_class_id' => $sectionModel->school_class_id,
+                'school_id' => $sectionModel->schoolClass?->school_id,
+                'submitted_by' => auth()->id(),
+                'status' => 'submitted',
+                'submitted_at' => now(),
+            ]
+        );
+
+        try {
+            app(\App\Services\ResultProcessingService::class)
+                ->generateResults($examModel, (int) $sectionModel->school_class_id, $section);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'ok' => true,
+                'flipped_draft_to_submitted' => $flipped,
+                'regen_error' => $e->getMessage(),
+                'message' => "Flipped {$flipped} draft marks to submitted, but result regeneration hit an error. Marks are saved; re-run regen manually.",
+            ], 200, [], JSON_PRETTY_PRINT);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'flipped_draft_to_submitted' => $flipped,
+            'message' => "Flipped {$flipped} draft marks to submitted and regenerated Results. Reload /results/{$exam}/section/{$section} to see the updated view.",
         ], 200, [], JSON_PRETTY_PRINT);
     });
 

@@ -8,7 +8,7 @@ import {
     ExclamationTriangleIcon, UserGroupIcon, CloudIcon, BoltIcon,
     InformationCircleIcon, KeyIcon, ClipboardDocumentIcon,
     MagnifyingGlassIcon, ChatBubbleLeftEllipsisIcon, ChevronDownIcon,
-    PencilSquareIcon, ArrowPathIcon,
+    PencilSquareIcon, ArrowPathIcon, PaperAirplaneIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -211,6 +211,32 @@ const canSubmit = computed(() =>
     stats.value.entered === stats.value.total &&
     !hasErrors.value
 )
+
+// Count of Mark rows currently in "draft" state for this paper —
+// derived directly from the payload the controller sent. Non-zero
+// means the teacher has typed values (autosave persisted them) but
+// hasn't clicked Submit yet, so results still show AB for those
+// students. The header shows a "Submit drafts (N)" button when
+// this is > 0.
+const draftCount = computed(() => {
+    const map = props.existingMarks || {}
+    return Object.values(map).filter(m => m?.status === 'draft').length
+})
+
+const submittingDrafts = ref(false)
+function submitDrafts() {
+    if (submittingDrafts.value || !draftCount.value) return
+    if (!confirm(`Submit ${draftCount.value} draft mark(s) for this paper? Results will recalculate automatically.`)) return
+    submittingDrafts.value = true
+    router.post(
+        route('marks.submit-drafts', [props.exam.id, props.subject.id, props.section.id]),
+        {},
+        {
+            preserveScroll: true,
+            onFinish: () => { submittingDrafts.value = false },
+        }
+    )
+}
 
 // =============== Autosave ===============
 function markDirty(row) {
@@ -648,6 +674,25 @@ const absentStudents = computed(() =>
                         </h1>
                     </div>
                     <div class="flex items-stretch gap-2">
+                        <!-- Submit drafts button — only visible when there are unsubmitted
+                             (draft) Mark rows for this paper. One-click way for teachers to
+                             flip drafts to submitted without needing every student filled,
+                             then cascades to result regeneration server-side. -->
+                        <button v-if="draftCount > 0"
+                            type="button"
+                            @click="submitDrafts"
+                            :disabled="submittingDrafts"
+                            :title="`${draftCount} draft mark${draftCount === 1 ? '' : 's'} not yet submitted — click to submit them and refresh results.`"
+                            class="flex-1 lg:flex-none px-3 lg:px-4 py-1.5 lg:py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-center lg:min-w-[92px] transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm">
+                            <div class="flex items-center justify-center gap-1.5">
+                                <span v-if="submittingDrafts" class="loading loading-spinner loading-xs"></span>
+                                <PaperAirplaneIcon v-else class="w-3.5 h-3.5" />
+                                <div>
+                                    <div class="text-base sm:text-lg font-extrabold tabular-nums leading-tight">{{ draftCount }}</div>
+                                    <div class="text-[9px] uppercase tracking-widest font-semibold opacity-90">Submit drafts</div>
+                                </div>
+                            </div>
+                        </button>
                         <div class="flex-1 lg:flex-none px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl bg-primary/10 text-center lg:min-w-[64px]">
                             <div class="text-base sm:text-lg font-extrabold text-primary tabular-nums leading-tight">{{ totalMarks }}</div>
                             <div class="text-[9px] uppercase tracking-widest text-base-content/55 font-semibold">Total</div>

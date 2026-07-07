@@ -7,6 +7,14 @@
         ? public_path('storage/' . $school->exam_officer_signature) : null;
     $controllerName = $exam->examController?->name ?? ($school->exam_officer_name ?? null);
     $principalName = $school->principal_name ?? ($school->principal?->name ?? null);
+    // Ordinal formatter — 1 → 1st, 2 → 2nd, 3 → 3rd, teens → Nth.
+    $ordinal = function ($n) {
+        if ($n === null || $n === 0) return '—';
+        $n = (int) $n;
+        $mod100 = $n % 100;
+        if ($mod100 >= 11 && $mod100 <= 13) return $n . 'th';
+        return $n . match ($n % 10) { 1 => 'st', 2 => 'nd', 3 => 'rd', default => 'th' };
+    };
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -116,7 +124,7 @@
             <tbody>
                 @foreach($block->results as $result)
                     <tr>
-                        <td>{{ $result->position }}</td>
+                        <td>{{ $ordinal($result->position) }}</td>
                         <td>{{ $result->student?->roll_no }}</td>
                         <td class="left">{{ $result->student?->name }}</td>
                         <td class="left">{{ $result->student?->father_name ?? '—' }}</td>

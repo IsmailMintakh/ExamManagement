@@ -120,6 +120,17 @@
     .ftr-r { display: table-cell; text-align: right; }
 </style>
 </head>
+@php
+    // Ordinal formatter — 1 → 1st, 2 → 2nd, 3 → 3rd, 11-13 → Nth (teens
+    // edge case), then 21st, 22nd, 23rd… Handles null / 0 as em-dash.
+    $ordinal = function ($n) {
+        if ($n === null || $n === 0) return '—';
+        $n = (int) $n;
+        $mod100 = $n % 100;
+        if ($mod100 >= 11 && $mod100 <= 13) return $n . 'th';
+        return $n . match ($n % 10) { 1 => 'st', 2 => 'nd', 3 => 'rd', default => 'th' };
+    };
+@endphp
 <body>
 <div class="sheet">
 <div class="frame"><div class="frame-inner">
@@ -280,7 +291,7 @@
             <td><div class="sum-lbl">Obtained</div><div class="sum-val" style="color:#1e3a8a">{{ $result->obtained_marks }}</div></td>
             <td><div class="sum-lbl">Percentage</div><div class="sum-val" style="color:#059669">{{ number_format($result->percentage, 2) }}%</div></td>
             <td><div class="sum-lbl">Grade</div><div class="sum-val" style="color:#7c3aed">{{ $result->grade ?? '-' }}</div><div class="sum-sub">GP: {{ $result->grade_point ?? '-' }}</div></td>
-            <td><div class="sum-lbl">Position</div><div class="sum-val" style="color:#d97706">#{{ $result->position ?? '-' }}</div><div class="sum-sub">of {{ $result->total_students ?? '-' }}</div></td>
+            <td><div class="sum-lbl">Position</div><div class="sum-val" style="color:#d97706">{{ $ordinal($result->position) }}</div><div class="sum-sub">of {{ $result->total_students ?? '-' }}</div></td>
         </tr>
     </table>
 
@@ -288,7 +299,7 @@
     <div class="verdict {{ $result->is_passed ? 'vd-pass' : 'vd-fail' }}">
         <div class="vd-l">
             <div class="vd-lbl">Final Result</div>
-            <div class="vd-val">{{ $result->is_passed ? 'PASSED' : 'NEEDS RETRY' }}</div>
+            <div class="vd-val">{{ $result->is_passed ? 'PASSED' : 'RETRY' }}</div>
         </div>
         <div class="vd-r">
             <strong>{{ $result->subjects_passed ?? 0 }}</strong> Passed &nbsp;·&nbsp;

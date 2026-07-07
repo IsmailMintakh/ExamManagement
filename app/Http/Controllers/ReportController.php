@@ -498,7 +498,7 @@ class ReportController extends Controller
                 'percentage' => $result->percentage !== null ? number_format($result->percentage, 2) : '',
                 'grade' => $result->grade ?? '',
                 'position' => $result->position ?? '',
-                'status' => $result->is_passed ? 'PASSED' : 'NEEDS RETRY',
+                'status' => $result->is_passed ? 'PASSED' : 'RETRY',
                 'principal_signature' => $studentModel->school?->principal_signature ? public_path('storage/' . $studentModel->school->principal_signature) : '',
                 'ddo_signature' => '',
                 'date' => now()->format('d-m-Y'),
@@ -511,7 +511,7 @@ class ReportController extends Controller
                 'assessment_obtained' => $payload['assessment']['obtained'] ?? '',
                 'assessment_total' => $payload['assessment']['total'] ?? '',
                 'assessment_status' => isset($payload['assessment'])
-                    ? ($payload['assessment']['passed'] ? 'PASSED' : 'NEEDS RETRY')
+                    ? ($payload['assessment']['passed'] ? 'PASSED' : 'RETRY')
                     : '',
                 'assessment_remarks' => $payload['assessment']['remarks'] ?? '',
                 'primary_term_breakdown_html' => $this->buildPrimaryBreakdownHtml($payload['subjectResults']),
@@ -638,7 +638,7 @@ class ReportController extends Controller
         if (!$assessment) return '';
         $color = $assessment['passed'] ? '#059669' : '#dc2626';
         $bg = $assessment['passed'] ? '#ecfdf5' : '#fef2f2';
-        $status = $assessment['passed'] ? 'PASSED' : 'NEEDS RETRY';
+        $status = $assessment['passed'] ? 'PASSED' : 'RETRY';
         $remarks = !empty($assessment['remarks'])
             ? '<div style="margin-top:6px;padding-top:5px;border-top:1px dashed #cbd5e1;font-size:9px;color:#475569;"><b>Remarks:</b> ' . htmlspecialchars($assessment['remarks']) . '</div>'
             : '';
