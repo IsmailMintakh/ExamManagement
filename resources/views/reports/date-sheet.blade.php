@@ -3,10 +3,8 @@
     // placeholders if the file went missing.
     $logoPath = !empty($school->logo) && $school?->getLogoAbsolutePath()
         ? $school?->getLogoAbsolutePath() : null;
-    $sigPath = !empty($school->principal_signature ?? null) && file_exists(public_path('storage/' . $school->principal_signature))
-        ? public_path('storage/' . $school->principal_signature) : null;
-    $officerSigPath = !empty($school->exam_officer_signature ?? null) && file_exists(public_path('storage/' . $school->exam_officer_signature))
-        ? public_path('storage/' . $school->exam_officer_signature) : null;
+    $sigPath = $school?->resolveAssetPath('principal_signature') ?? null;
+    $officerSigPath = $school?->resolveAssetPath('exam_officer_signature') ?? null;
 
     // Title combines exam type and exam name (e.g. "Monthly Test June 2026").
     $titleType = $exam->examType?->name;

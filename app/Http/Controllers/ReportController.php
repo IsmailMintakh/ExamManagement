@@ -429,6 +429,13 @@ class ReportController extends Controller
             'summary' => $summary,
             'subjects' => $subjects,
             'isPrimary' => $isPrimary,
+            // Show the Assessment column only when it's meaningful:
+            // primary section + final-term exam + at least one student
+            // has an assessment payload. 1st/2nd term primary sheets and
+            // any non-primary exam skip the empty column entirely.
+            'showAssessment' => $isPrimary
+                && $examModel->term === 'final'
+                && $results->contains(fn ($r) => !empty($r->assessment_payload)),
             'subjectTeacherRows' => $subjectTeacherRows,
             'gradeBands' => $gradeBands,
         ]);
@@ -498,7 +505,7 @@ class ReportController extends Controller
                 'percentage' => $result->percentage !== null ? number_format($result->percentage, 2) : '',
                 'grade' => $result->grade ?? '',
                 'position' => $result->position ?? '',
-                'status' => $result->is_passed ? 'PASSED' : 'RETRY',
+                'status' => $result->is_passed ? 'PASS' : 'RETRY',
                 'principal_signature' => $studentModel->school?->principal_signature ? public_path('storage/' . $studentModel->school->principal_signature) : '',
                 'ddo_signature' => '',
                 'date' => now()->format('d-m-Y'),
@@ -511,7 +518,7 @@ class ReportController extends Controller
                 'assessment_obtained' => $payload['assessment']['obtained'] ?? '',
                 'assessment_total' => $payload['assessment']['total'] ?? '',
                 'assessment_status' => isset($payload['assessment'])
-                    ? ($payload['assessment']['passed'] ? 'PASSED' : 'RETRY')
+                    ? ($payload['assessment']['passed'] ? 'PASS' : 'RETRY')
                     : '',
                 'assessment_remarks' => $payload['assessment']['remarks'] ?? '',
                 'primary_term_breakdown_html' => $this->buildPrimaryBreakdownHtml($payload['subjectResults']),
@@ -638,7 +645,7 @@ class ReportController extends Controller
         if (!$assessment) return '';
         $color = $assessment['passed'] ? '#059669' : '#dc2626';
         $bg = $assessment['passed'] ? '#ecfdf5' : '#fef2f2';
-        $status = $assessment['passed'] ? 'PASSED' : 'RETRY';
+        $status = $assessment['passed'] ? 'PASS' : 'RETRY';
         $remarks = !empty($assessment['remarks'])
             ? '<div style="margin-top:6px;padding-top:5px;border-top:1px dashed #cbd5e1;font-size:9px;color:#475569;"><b>Remarks:</b> ' . htmlspecialchars($assessment['remarks']) . '</div>'
             : '';

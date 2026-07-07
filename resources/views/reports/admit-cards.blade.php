@@ -2,10 +2,8 @@
     // Resolve image paths once for the whole batch (every card uses the same school).
     $logoPath = !empty($school?->logo) && $school?->getLogoAbsolutePath()
         ? $school?->getLogoAbsolutePath() : null;
-    $principalSigPath = !empty($school?->principal_signature) && file_exists(public_path('storage/' . $school->principal_signature))
-        ? public_path('storage/' . $school->principal_signature) : null;
-    $officerSigPath = !empty($school?->exam_officer_signature) && file_exists(public_path('storage/' . $school->exam_officer_signature))
-        ? public_path('storage/' . $school->exam_officer_signature) : null;
+    $principalSigPath = $school?->resolveAssetPath('principal_signature') ?? null;
+    $officerSigPath = $school?->resolveAssetPath('exam_officer_signature') ?? null;
 
     // Title combines exam type + exam name → "Monthly Test June 2026".
     $examTitle = trim(($exam->examType?->name ? $exam->examType->name . ' ' : '') . $exam->name);

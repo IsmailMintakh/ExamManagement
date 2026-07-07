@@ -113,4 +113,27 @@ class School extends Model
         }
         return null;
     }
+
+    /**
+     * Generic resolver for any file-path column on the school (signature,
+     * stamp, letterhead, …). Same multi-path lookup as logo. Templates use:
+     *   $school->resolveAssetPath('principal_signature')
+     */
+    public function resolveAssetPath(string $column): ?string
+    {
+        $val = $this->{$column} ?? null;
+        if (empty($val)) return null;
+        $rel = ltrim((string) $val, '/');
+        foreach ([
+            public_path('storage/' . $rel),
+            storage_path('app/public/' . $rel),
+            public_path('uploads/' . $rel),
+            public_path($rel),
+            base_path('public_html/storage/' . $rel),
+            base_path('public_html/uploads/' . $rel),
+        ] as $p) {
+            if (is_string($p) && file_exists($p)) return $p;
+        }
+        return null;
+    }
 }

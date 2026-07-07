@@ -238,7 +238,7 @@ class ResultCardTemplateController extends Controller
             'percentage' => '85.33',
             'grade' => 'A',
             'position' => '3',
-            'status' => 'PASSED',
+            'status' => 'PASS',
             'principal_signature' => '',
             'ddo_signature' => '',
             'date' => now()->format('d-m-Y'),

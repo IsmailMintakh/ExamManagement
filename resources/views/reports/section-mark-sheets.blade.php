@@ -134,15 +134,13 @@
     };
 
     // Resolve signature paths once for the whole document
-    $principalSigPath = !empty($school->principal_signature) && file_exists(public_path('storage/' . $school->principal_signature))
-        ? public_path('storage/' . $school->principal_signature) : null;
-    $stampPath = !empty($school->school_stamp) && file_exists(public_path('storage/' . $school->school_stamp))
-        ? public_path('storage/' . $school->school_stamp) : null;
-    $controllerSigPath = !empty($school->exam_officer_signature) && file_exists(public_path('storage/' . $school->exam_officer_signature))
-        ? public_path('storage/' . $school->exam_officer_signature) : null;
+    $principalSigPath = $school?->resolveAssetPath('principal_signature');
+    $stampPath = $school?->resolveAssetPath('school_stamp');
+    $controllerSigPath = $school?->resolveAssetPath('exam_officer_signature');
     // Per-exam controller name overrides school's default exam officer name
     $controllerName = $exam->examController?->name ?? ($school->exam_officer_name ?? null);
     $classTeacherName = $section->classTeacher?->name ?? null;
+    $classTeacherSigPath = $section->classTeacher?->signaturePath();
 @endphp
 
 @foreach($sheets as $idx => $sheet)
@@ -313,10 +311,10 @@
         <div class="verdict {{ $result->is_passed ? 'vd-pass' : 'vd-fail' }}">
             <div class="vd-l">
                 <div class="vd-lbl">Final Result</div>
-                <div class="vd-val">{{ $result->is_passed ? 'PASSED' : 'RETRY' }}</div>
+                <div class="vd-val">{{ $result->is_passed ? 'PASS' : 'RETRY' }}</div>
             </div>
             <div class="vd-r">
-                <strong>{{ $result->subjects_passed ?? 0 }}</strong> Passed &nbsp;·&nbsp;
+                <strong>{{ $result->subjects_passed ?? 0 }}</strong> Pass &nbsp;·&nbsp;
                 <strong>{{ $result->subjects_failed ?? 0 }}</strong> Retry<br>
                 <span style="font-size:7.5pt;opacity:0.85">of {{ count($subjectResults) }} subjects</span>
             </div>
@@ -324,9 +322,14 @@
 
         <!-- Signatures: Class Teacher · Principal (with stamp overlay) · Exam Controller -->
         <div class="sig">
-            {{-- Class Teacher: shows the section's classTeacher name, signature space empty --}}
+            {{-- Class Teacher: signature image + name (falls back to
+                 placeholder line when the teacher has no signature file). --}}
             <div class="sig-cell">
-                <div class="sig-img"></div>
+                <div class="sig-img">
+                    @if($classTeacherSigPath)
+                        <img src="{{ $classTeacherSigPath }}" alt="">
+                    @endif
+                </div>
                 <div class="sig-line">Class Teacher</div>
                 <div class="sig-role">{{ $classTeacherName ?? 'Signature &amp; Date' }}</div>
             </div>

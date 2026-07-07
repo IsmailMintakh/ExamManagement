@@ -5,10 +5,8 @@
     $school = $student->school;
     $logoPath = ($canEmbedImages && !empty($school?->logo) && $school?->getLogoAbsolutePath())
         ? $school?->getLogoAbsolutePath() : null;
-    $stampPath = ($canEmbedImages && !empty($school?->school_stamp) && file_exists(public_path('storage/' . $school->school_stamp)))
-        ? public_path('storage/' . $school->school_stamp) : null;
-    $signaturePath = ($canEmbedImages && !empty($school?->principal_signature) && file_exists(public_path('storage/' . $school->principal_signature)))
-        ? public_path('storage/' . $school->principal_signature) : null;
+    $stampPath = $canEmbedImages ? $school?->resolveAssetPath('school_stamp') : null;
+    $signaturePath = $canEmbedImages ? $school?->resolveAssetPath('principal_signature') : null;
     $photoPath = ($canEmbedImages && !empty($student->photo) && $student?->getPhotoAbsolutePath())
         ? $student?->getPhotoAbsolutePath() : null;
 

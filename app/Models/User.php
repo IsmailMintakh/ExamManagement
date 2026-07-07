@@ -197,8 +197,22 @@ class User extends Authenticatable
     public function signaturePath(): ?string
     {
         if (!$this->signature_image) return null;
-        $path = public_path('storage/'.$this->signature_image);
-        return file_exists($path) ? $path : null;
+        // Try every storage layout — same fallback list used by
+        // School::getLogoAbsolutePath / Student::getPhotoAbsolutePath so
+        // signatures resolve whether the deploy uses storage:link, direct
+        // storage_path, legacy /uploads, or cPanel's public_html layout.
+        $rel = ltrim($this->signature_image, '/');
+        foreach ([
+            public_path('storage/' . $rel),
+            storage_path('app/public/' . $rel),
+            public_path('uploads/' . $rel),
+            public_path($rel),
+            base_path('public_html/storage/' . $rel),
+            base_path('public_html/uploads/' . $rel),
+        ] as $p) {
+            if (is_string($p) && file_exists($p)) return $p;
+        }
+        return null;
     }
 
     public function scopeActive($query)

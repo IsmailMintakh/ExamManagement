@@ -9,12 +9,9 @@
 
     $logoPath = (!empty($school->logo ?? null) && $school?->getLogoAbsolutePath())
         ? $school?->getLogoAbsolutePath() : null;
-    $signaturePath = (!empty($school->principal_signature ?? null) && file_exists(public_path('storage/' . $school->principal_signature)))
-        ? public_path('storage/' . $school->principal_signature) : null;
-    $stampPath = (!empty($school->school_stamp ?? null) && file_exists(public_path('storage/' . $school->school_stamp)))
-        ? public_path('storage/' . $school->school_stamp) : null;
-    $officerSigPath = (!empty($school->exam_officer_signature ?? null) && file_exists(public_path('storage/' . $school->exam_officer_signature)))
-        ? public_path('storage/' . $school->exam_officer_signature) : null;
+    $signaturePath = $school?->resolveAssetPath('principal_signature');
+    $stampPath = $school?->resolveAssetPath('school_stamp');
+    $officerSigPath = $school?->resolveAssetPath('exam_officer_signature');
 
     $body = $template->body_text ?? 'in recognition of {grade} performance in <b>{exam_name}</b>.';
     $replacements = [

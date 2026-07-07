@@ -1,10 +1,8 @@
 @php
     $logoPath = !empty($school->logo) && $school?->getLogoAbsolutePath()
         ? $school?->getLogoAbsolutePath() : null;
-    $principalSigPath = !empty($school->principal_signature) && file_exists(public_path('storage/' . $school->principal_signature))
-        ? public_path('storage/' . $school->principal_signature) : null;
-    $controllerSigPath = !empty($school->exam_officer_signature) && file_exists(public_path('storage/' . $school->exam_officer_signature))
-        ? public_path('storage/' . $school->exam_officer_signature) : null;
+    $principalSigPath = $school?->resolveAssetPath('principal_signature') ?? null;
+    $controllerSigPath = $school?->resolveAssetPath('exam_officer_signature') ?? null;
     $controllerName = $exam->examController?->name ?? ($school->exam_officer_name ?? null);
     $principalName = $school->principal_name ?? ($school->principal?->name ?? null);
     // Ordinal formatter — 1 → 1st, 2 → 2nd, 3 → 3rd, teens → Nth.
@@ -173,7 +171,7 @@
                 </div>
                 <div class="summary-item">
                     <div class="summary-value" style="color:#059669">{{ $block->summary['passed'] }}</div>
-                    <div class="summary-label">Passed</div>
+                    <div class="summary-label">Pass</div>
                 </div>
                 <div class="summary-item">
                     <div class="summary-value" style="color:#dc2626">{{ $block->summary['failed'] }}</div>

@@ -1,20 +1,23 @@
 @php
-    $logoPath = !empty($school->logo) && $school?->getLogoAbsolutePath()
-        ? $school?->getLogoAbsolutePath() : null;
-    $principalSigPath = !empty($school->principal_signature) && file_exists(public_path('storage/' . $school->principal_signature))
-        ? public_path('storage/' . $school->principal_signature) : null;
-    $stampPath = !empty($school->school_stamp) && file_exists(public_path('storage/' . $school->school_stamp))
-        ? public_path('storage/' . $school->school_stamp) : null;
-    $controllerSigPath = !empty($school->exam_officer_signature) && file_exists(public_path('storage/' . $school->exam_officer_signature))
-        ? public_path('storage/' . $school->exam_officer_signature) : null;
+    $logoPath = $school?->getLogoAbsolutePath();
+    // Signature / stamp paths — go through the same multi-path resolver
+    // so they render regardless of which storage layout production uses.
+    $principalSigPath  = $school?->resolveAssetPath('principal_signature');
+    $stampPath         = $school?->resolveAssetPath('school_stamp');
+    $controllerSigPath = $school?->resolveAssetPath('exam_officer_signature');
+    // Class teacher signature: resolved from the User row loaded via
+    // sections.classTeacher. Section-scoped sheet uses THAT section's
+    // teacher; class-wide sheet falls back to the first section's teacher.
+    $classTeacherModel = isset($section) && $section
+        ? $section->classTeacher
+        : $schoolClass->sections->pluck('classTeacher')->filter()->first();
+    $classTeacherSigPath = $classTeacherModel?->signaturePath();
     $controllerName = $exam->examController?->name ?? ($school->exam_officer_name ?? null);
     // Class teacher = first section's teacher (a class result sheet may span
     // multiple sections; show the first one's teacher as a representative).
     // Section-scoped sheets prefer that section's class teacher; otherwise
     // fall back to the first section's teacher (representative sample).
-    $classTeacherName = isset($section) && $section
-        ? ($section->classTeacher?->name)
-        : $schoolClass->sections->pluck('classTeacher.name')->filter()->first();
+    $classTeacherName = $classTeacherModel?->name;
 
     // Ordinal formatter — 1 → 1st, 2 → 2nd, 3 → 3rd, 4-20 → Nth, then repeats.
     $ordinal = function ($n) {
@@ -111,8 +114,11 @@
                 @foreach($subjects as $subject)
                     <th>{{ $subject['code'] }}<br><span style="font-weight:normal;font-size:7px">({{ $subject['total'] }})</span></th>
                 @endforeach
-                {{-- Primary-only: Overall Assessment column (10 marks). --}}
-                @if($isPrimary ?? false)
+                {{-- Assessment column: primary section + final-term exam
+                     + at least one student has data. All three must be
+                     true — controller precomputes this as $showAssessment
+                     so 1st/2nd term primary sheets skip the empty column. --}}
+                @if($showAssessment ?? false)
                     <th style="background:#ecfdf5">Assess<br><span style="font-weight:normal;font-size:7px">(10)</span></th>
                 @endif
                 <th>Obtained</th>
@@ -141,9 +147,8 @@
                         {{ ($sr['is_absent'] ?? false) ? 'AB' : ($sr['obtained'] ?? '-') }}
                     </td>
                 @endforeach
-                {{-- Primary-only: render the student's Assessment cell.
-                     Empty dash when not yet entered, red when below pass. --}}
-                @if($isPrimary ?? false)
+                {{-- Assessment cell — same gate as the header column. --}}
+                @if($showAssessment ?? false)
                     @php $asmt = $result->assessment_payload ?? null; @endphp
                     <td class="{{ ($asmt && !$asmt['passed']) ? 'fail' : '' }}" style="background:#ecfdf5">
                         @if($asmt)
@@ -177,7 +182,7 @@
                  into a single compact summary cell that spans all three
                  footer rows via rowspan. ═════════ --}}
             @php
-                $rightColCount = ($isPrimary ?? false) ? 7 : 6;
+                $rightColCount = ($showAssessment ?? false) ? 7 : 6;
             @endphp
             <tr style="background:#e7f5ec">
                 <td colspan="4" style="text-align:right; font-weight:bold; padding:4px 8px; border:1px solid #333">
@@ -227,7 +232,13 @@
     {{-- Signature row — Class Teacher · Principal (with stamp) · Exam Controller --}}
     <div class="sig">
         <div class="sig-cell">
-            <div class="sig-img"><span class="ph">— signature —</span></div>
+            <div class="sig-img">
+                @if($classTeacherSigPath)
+                    <img src="{{ $classTeacherSigPath }}" alt="">
+                @else
+                    <span class="ph">— signature —</span>
+                @endif
+            </div>
             <div class="sig-line">Class Teacher</div>
             <div class="sig-name">{{ $classTeacherName ?? '&nbsp;' }}</div>
         </div>

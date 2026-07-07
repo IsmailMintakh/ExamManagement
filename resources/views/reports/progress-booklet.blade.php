@@ -1,8 +1,7 @@
 @php
     $logoPath = !empty($school?->logo) && $school?->getLogoAbsolutePath()
         ? $school?->getLogoAbsolutePath() : null;
-    $sigPath = !empty($school?->principal_signature ?? null) && file_exists(public_path('storage/' . $school->principal_signature))
-        ? public_path('storage/' . $school->principal_signature) : null;
+    $sigPath = $school?->resolveAssetPath('principal_signature');
     $principalName = !empty($school?->principal_name)
         ? $school->principal_name
         : ($school?->principal?->name ?? null);
@@ -155,7 +154,7 @@
             <div class="val">{{ $totalExams }}</div>
         </div>
         <div class="summary-cell passed">
-            <div class="lbl">Passed</div>
+            <div class="lbl">Pass</div>
             <div class="val">{{ $passedCount }}</div>
         </div>
         <div class="summary-cell {{ $totalExams - $passedCount > 0 ? 'failed' : '' }}">

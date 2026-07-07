@@ -121,6 +121,15 @@
 </style>
 </head>
 @php
+    // Signature / stamp paths — resolved through the multi-path helper on
+    // the models so they render whichever storage layout production is on.
+    $principalSigPath    = $school?->resolveAssetPath('principal_signature');
+    $stampPath           = $school?->resolveAssetPath('school_stamp');
+    $controllerSigPath   = $school?->resolveAssetPath('exam_officer_signature');
+    $classTeacherSigPath = $student?->section?->classTeacher?->signaturePath();
+    $classTeacherName    = $student?->section?->classTeacher?->name ?? null;
+    $controllerName      = $exam->examController?->name ?? ($school->exam_officer_name ?? null);
+
     // Ordinal formatter — 1 → 1st, 2 → 2nd, 3 → 3rd, 11-13 → Nth (teens
     // edge case), then 21st, 22nd, 23rd… Handles null / 0 as em-dash.
     $ordinal = function ($n) {
@@ -299,10 +308,10 @@
     <div class="verdict {{ $result->is_passed ? 'vd-pass' : 'vd-fail' }}">
         <div class="vd-l">
             <div class="vd-lbl">Final Result</div>
-            <div class="vd-val">{{ $result->is_passed ? 'PASSED' : 'RETRY' }}</div>
+            <div class="vd-val">{{ $result->is_passed ? 'PASS' : 'RETRY' }}</div>
         </div>
         <div class="vd-r">
-            <strong>{{ $result->subjects_passed ?? 0 }}</strong> Passed &nbsp;·&nbsp;
+            <strong>{{ $result->subjects_passed ?? 0 }}</strong> Pass &nbsp;·&nbsp;
             <strong>{{ $result->subjects_failed ?? 0 }}</strong> Retry<br>
             <span style="font-size:7.5pt;opacity:0.85">of {{ count($subjectResults) }} subjects</span>
         </div>
@@ -332,23 +341,36 @@
     <!-- SIGNATURES -->
     <div class="sig">
         <div class="sig-cell">
-            <div class="sig-img"></div>
-            <div class="sig-line">Class Teacher</div>
-            <div class="sig-role">Signature &amp; Date</div>
-        </div>
-        <div class="sig-cell">
             <div class="sig-img">
-                @if(!empty($school->principal_signature) && file_exists(public_path('storage/' . $school->principal_signature)))
-                    <img src="{{ public_path('storage/' . $school->principal_signature) }}" alt="">
+                @if($classTeacherSigPath)
+                    <img src="{{ $classTeacherSigPath }}" alt="">
+                @endif
+            </div>
+            <div class="sig-line">Class Teacher</div>
+            <div class="sig-role">{{ $classTeacherName ?? 'Signature &amp; Date' }}</div>
+        </div>
+        <div class="sig-cell" style="position:relative;">
+            @if($stampPath)
+                <div style="position:absolute;left:50%;bottom:8px;transform:translateX(-50%);width:42px;height:42px;opacity:0.5;z-index:0;">
+                    <img src="{{ $stampPath }}" alt="" style="width:100%;height:100%;object-fit:contain;">
+                </div>
+            @endif
+            <div class="sig-img" style="position:relative;z-index:1;">
+                @if($principalSigPath)
+                    <img src="{{ $principalSigPath }}" alt="">
                 @endif
             </div>
             <div class="sig-line">Principal</div>
             <div class="sig-role">School Head</div>
         </div>
         <div class="sig-cell">
-            <div class="sig-img"></div>
-            <div class="sig-line">Controller of Examinations</div>
-            <div class="sig-role">DDO Office</div>
+            <div class="sig-img">
+                @if($controllerSigPath)
+                    <img src="{{ $controllerSigPath }}" alt="">
+                @endif
+            </div>
+            <div class="sig-line">{{ $exam->examController ? 'Exam Controller' : 'Controller of Examinations' }}</div>
+            <div class="sig-role">{{ $controllerName ?? 'DDO Office' }}</div>
         </div>
     </div>
 
