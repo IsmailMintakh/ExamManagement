@@ -543,6 +543,14 @@ class MarksController extends Controller
             }
         }
 
+        // Throttled snapshot BEFORE any autosave writes. Only fires if the
+        // last autosave snapshot for this paper is older than the throttle
+        // window (60s) — keeps a rolling per-session backup without
+        // flooding the table at the 2.5-second autosave cadence.
+        \App\Services\MarkSnapshotService::captureIfDue(
+            $exam->id, (int) $data['subject_id'], (int) $data['section_id'], $user->id
+        );
+
         // Skip rows that are completely blank (no marks AND not absent) — nothing to draft yet.
         $saved = 0;
         foreach ($data['marks'] as $markData) {

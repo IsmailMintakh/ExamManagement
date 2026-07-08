@@ -257,10 +257,22 @@ function restoreSnapshot(snapshotId) {
         route('marks.snapshots.restore', [props.exam.id, props.subject.id, props.section.id, snapshotId]),
         {},
         {
-            preserveScroll: true,
+            // Only close on success — otherwise the modal would vanish
+            // on 403/422 and the teacher would think "nothing happened".
+            onSuccess: () => {
+                showSnapshotModal.value = false
+                // Full window reload so `existingMarks` re-hydrates from the
+                // restored DB rows. Inertia's preserveState=true (default on
+                // POST-redirect) can leave stale row.marks_obtained values
+                // that are hidden by the restored ones under the hood; a
+                // hard reload guarantees the grid reflects the restore.
+                window.location.reload()
+            },
+            onError: () => {
+                alert('Restore did not complete. Check that you still have access to this paper, or try again.')
+            },
             onFinish: () => {
                 restoringSnapshotId.value = null
-                showSnapshotModal.value = false
             },
         }
     )

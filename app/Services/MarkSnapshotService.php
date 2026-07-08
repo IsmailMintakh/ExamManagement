@@ -27,6 +27,40 @@ class MarkSnapshotService
     public const RETENTION_PER_PAPER = 20;
 
     /**
+     * Throttle window (seconds) for autosave-triggered snapshots. If the
+     * last autosave snapshot for a paper is newer than this, we skip
+     * creating another one — otherwise typing at ~2.5s autosave cadence
+     * would flood the table. Non-autosave triggers ignore this.
+     */
+    public const AUTOSAVE_THROTTLE_SECONDS = 60;
+
+    /**
+     * Take a snapshot if the last autosave-triggered one for this paper
+     * is older than the throttle window. Used from the autosave path so
+     * teachers get a rolling backup history without exploding storage.
+     * Returns the new snapshot, or null if throttled.
+     */
+    public static function captureIfDue(
+        int $examId,
+        int $subjectId,
+        int $sectionId,
+        ?int $userId = null
+    ): ?MarkSnapshot {
+        $last = MarkSnapshot::where('exam_id', $examId)
+            ->where('subject_id', $subjectId)
+            ->where('section_id', $sectionId)
+            ->where('trigger', 'autosave')
+            ->orderByDesc('taken_at')
+            ->first();
+
+        if ($last && $last->taken_at->diffInSeconds(now()) < static::AUTOSAVE_THROTTLE_SECONDS) {
+            return null;
+        }
+
+        return static::capture($examId, $subjectId, $sectionId, 'autosave', $userId);
+    }
+
+    /**
      * Take a snapshot of every Mark row (live + trashed) for the given
      * paper. Returns the new MarkSnapshot record, or null when there's
      * nothing worth capturing (no marks exist yet).
