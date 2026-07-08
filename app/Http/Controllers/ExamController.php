@@ -589,7 +589,37 @@ class ExamController extends Controller
             $validated['apply_to_all_schools'] = false;
         }
 
+        // Snapshot fields that affect result computation BEFORE the update
+        // so we can detect changes and cascade a regen. Without this, an
+        // admin who removes grace marks (or flips main_subjects_must_pass)
+        // would see the exam row updated but every Result row still carrying
+        // the old grace-adjusted totals — because generateResults never re-runs.
+        $preUpdateRules = [
+            'grace_marks' => (float) $exam->grace_marks,
+            'grace_marks_max_subjects' => (int) $exam->grace_marks_max_subjects,
+            'passing_percentage' => (float) $exam->passing_percentage,
+            'min_subjects_to_pass' => (int) ($exam->min_subjects_to_pass ?? 0),
+            'main_subjects_must_pass' => (bool) $exam->main_subjects_must_pass,
+            'all_subjects_must_pass' => (bool) $exam->all_subjects_must_pass,
+            'passing_rules' => json_encode($exam->passing_rules ?? []),
+            'combine_previous_terms' => (bool) $exam->combine_previous_terms,
+            'term_weights' => json_encode($exam->term_weights ?? []),
+        ];
+
         $exam->update($validated);
+
+        // Any of these fields changed? If so, every section with existing
+        // Results for this exam needs a fresh generateResults() run.
+        $exam->refresh();
+        $rulesChanged = $preUpdateRules['grace_marks'] !== (float) $exam->grace_marks
+            || $preUpdateRules['grace_marks_max_subjects'] !== (int) $exam->grace_marks_max_subjects
+            || $preUpdateRules['passing_percentage'] !== (float) $exam->passing_percentage
+            || $preUpdateRules['min_subjects_to_pass'] !== (int) ($exam->min_subjects_to_pass ?? 0)
+            || $preUpdateRules['main_subjects_must_pass'] !== (bool) $exam->main_subjects_must_pass
+            || $preUpdateRules['all_subjects_must_pass'] !== (bool) $exam->all_subjects_must_pass
+            || $preUpdateRules['passing_rules'] !== json_encode($exam->passing_rules ?? [])
+            || $preUpdateRules['combine_previous_terms'] !== (bool) $exam->combine_previous_terms
+            || $preUpdateRules['term_weights'] !== json_encode($exam->term_weights ?? []);
 
         if ($applyToAllSchools) {
             $allActiveSchoolIds = School::active()->pluck('id')->toArray();
@@ -696,13 +726,26 @@ class ExamController extends Controller
                     ->where('school_class_id', $change['school_class_id'])
                     ->update(['total_marks' => $change['new_total']]);
             }
+        }
 
-            $classIds = collect($marksChangedFor)->pluck('school_class_id')->unique()->all();
-            $sections = \App\Models\Result::where('exam_id', $exam->id)
-                ->whereIn('school_class_id', $classIds)
+        // Trigger regen when EITHER (a) per-subject total/passing changed
+        // OR (b) exam-level rules (grace, pass rules, weights) changed.
+        // Both cases invalidate every Result row already generated for
+        // this exam — regenerate them all so the new rules take effect.
+        if (!empty($marksChangedFor) || $rulesChanged) {
+            $sectionsQuery = \App\Models\Result::where('exam_id', $exam->id)
                 ->select('school_class_id', 'section_id')
-                ->distinct()
-                ->get();
+                ->distinct();
+
+            // If ONLY per-subject marks changed (no rule change), scope the
+            // regen to the affected classes. Rule-level changes cascade to
+            // every section that has a Result for this exam.
+            if (!$rulesChanged) {
+                $classIds = collect($marksChangedFor)->pluck('school_class_id')->unique()->all();
+                $sectionsQuery->whereIn('school_class_id', $classIds);
+            }
+
+            $sections = $sectionsQuery->get();
 
             if ($sections->isNotEmpty()) {
                 $resultService = app(\App\Services\ResultProcessingService::class);
@@ -855,6 +898,18 @@ class ExamController extends Controller
 
         $sectionIds = Section::where('school_class_id', $classId)->pluck('id');
 
+        // Snapshot every affected paper BEFORE deleting. This is the
+        // recurring "marks disappeared" incident's safety net — if this
+        // remove was a mistake, admin can restore per-paper from the UI.
+        $adminId = $request->user()?->id;
+        foreach ($sectionIds as $secId) {
+            \App\Services\MarkSnapshotService::capture(
+                $exam->id, $subjectId, (int) $secId,
+                'pre_remove_subject', $adminId,
+                "Marks about to be soft-deleted by removeSubject."
+            );
+        }
+
         // Tight transaction: just the DB writes. The result regeneration
         // is *outside* the transaction so a slow recompute on a big section
         // can't time out the whole request (which used to surface as a 503)
@@ -938,6 +993,23 @@ class ExamController extends Controller
         ]);
         $classId = (int) $data['school_class_id'];
         $class = SchoolClass::find($classId);
+
+        // Snapshot every affected (subject, section) BEFORE the delete
+        // cascade. Same safety net as removeSubject — gives admins a
+        // per-paper restore path if this removeClass was a mistake.
+        $adminId = $request->user()?->id;
+        $affectedPapers = \App\Models\Mark::where('exam_id', $exam->id)
+            ->where('school_class_id', $classId)
+            ->select('subject_id', 'section_id')
+            ->distinct()
+            ->get();
+        foreach ($affectedPapers as $p) {
+            \App\Services\MarkSnapshotService::capture(
+                $exam->id, (int) $p->subject_id, (int) $p->section_id,
+                'pre_remove_class', $adminId,
+                "Marks about to be soft-deleted by removeClass."
+            );
+        }
 
         \DB::transaction(function () use ($exam, $classId) {
             // Delete marks for this exam × class first (we want the rows

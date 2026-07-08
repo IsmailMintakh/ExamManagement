@@ -1006,7 +1006,14 @@ function submit() {
                 </ol>
             </section>
 
-            <form @submit.prevent="submit">
+            <!-- novalidate disables the browser's built-in HTML5 validation.
+                 We need this because the form uses v-show (display:none) to
+                 hide step wrappers — so required inputs on hidden steps
+                 remain in the DOM. Native validation then tries to focus
+                 them, fails ("invalid form control is not focusable"), and
+                 silently blocks the submit. Server-side validation in
+                 ExamController::update covers field requirements. -->
+            <form @submit.prevent="submit" novalidate>
 
             <!-- ═══════════ STEP 1: BASICS + TEMPLATES ═══════════ -->
             <div v-show="step === 1" class="space-y-5">

@@ -9,6 +9,7 @@ import {
     InformationCircleIcon, KeyIcon, ClipboardDocumentIcon,
     MagnifyingGlassIcon, ChatBubbleLeftEllipsisIcon, ChevronDownIcon,
     PencilSquareIcon, ArrowPathIcon, PaperAirplaneIcon,
+    ArchiveBoxIcon, ClockIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -222,6 +223,63 @@ const draftCount = computed(() => {
     const map = props.existingMarks || {}
     return Object.values(map).filter(m => m?.status === 'draft').length
 })
+
+// ─────── Marks Backup / Snapshot recovery ───────
+// Every destructive/mutating action on Mark rows (submit, edit, force-
+// submit, remove-subject, remove-class) writes a full-paper snapshot to
+// the mark_snapshots table BEFORE mutating. This modal lets the teacher
+// or admin browse those snapshots and roll back if marks disappear.
+const showSnapshotModal = ref(false)
+const snapshotsLoading = ref(false)
+const snapshots = ref([])
+const restoringSnapshotId = ref(null)
+
+async function openSnapshotModal() {
+    showSnapshotModal.value = true
+    snapshotsLoading.value = true
+    try {
+        const res = await window.axios.get(
+            route('marks.snapshots.list', [props.exam.id, props.subject.id, props.section.id])
+        )
+        snapshots.value = res.data?.snapshots || []
+    } catch (e) {
+        snapshots.value = []
+    } finally {
+        snapshotsLoading.value = false
+    }
+}
+
+function restoreSnapshot(snapshotId) {
+    if (restoringSnapshotId.value) return
+    if (!confirm('Restore this snapshot? A backup of the current state is taken automatically first, so this action is reversible.')) return
+    restoringSnapshotId.value = snapshotId
+    router.post(
+        route('marks.snapshots.restore', [props.exam.id, props.subject.id, props.section.id, snapshotId]),
+        {},
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                restoringSnapshotId.value = null
+                showSnapshotModal.value = false
+            },
+        }
+    )
+}
+
+function triggerLabel(trigger) {
+    const labels = {
+        pre_store: 'Before edit save',
+        pre_submit: 'Before submit',
+        post_submit: 'Finalized submission ✓',
+        pre_submit_drafts: 'Before submit-drafts',
+        pre_remove_subject: 'Before subject removed',
+        pre_remove_class: 'Before class removed',
+        pre_restore: 'Before earlier restore',
+        pre_admin_delete: 'Before admin delete',
+        manual: 'Manual snapshot',
+    }
+    return labels[trigger] || trigger
+}
 
 const submittingDrafts = ref(false)
 function submitDrafts() {
@@ -705,6 +763,21 @@ const absentStudents = computed(() =>
                             <div class="text-base sm:text-lg font-extrabold tabular-nums leading-tight">{{ stats.total }}</div>
                             <div class="text-[9px] uppercase tracking-widest text-base-content/55 font-semibold">Students</div>
                         </div>
+                        <!-- Marks Backup / History — always visible so
+                             teachers can see and restore snapshots even if
+                             the current page is empty (that's the whole
+                             point: "marks disappeared" recovery). -->
+                        <button type="button" @click="openSnapshotModal"
+                            title="View marks backup history — restore any earlier snapshot if marks were lost."
+                            class="flex-1 lg:flex-none px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/25 text-center lg:min-w-[76px] transition-colors">
+                            <div class="flex items-center justify-center gap-1">
+                                <ArchiveBoxIcon class="w-4 h-4" />
+                                <div>
+                                    <div class="text-[9px] uppercase tracking-widest font-semibold leading-tight">Marks</div>
+                                    <div class="text-[9px] uppercase tracking-widest font-semibold leading-tight">Backup</div>
+                                </div>
+                            </div>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1414,6 +1487,86 @@ const absentStudents = computed(() =>
                             <DocumentCheckIcon v-else class="w-4 h-4" />
                             {{ postEditSaving ? 'Saving…' : 'Save & recalculate' }}
                         </button>
+                    </div>
+                </div>
+            </div>
+        </Transition>
+
+        <!-- ═══════════ MARKS BACKUP / SNAPSHOTS MODAL ═══════════
+             Lists every snapshot ever taken for this (exam, subject,
+             section). Each row shows what triggered the snapshot, who
+             took it, when, and how many students it covered. Clicking
+             Restore rolls the paper back to that snapshot — a fresh
+             pre_restore snapshot is auto-taken first so the restore
+             itself is undoable.  -->
+        <Transition name="modal">
+            <div v-if="showSnapshotModal"
+                class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                @click.self="showSnapshotModal = false">
+                <div class="bg-base-100 rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col">
+                    <div class="p-5 border-b border-base-200 flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 flex items-center justify-center flex-shrink-0">
+                            <ArchiveBoxIcon class="w-5 h-5" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-lg font-extrabold">Marks Backup History</div>
+                            <div class="text-xs text-base-content/65">
+                                {{ subject?.name }} · {{ schoolClass?.name }} {{ section?.name }}
+                                — every save, submit and destructive admin action is captured here.
+                            </div>
+                        </div>
+                        <button @click="showSnapshotModal = false" class="btn btn-ghost btn-sm">Close</button>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto p-4">
+                        <div v-if="snapshotsLoading" class="p-8 text-center text-sm text-base-content/55">
+                            <span class="loading loading-spinner loading-md"></span>
+                            <div class="mt-2">Loading snapshots…</div>
+                        </div>
+                        <div v-else-if="!snapshots.length" class="p-8 text-center text-sm text-base-content/55">
+                            <ArchiveBoxIcon class="w-10 h-10 mx-auto text-base-content/25 mb-3" />
+                            <div class="font-medium mb-1">No snapshots yet.</div>
+                            <div class="text-xs">Snapshots are created automatically the first time marks are saved or an admin touches this paper.</div>
+                        </div>
+                        <ul v-else class="space-y-2">
+                            <li v-for="snap in snapshots" :key="snap.id"
+                                class="rounded-xl border border-base-200 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-colors p-3">
+                                <div class="flex items-start gap-3">
+                                    <div class="w-9 h-9 rounded-lg bg-base-200 flex items-center justify-center shrink-0">
+                                        <ClockIcon class="w-4 h-4 text-base-content/55" />
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span class="font-bold text-sm">{{ triggerLabel(snap.trigger) }}</span>
+                                            <span class="text-[10px] uppercase tracking-wider font-bold text-base-content/45">
+                                                {{ snap.student_count }} student{{ snap.student_count === 1 ? '' : 's' }}
+                                            </span>
+                                        </div>
+                                        <div class="text-xs text-base-content/65 mt-0.5">
+                                            {{ snap.taken_at_human }}
+                                            <span v-if="snap.taken_by"> · by {{ snap.taken_by }}</span>
+                                        </div>
+                                        <div v-if="snap.notes" class="text-[11px] text-base-content/55 mt-1 italic">
+                                            {{ snap.notes }}
+                                        </div>
+                                    </div>
+                                    <button type="button"
+                                        @click="restoreSnapshot(snap.id)"
+                                        :disabled="restoringSnapshotId !== null"
+                                        class="btn btn-sm btn-primary shrink-0">
+                                        <span v-if="restoringSnapshotId === snap.id" class="loading loading-spinner loading-xs"></span>
+                                        <ArrowPathIcon v-else class="w-3.5 h-3.5" />
+                                        Restore
+                                    </button>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="p-4 border-t border-base-200 text-[11px] text-base-content/55 bg-base-200/30 rounded-b-2xl">
+                        <b>How this works:</b> the system keeps the last 20 snapshots per paper. Restoring any one of them
+                        overwrites the current marks — but a fresh "pre-restore" snapshot is captured first, so the
+                        restore itself is undoable.
                     </div>
                 </div>
             </div>

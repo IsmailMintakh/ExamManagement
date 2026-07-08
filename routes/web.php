@@ -258,6 +258,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // "all students required" gate. Powers the "Submit drafts" button.
     Route::post('marks/{exam}/submit-drafts/{subject}/{section}', [MarksController::class, 'submitDrafts'])->name('marks.submit-drafts');
     Route::post('marks/{exam}/restore/{subject}/{section}', [MarksController::class, 'restoreDeletedMarks'])->name('marks.restore');
+    // Marks snapshot / backup — teacher-visible history + restore.
+    Route::get('marks/{exam}/snapshots/{subject}/{section}', [MarksController::class, 'snapshotList'])->name('marks.snapshots.list');
+    Route::post('marks/{exam}/snapshots/{subject}/{section}/restore/{snapshot}', [MarksController::class, 'snapshotRestore'])->name('marks.snapshots.restore');
 
     // Logo path diagnostic — super-admin visits
     //   /admin/logo-diagnostic  (defaults to first school)

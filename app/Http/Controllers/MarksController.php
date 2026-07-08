@@ -425,6 +425,14 @@ class MarksController extends Controller
             }
         }
 
+        // Snapshot BEFORE writing edits so we can roll back if something
+        // goes wrong. This is the paranoia layer for the "teachers lost
+        // all their marks" incidents.
+        \App\Services\MarkSnapshotService::capture(
+            $exam->id, (int) $data['subject_id'], (int) $data['section_id'],
+            'pre_store', $user->id
+        );
+
         foreach ($data['marks'] as $markData) {
             // withTrashed: see soft-deleted rows so we can revive them on
             // save instead of triggering a unique-constraint violation.
@@ -623,6 +631,10 @@ class MarksController extends Controller
             abort(403, 'You can only submit marks for subjects assigned to you.');
         }
 
+        \App\Services\MarkSnapshotService::capture(
+            $exam, $subject, $section, 'pre_submit_drafts', $user->id
+        );
+
         $flipped = Mark::where('exam_id', $exam)
             ->where('subject_id', $subject)
             ->where('section_id', $section)
@@ -686,6 +698,10 @@ class MarksController extends Controller
             return redirect()->back()->with('error', 'All students must have marks entered before submission.');
         }
 
+        \App\Services\MarkSnapshotService::capture(
+            $exam, $subject, $section, 'pre_submit', $user->id
+        );
+
         Mark::where('exam_id', $exam)
             ->where('subject_id', $subject)
             ->where('section_id', $section)
@@ -701,6 +717,12 @@ class MarksController extends Controller
                 'status' => 'submitted',
                 'submitted_at' => now(),
             ]
+        );
+
+        // A stable "post-submit" checkpoint teachers can always roll back to.
+        \App\Services\MarkSnapshotService::capture(
+            $exam, $subject, $section, 'post_submit', $user->id,
+            'Finalized submission — safe restore point.'
         );
 
         // ─── Notify the people who care that marks just got submitted ───
@@ -749,5 +771,74 @@ class MarksController extends Controller
         }
 
         return redirect()->back()->with('success', 'Marks submitted successfully.');
+    }
+
+    /**
+     * List every marks snapshot for a (exam, subject, section), newest
+     * first. Powers the "Marks History" modal on the entry page — teachers
+     * see what backups exist and can restore any one of them.
+     */
+    public function snapshotList(Request $request, int $exam, int $subject, int $section): JsonResponse
+    {
+        $user = $request->user();
+
+        // Same access gate as marks entry — assignment-scoped for
+        // teachers, unrestricted for admins.
+        if (!$this->canEnterMarks($user, $subject, $section)) {
+            abort(403, 'You can only view snapshots for subjects assigned to you.');
+        }
+
+        $snapshots = \App\Services\MarkSnapshotService::forPaper($exam, $subject, $section)
+            ->map(fn ($s) => [
+                'id' => $s->id,
+                'taken_at' => $s->taken_at?->toIso8601String(),
+                'taken_at_human' => $s->taken_at?->diffForHumans(),
+                'taken_by' => $s->takenBy?->name,
+                'trigger' => $s->trigger,
+                'student_count' => $s->student_count,
+                'notes' => $s->notes,
+                'preview' => collect($s->payload)->take(3)->map(fn ($r) => [
+                    'student_id' => $r['student_id'] ?? null,
+                    'marks_obtained' => $r['marks_obtained'] ?? null,
+                    'is_absent' => $r['is_absent'] ?? false,
+                    'status' => $r['status'] ?? null,
+                ])->values()->all(),
+            ])->values();
+
+        return response()->json(['snapshots' => $snapshots]);
+    }
+
+    /**
+     * Restore a specific snapshot. Wraps MarkSnapshotService::restore
+     * which auto-captures a pre_restore snapshot first, so the restore
+     * is itself undoable.
+     */
+    public function snapshotRestore(Request $request, int $exam, int $subject, int $section, int $snapshotId): RedirectResponse
+    {
+        $user = $request->user();
+
+        if (!$this->canEnterMarks($user, $subject, $section)) {
+            abort(403, 'You can only restore snapshots for subjects assigned to you.');
+        }
+
+        $snap = \App\Models\MarkSnapshot::where('exam_id', $exam)
+            ->where('subject_id', $subject)
+            ->where('section_id', $section)
+            ->findOrFail($snapshotId);
+
+        $restored = \App\Services\MarkSnapshotService::restore($snap, $user->id);
+
+        // Cascade to Results so the restore is reflected everywhere.
+        try {
+            $examModel = Exam::findOrFail($exam);
+            $sectionModel = Section::with('schoolClass')->findOrFail($section);
+            app(\App\Services\ResultProcessingService::class)
+                ->generateResults($examModel, (int) $sectionModel->school_class_id, $section);
+        } catch (\Throwable $e) {
+            \Log::warning('snapshot restore: result regen failed: '.$e->getMessage());
+        }
+
+        return redirect()->back()->with('success',
+            "Restored {$restored} mark(s) from the snapshot. A pre-restore backup was also taken automatically, so you can undo this if needed.");
     }
 }
