@@ -671,7 +671,7 @@ class ReportController extends Controller
     /**
      * Generate all mark sheets for a section in a single multi-page PDF.
      */
-    public function sectionMarkSheets(int $exam, int $section)
+    public function sectionMarkSheets(Request $request, int $exam, int $section)
     {
         $examModel = Exam::with(['examType', 'gradingScale.entries', 'academicSession', 'examController:id,name'])->findOrFail($exam);
         $sectionModel = Section::with(['schoolClass.school', 'classTeacher:id,name,signature_image'])->findOrFail($section);
@@ -717,7 +717,13 @@ class ReportController extends Controller
             'gradingEntries' => $gradingEntries,
         ])->setPaper('a4', 'portrait');
 
-        return $pdf->stream("mark-sheets-{$examModel->slug}-{$sectionModel->slug}.pdf");
+        $filename = "mark-sheets-{$examModel->slug}-{$sectionModel->slug}.pdf";
+        // ?download=1 triggers a proper Content-Disposition: attachment
+        // response instead of inline preview — used by the "Download All
+        // Mark Sheets" button on the section results page.
+        return $request->boolean('download')
+            ? $pdf->download($filename)
+            : $pdf->stream($filename);
     }
 
     /**

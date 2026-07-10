@@ -10,7 +10,7 @@ import {
     XCircleIcon, AcademicCapIcon,
     ChartBarIcon, IdentificationIcon,
     DocumentDuplicateIcon, PencilSquareIcon,
-    ArrowPathIcon, ClockIcon, XMarkIcon,
+    ArrowPathIcon, ClockIcon, XMarkIcon, ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -82,7 +82,22 @@ function openReportCard(examId, studentId) {
 }
 
 function downloadAllMarkSheets(examId, sectionId) {
+    // Preview flow — inline PDF in a new tab.
     window.open(route('reports.section-mark-sheets', [examId, sectionId]), '_blank')
+}
+
+function downloadAllMarkSheetsPdf(examId, sectionId) {
+    // Explicit download — ?download=1 makes the controller send
+    // Content-Disposition: attachment so the browser saves the file
+    // instead of previewing. Use a hidden <a> so we get the browser's
+    // native download UX + filename hint.
+    const url = route('reports.section-mark-sheets', [examId, sectionId]) + '?download=1'
+    const a = document.createElement('a')
+    a.href = url
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
 }
 </script>
 
@@ -103,7 +118,13 @@ function downloadAllMarkSheets(examId, sectionId) {
                     </p>
                 </div>
                 <div class="flex flex-wrap gap-2">
-                    <button @click="downloadAllMarkSheets(exam?.id, section?.id)" class="btn btn-primary btn-sm gap-1.5">
+                    <button @click="downloadAllMarkSheetsPdf(exam?.id, section?.id)"
+                        class="btn btn-success btn-sm gap-1.5"
+                        title="Download all students' mark sheets for this section as a single PDF file.">
+                        <ArrowDownTrayIcon class="w-4 h-4" /> Download Mark Sheets
+                    </button>
+                    <button @click="downloadAllMarkSheets(exam?.id, section?.id)" class="btn btn-primary btn-sm gap-1.5"
+                        title="Open all mark sheets in a new tab (preview only).">
                         <IdentificationIcon class="w-4 h-4" /> All Mark Sheets
                     </button>
                     <button @click="printResultSheet(exam?.id, schoolClass?.id, section?.id)" class="btn btn-outline btn-sm gap-1.5">
