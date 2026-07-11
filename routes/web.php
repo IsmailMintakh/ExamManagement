@@ -742,6 +742,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
     Route::post('notifications/read-all', [NotificationController::class, 'markAllAsRead'])->name('notifications.read-all');
 
+    // ─── DDO IMPERSONATION ───
+    // DDO super-admin can log in AS a school's principal from the
+    // sidebar dropdown. Session-only, no DB persistence. See
+    // ImpersonationController for the flow and security notes.
+    Route::post('impersonate/school/{school}',
+        [\App\Http\Controllers\ImpersonationController::class, 'start'])
+        ->name('impersonate.start');
+    Route::post('impersonate/leave',
+        [\App\Http\Controllers\ImpersonationController::class, 'leave'])
+        ->name('impersonate.leave');
+
     // DDO "viewing school" selector — super-admin picks a school from the
     // topbar to scope dashboards/lists down to that school. Stored in
     // session so it persists across pages. Pass school_id=null/"all" to

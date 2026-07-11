@@ -36,7 +36,10 @@ class AnalyticsController extends Controller
             ->when(!$isSuper, fn ($q) => $q->where('school_id', $user->school_id))
             ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
             ->count();
-        $totalExams = Exam::when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))->count();
+        // School-admin sees only their own school's exam count; super-admin sees all.
+        $totalExams = Exam::when(!$isSuper, fn ($q) => $q->visibleToSchool($user->school_id))
+            ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
+            ->count();
 
         $resultsQuery = Result::query()
             ->when(!$isSuper, fn ($q) => $q->where('school_id', $user->school_id))

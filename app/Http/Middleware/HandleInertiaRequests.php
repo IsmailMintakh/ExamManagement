@@ -68,9 +68,22 @@ class HandleInertiaRequests extends Middleware
                 // currently-picked school (or null = "all schools"); `schools`
                 // is the menu we show in the topbar dropdown.
                 'viewingSchoolId' => $user && $user->isSuperAdmin() ? (session('viewing_school_id') ? (int) session('viewing_school_id') : null) : null,
-                'schools' => $user && $user->isSuperAdmin()
+                // The "all schools" dropdown needs the school list for both
+                // super-admins AND currently-impersonating users so that
+                // an impersonated user can hop straight to another school
+                // without first returning to their DDO account.
+                'schools' => ($user && $user->isSuperAdmin()) || session('impersonator_id')
                     ? \App\Models\School::active()->orderBy('name')->get(['id', 'name', 'code'])
                     : [],
+                // Impersonation state — drives the "Return to DDO" banner
+                // and the sidebar dropdown behaviour.
+                'impersonation' => session('impersonator_id') ? [
+                    'active' => true,
+                    'original_id' => (int) session('impersonator_id'),
+                    'original_name' => \App\Models\User::whereKey(session('impersonator_id'))->value('name'),
+                    'current_school_id' => $user?->school_id,
+                    'current_school_name' => $user?->school?->name,
+                ] : ['active' => false],
             ],
 
             'flash' => [

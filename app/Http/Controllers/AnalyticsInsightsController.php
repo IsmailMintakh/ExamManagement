@@ -358,8 +358,11 @@ class AnalyticsInsightsController extends Controller
                 'school_name' => $c->school?->name,
             ]);
 
-        // Exams dropdown (scope by session/class if possible)
-        $exams = Exam::orderByDesc('start_date')
+        // Exams dropdown — school-admin / class-teacher sees only exams
+        // that belong to their school; super-admin sees the full list.
+        $exams = Exam::query()
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->visibleToSchool($user->school_id))
+            ->orderByDesc('start_date')
             ->limit(100)
             ->get(['id', 'name', 'start_date'])
             ->map(fn ($e) => [

@@ -37,6 +37,9 @@ class MarksProgressController extends Controller
         $currentSession = AcademicSession::currentSession();
         $exams = Exam::query()
             ->whereIn('status', ['marks_entry', 'processing', 'completed'])
+            // School-admin / principal sees only their own school's exams.
+            // Super-admin (DDO) sees the full cross-school list.
+            ->when(!$user->isSuperAdmin(), fn ($q) => $q->visibleToSchool($user->school_id))
             ->when($currentSession, fn ($q) => $q->where('academic_session_id', $currentSession->id))
             ->orderByDesc('start_date')
             ->get(['id', 'name', 'status']);

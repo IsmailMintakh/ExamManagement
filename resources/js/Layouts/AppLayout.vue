@@ -338,15 +338,40 @@ function switchSession(sessionId) {
     router.post(route('academic-sessions.switch', sessionId))
 }
 
-// DDO viewing-school selector — POSTs the picked school to the server which
-// stashes it in session, then the page reloads with every controller now
-// scoped to that school via User::effectiveSchoolId(). null = view all.
+// DDO school selector — TWO modes:
+//   1. Super-admin, not impersonating → click a school to LOG IN AS its
+//      principal (Auth::login). "All schools" clears view-scope on the
+//      DDO account (no impersonation).
+//   2. Super-admin already impersonating → click another school to switch
+//      accounts, or click "Return to DDO" to log back in as the DDO.
+// Session-only, no DB writes. See ImpersonationController.
 const schools = computed(() => page.props.auth?.schools || [])
 const viewingSchoolId = computed(() => page.props.auth?.viewingSchoolId || null)
 const viewingSchool = computed(() => schools.value.find(s => s.id === viewingSchoolId.value) || null)
+const impersonation = computed(() => page.props.auth?.impersonation || { active: false })
+const isImpersonating = computed(() => impersonation.value.active === true)
+
 function switchViewingSchool(schoolId) {
     schoolMenuOpen.value = false
-    router.post(route('viewing-school.set'), { school_id: schoolId }, { preserveScroll: true })
+    // "All schools" → clear the view scope. Also functions as "leave
+    // impersonation" if currently impersonating.
+    if (!schoolId) {
+        if (isImpersonating.value) {
+            router.post(route('impersonate.leave'), {}, { preserveScroll: false })
+        } else {
+            router.post(route('viewing-school.set'), { school_id: null }, { preserveScroll: true })
+        }
+        return
+    }
+    // A school was picked. Always start (or restart) impersonation —
+    // the DDO wants to sign in as that school's principal, not just
+    // scope reads.
+    router.post(route('impersonate.start', schoolId), {}, { preserveScroll: false })
+}
+
+function returnToDdo() {
+    schoolMenuOpen.value = false
+    router.post(route('impersonate.leave'), {}, { preserveScroll: false })
 }
 
 function handleOutsideClick(e) {
@@ -508,22 +533,30 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                 </div>
             </nav>
 
-            <!-- DDO School Selector — super-admin only. When set, every
-                 controller scopes its queries to this school via
-                 User::effectiveSchoolId(). Null = view all schools. -->
-            <div v-if="hasRole('super-admin') && schools.length > 1"
+            <!-- DDO School Selector — super-admin (or DDO currently
+                 impersonating a principal). Clicking a school actually
+                 logs you IN AS that school's principal via Laravel's
+                 Auth::login. "Return to DDO account" logs back in as
+                 the original DDO. See ImpersonationController. -->
+            <div v-if="(hasRole('super-admin') || isImpersonating) && schools.length > 1"
                  class="shrink-0 p-3" style="border-top: 1px solid oklch(var(--bc) / 0.08);">
                 <div class="school-menu-container relative">
                     <button
                         @click.stop="schoolMenuOpen = !schoolMenuOpen"
                         class="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-medium transition-all"
-                        style="background: oklch(var(--bc) / 0.04); border: 1px solid oklch(var(--bc) / 0.06);"
+                        :style="isImpersonating
+                            ? 'background: oklch(var(--wa) / 0.10); border: 1px solid oklch(var(--wa) / 0.30);'
+                            : 'background: oklch(var(--bc) / 0.04); border: 1px solid oklch(var(--bc) / 0.06);'"
                     >
-                        <BuildingOfficeIcon class="h-4 w-4 text-secondary shrink-0" />
+                        <BuildingOfficeIcon class="h-4 w-4 shrink-0"
+                            :class="isImpersonating ? 'text-warning' : 'text-secondary'" />
                         <div class="flex-1 text-left min-w-0">
-                            <p class="text-[9px] uppercase tracking-widest text-base-content/40 leading-none">Viewing</p>
+                            <p class="text-[9px] uppercase tracking-widest leading-none"
+                                :class="isImpersonating ? 'text-warning' : 'text-base-content/40'">
+                                {{ isImpersonating ? 'Impersonating' : 'Viewing' }}
+                            </p>
                             <p class="mt-0.5 truncate text-[12.5px] font-semibold leading-tight">
-                                {{ viewingSchool?.name || 'All schools' }}
+                                {{ isImpersonating ? impersonation.current_school_name : (viewingSchool?.name || 'All schools') }}
                             </p>
                         </div>
                         <ChevronDownIcon class="h-3.5 w-3.5 text-base-content/40 transition-transform" :class="{ 'rotate-180': schoolMenuOpen }" />
@@ -535,7 +568,16 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                         leave-from-class="opacity-100 scale-100" leave-to-class="opacity-0 scale-95"
                     >
                         <div v-if="schoolMenuOpen" class="absolute bottom-full left-0 right-0 mb-2 rounded-xl bg-base-100 p-1.5 shadow-lifted max-h-[60vh] overflow-y-auto" style="border: 1px solid oklch(var(--bc) / 0.1);">
-                            <button @click="switchViewingSchool(null)"
+                            <!-- Top action: "Return to DDO" when impersonating,
+                                 or "All schools" district view otherwise. -->
+                            <button v-if="isImpersonating"
+                                @click="returnToDdo"
+                                class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold bg-warning/10 text-warning-content hover:bg-warning/20 transition-colors mb-1"
+                                :title="`Log back in as ${impersonation.original_name || 'DDO'}`">
+                                <span class="h-1.5 w-1.5 rounded-full bg-warning" />
+                                <span class="flex-1 text-left">← Return to DDO account</span>
+                            </button>
+                            <button v-else @click="switchViewingSchool(null)"
                                 class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs transition-colors"
                                 :class="viewingSchoolId === null ? 'bg-secondary/10 text-secondary font-semibold' : 'hover:bg-base-200'">
                                 <span class="h-1.5 w-1.5 rounded-full" :class="viewingSchoolId === null ? 'bg-secondary' : 'bg-base-300'" />
@@ -546,10 +588,17 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                             <button v-for="s in schools" :key="s.id"
                                 @click="switchViewingSchool(s.id)"
                                 class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs transition-colors"
-                                :class="viewingSchoolId === s.id ? 'bg-secondary/10 text-secondary font-semibold' : 'hover:bg-base-200'">
-                                <span class="h-1.5 w-1.5 rounded-full" :class="viewingSchoolId === s.id ? 'bg-secondary' : 'bg-base-300'" />
+                                :class="(isImpersonating ? impersonation.current_school_id : viewingSchoolId) === s.id
+                                    ? (isImpersonating ? 'bg-warning/10 text-warning-content font-semibold' : 'bg-secondary/10 text-secondary font-semibold')
+                                    : 'hover:bg-base-200'">
+                                <span class="h-1.5 w-1.5 rounded-full"
+                                    :class="(isImpersonating ? impersonation.current_school_id : viewingSchoolId) === s.id
+                                        ? (isImpersonating ? 'bg-warning' : 'bg-secondary')
+                                        : 'bg-base-300'" />
                                 <span class="flex-1 text-left truncate">{{ s.name }}</span>
-                                <CheckBadgeIcon v-if="viewingSchoolId === s.id" class="h-3.5 w-3.5 text-secondary" />
+                                <CheckBadgeIcon v-if="(isImpersonating ? impersonation.current_school_id : viewingSchoolId) === s.id"
+                                    class="h-3.5 w-3.5"
+                                    :class="isImpersonating ? 'text-warning' : 'text-secondary'" />
                             </button>
                         </div>
                     </Transition>
@@ -729,6 +778,20 @@ watch(() => page.url, () => { sidebarOpen.value = false })
             <!-- Page Content with transition. pb-24 lg:pb-6 reserves space for mobile bottom nav.
                  overflow-x-hidden defends against any inner element accidentally pushing the page wider than the viewport on mobile. -->
             <main class="flex-1 overflow-y-auto overflow-x-hidden">
+                <!-- Impersonation banner — always visible when a DDO is
+                     signed in as a school's principal. One-click "Return to
+                     my account" so the DDO can't forget they're impersonating. -->
+                <div v-if="isImpersonating"
+                    class="sticky top-0 z-40 border-b border-warning/30 bg-warning/10 text-warning-content px-4 py-2 text-sm flex items-center gap-3">
+                    <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-warning text-white text-xs font-bold shrink-0">!</span>
+                    <div class="flex-1 min-w-0">
+                        <span class="font-semibold">You are signed in as {{ impersonation.current_school_name }}'s principal.</span>
+                        <span class="opacity-75 hidden sm:inline"> · Your DDO account: {{ impersonation.original_name }}</span>
+                    </div>
+                    <button @click="returnToDdo" class="btn btn-sm btn-warning gap-1.5 shrink-0">
+                        Return to my DDO account
+                    </button>
+                </div>
                 <div :key="page.url" class="mx-auto max-w-7xl px-4 py-5 pb-28 sm:px-6 sm:py-6 lg:px-8 lg:pb-6 animate-fade-in">
                     <slot />
                 </div>
