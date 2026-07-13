@@ -33,12 +33,27 @@ class ExamController extends Controller
         // schools" (only super-admins without a pick land here).
         $scopeSchoolId = $user->effectiveSchoolId();
 
+        // School filter (super-admin only — school-admins are scoped to
+        // their own school via visibleToSchool below, so exposing a picker
+        // to them would be pointless / confusing).
+        $filterSchoolId = $user->isSuperAdmin() ? $request->integer('school_id') : null;
+
+        // Month filter — YYYY-MM string keyed off start_date so admins
+        // can see "all June exams" across sessions and schools.
+        $filterMonth = $request->input('month');
+        $filterMonth = is_string($filterMonth) && preg_match('/^\d{4}-\d{2}$/', $filterMonth) ? $filterMonth : null;
+
         $exams = Exam::query()
             ->when($request->has('search'), function ($query) use ($request) {
                 $query->where('name', 'like', '%' . $request->input('search') . '%');
             })
             ->when($request->has('exam_type_id'), fn ($q) => $q->where('exam_type_id', $request->input('exam_type_id')))
             ->when($request->has('status'), fn ($q) => $q->where('status', $request->input('status')))
+            ->when($filterSchoolId, fn ($q) => $q->visibleToSchool($filterSchoolId))
+            ->when($filterMonth, function ($q) use ($filterMonth) {
+                [$y, $m] = explode('-', $filterMonth);
+                $q->whereYear('start_date', (int) $y)->whereMonth('start_date', (int) $m);
+            })
             ->when($request->has('session_id'), function ($query) use ($request) {
                 $query->where('academic_session_id', $request->input('session_id'));
             }, function ($query) use ($currentSession) {
@@ -54,7 +69,10 @@ class ExamController extends Controller
             // Teachers: narrow further to exams they actually teach in
             // (class-teacher's class + subject-teacher's subject tuples).
             ->forTeacher($user)
-            ->with(['examType', 'academicSession', 'gradingScale'])
+            // Eager-load the pivot schools so the admin can see which
+            // school each exam belongs to right on the list. Only the
+            // first ~3 names get rendered; the rest collapse to "+N".
+            ->with(['examType', 'academicSession', 'gradingScale', 'schools:id,name'])
             ->withCount(['examSubjects', 'marks', 'results'])
             ->latest()
             ->paginate(15)
@@ -62,6 +80,29 @@ class ExamController extends Controller
 
         $examTypes = ExamType::active()->orderBy('sort_order')->get(['id', 'name']);
         $sessions = AcademicSession::active()->orderByDesc('start_date')->get(['id', 'name']);
+
+        // Schools list for the filter dropdown — super-admin only, since
+        // school-admins are already scoped to their own school.
+        $schoolsForFilter = $user->isSuperAdmin()
+            ? School::active()->orderBy('name')->get(['id', 'name'])
+            : collect();
+
+        // Month options for the filter dropdown — derived from real exam
+        // start_dates that this user can see, so the picker doesn't show
+        // empty months. Keyed as YYYY-MM, labelled "MMM YYYY".
+        $monthOptions = Exam::query()
+            ->when($scopeSchoolId, fn ($q) => $q->visibleToSchool($scopeSchoolId))
+            ->forTeacher($user)
+            ->whereNotNull('start_date')
+            ->selectRaw("DATE_FORMAT(start_date, '%Y-%m') as ym")
+            ->distinct()
+            ->orderByDesc('ym')
+            ->pluck('ym')
+            ->map(fn ($ym) => [
+                'value' => $ym,
+                'label' => \Carbon\Carbon::createFromFormat('Y-m', $ym)->format('M Y'),
+            ])
+            ->values();
 
         // KPI strip — phase counts respecting the same visibility scope as
         // the list above (visibleToSchool + forTeacher), but pre-filter so
@@ -83,7 +124,10 @@ class ExamController extends Controller
             'exams' => $exams,
             'examTypes' => $examTypes,
             'sessions' => $sessions,
-            'filters' => $request->only(['search', 'exam_type_id', 'status', 'session_id']),
+            'schoolsForFilter' => $schoolsForFilter,
+            'monthOptions' => $monthOptions,
+            'canFilterSchool' => $user->isSuperAdmin(),
+            'filters' => $request->only(['search', 'exam_type_id', 'status', 'session_id', 'school_id', 'month']),
             'statusCounts' => [
                 'total' => (int) $statusCounts->sum(),
                 'draft' => (int) ($statusCounts['draft'] ?? 0),
@@ -329,10 +373,15 @@ class ExamController extends Controller
         }
 
         foreach ($subjects as $subjectData) {
+            $excluded = array_values(array_unique(array_map(
+                'intval',
+                $subjectData['excluded_section_ids'] ?? []
+            )));
             ExamSubject::create([
                 'exam_id' => $exam->id,
                 'subject_id' => $subjectData['subject_id'],
                 'school_class_id' => $subjectData['school_class_id'],
+                'excluded_section_ids' => empty($excluded) ? null : $excluded,
                 'total_marks' => $subjectData['total_marks'],
                 'passing_marks' => $subjectData['passing_marks'],
                 'exam_date' => $subjectData['exam_date'] ?? null,
@@ -531,6 +580,9 @@ class ExamController extends Controller
             'subjects' => ['nullable', 'array'],
             'subjects.*.subject_id' => ['required_with:subjects', 'exists:subjects,id'],
             'subjects.*.school_class_id' => ['required_with:subjects', 'exists:school_classes,id'],
+            // Per-subject "excluded sections" (see StoreExamRequest for docs).
+            'subjects.*.excluded_section_ids' => ['nullable', 'array'],
+            'subjects.*.excluded_section_ids.*' => ['integer', 'exists:sections,id'],
             'subjects.*.total_marks' => ['required_with:subjects', 'numeric', 'min:0'],
             'subjects.*.passing_marks' => ['required_with:subjects', 'numeric', 'min:0'],
             'subjects.*.exam_date' => ['nullable', 'date', 'after_or_equal:start_date', 'before_or_equal:end_date'],
@@ -663,6 +715,12 @@ class ExamController extends Controller
             $existing = $existingRows->get($key);
             $hasMarks = $markedPairs->has($key);
 
+            $rowExcluded = array_values(array_unique(array_map(
+                'intval',
+                $row['excluded_section_ids'] ?? []
+            )));
+            $rowExcludedJson = empty($rowExcluded) ? null : $rowExcluded;
+
             if ($existing) {
                 $newTotal = (float) $row['total_marks'];
                 $newPass  = (float) $row['passing_marks'];
@@ -682,6 +740,7 @@ class ExamController extends Controller
                 $existing->update([
                     'total_marks' => $newTotal,
                     'passing_marks' => $newPass,
+                    'excluded_section_ids' => $rowExcludedJson,
                     'exam_date' => $row['exam_date'] ?? null,
                     'start_time' => $row['start_time'] ?? null,
                     'end_time' => $row['end_time'] ?? null,
@@ -693,6 +752,7 @@ class ExamController extends Controller
                     'exam_id' => $exam->id,
                     'subject_id' => $row['subject_id'],
                     'school_class_id' => $row['school_class_id'],
+                    'excluded_section_ids' => $rowExcludedJson,
                     'total_marks' => $row['total_marks'],
                     'passing_marks' => $row['passing_marks'],
                     'exam_date' => $row['exam_date'] ?? null,

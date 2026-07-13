@@ -374,6 +374,13 @@ function returnToDdo() {
     router.post(route('impersonate.leave'), {}, { preserveScroll: false })
 }
 
+// Page transition key: use ONLY the pathname (not the query string) so
+// that partial reloads triggered by search inputs (e.g. /exams?search=e
+// → /exams?search=ex) don't destroy and recreate the whole content
+// subtree. Real navigations (/exams → /students) still change the key
+// and re-trigger the fade-in animation.
+const pagePathKey = computed(() => (page.url || '').split('?')[0])
+
 function handleOutsideClick(e) {
     if (userMenuOpen.value && !e.target.closest('.user-menu-container')) userMenuOpen.value = false
     if (sessionMenuOpen.value && !e.target.closest('.session-menu-container')) sessionMenuOpen.value = false
@@ -792,7 +799,7 @@ watch(() => page.url, () => { sidebarOpen.value = false })
                         Return to my DDO account
                     </button>
                 </div>
-                <div :key="page.url" class="mx-auto max-w-7xl px-4 py-5 pb-28 sm:px-6 sm:py-6 lg:px-8 lg:pb-6 animate-fade-in">
+                <div :key="pagePathKey" class="mx-auto max-w-7xl px-4 py-5 pb-28 sm:px-6 sm:py-6 lg:px-8 lg:pb-6 animate-fade-in">
                     <slot />
                 </div>
             </main>

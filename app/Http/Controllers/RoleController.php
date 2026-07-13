@@ -104,6 +104,15 @@ class RoleController extends Controller
         $permissions = Permission::whereIn('id', $validated['permission_ids'] ?? [])->get();
         $role->syncPermissions($permissions);
 
+        // Spatie caches every user's effective permissions. Without an
+        // explicit forget after syncPermissions(), users who already have
+        // this role keep seeing the OLD permission set until the cache
+        // TTL expires (24h by default). That was why the certificate
+        // button stayed hidden for principals even after admin granted
+        // certificates.view / certificates.generate to the school-admin
+        // role — the DB was updated but the browser session saw stale.
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
         // Log activity
         activity()
             ->performedOn($role)

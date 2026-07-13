@@ -9,6 +9,7 @@ class ExamSubject extends Model
     protected $fillable = [
         'exam_id', 'subject_id', 'school_class_id',
         'total_marks', 'passing_marks', 'exam_date', 'start_time', 'end_time',
+        'excluded_section_ids',
     ];
 
     protected function casts(): array
@@ -17,7 +18,26 @@ class ExamSubject extends Model
             'total_marks' => 'decimal:2',
             'passing_marks' => 'decimal:2',
             'exam_date' => 'date',
+            'excluded_section_ids' => 'array',
         ];
+    }
+
+    /**
+     * True when this exam-subject applies to the given section. Default
+     * behaviour (excluded_section_ids null/empty) → applies to every
+     * section of the class. Non-empty list → excludes those specific
+     * sections. Anything outside this exam-subject's class is out of
+     * scope and always returns false.
+     */
+    public function appliesToSection(int $sectionId, ?int $sectionClassId = null): bool
+    {
+        // Optional early-out: if the caller knows the section's class,
+        // reject cross-class requests here so we don't need to hit the DB.
+        if ($sectionClassId !== null && (int) $this->school_class_id !== $sectionClassId) {
+            return false;
+        }
+        $excluded = $this->excluded_section_ids ?? [];
+        return !in_array($sectionId, array_map('intval', $excluded), true);
     }
 
     public function exam()

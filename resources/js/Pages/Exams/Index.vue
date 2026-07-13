@@ -13,6 +13,7 @@ import {
     PlusIcon, PencilSquareIcon, TrashIcon, EyeIcon, LockClosedIcon,
     MegaphoneIcon, ExclamationTriangleIcon,
     ClipboardDocumentListIcon, DocumentTextIcon, ClockIcon, CheckCircleIcon,
+    XMarkIcon,
 } from '@heroicons/vue/24/outline'
 import { usePermissions } from '@/Composables/usePermissions'
 import { useDebouncedSearch } from '@/Composables/useDebouncedSearch'
@@ -25,15 +26,38 @@ const props = defineProps({
     filters: Object,
     examTypes: Array,
     statusCounts: { type: Object, default: () => ({ total: 0, draft: 0, marks_entry: 0, completed: 0 }) },
+    schoolsForFilter: { type: Array, default: () => [] },
+    monthOptions: { type: Array, default: () => [] },
+    canFilterSchool: { type: Boolean, default: false },
 })
-// SearchFilter already debounces input by 300ms before emitting.
-// We pass delay: 0 so the request fires as soon as SearchFilter emits,
-// instead of waiting another 300ms.
+
 const search = useDebouncedSearch({
     routeName: 'exams.index',
     initial: props.filters?.search || '',
-    only: ['exams', 'filters'],
-    delay: 0,
+    only: ['exams', 'filters', 'statusCounts', 'monthOptions'],
+    // extra() feeds the current dropdown selections into every request
+    // so search + filters combine correctly.
+    extra: () => ({
+        school_id: filterSchoolId.value || undefined,
+        month: filterMonth.value || undefined,
+    }),
+})
+
+// School + month filter refs. When they change, we push a fresh request
+// through the same route so the query string stays canonical.
+const filterSchoolId = ref(props.filters?.school_id || '')
+const filterMonth = ref(props.filters?.month || '')
+watch([filterSchoolId, filterMonth], () => {
+    router.get(route('exams.index'), {
+        search: search.value || undefined,
+        school_id: filterSchoolId.value || undefined,
+        month: filterMonth.value || undefined,
+    }, {
+        preserveState: true,
+        preserveScroll: true,
+        replace: true,
+        only: ['exams', 'filters', 'statusCounts'],
+    })
 })
 const confirmDelete = ref(false)
 const examToDelete = ref(null)
@@ -169,10 +193,36 @@ const statusColors = {
 
             <!-- ═══════════ MAIN CARD ═══════════ -->
             <section class="surface overflow-hidden">
-                <header class="surface-header">
-                    <div class="flex-1 max-w-md">
+                <header class="surface-header gap-2 flex-wrap">
+                    <div class="flex-1 min-w-[220px] max-w-md">
                         <SearchFilter v-model="search" placeholder="Search exams by name…" />
                     </div>
+                    <!-- School filter — super-admin only, since school-admins
+                         are auto-scoped to their school on the backend. -->
+                    <select v-if="canFilterSchool && schoolsForFilter.length > 1"
+                        v-model="filterSchoolId"
+                        class="select select-bordered select-sm w-full sm:w-auto min-w-[180px]"
+                        title="Filter exams by school">
+                        <option value="">All schools</option>
+                        <option v-for="s in schoolsForFilter" :key="s.id" :value="s.id">{{ s.name }}</option>
+                    </select>
+                    <!-- Month filter — options are derived from real exam
+                         start_dates the current user can see, so no empty
+                         months appear in the picker. -->
+                    <select v-if="monthOptions.length > 0"
+                        v-model="filterMonth"
+                        class="select select-bordered select-sm w-full sm:w-auto min-w-[140px]"
+                        title="Filter exams by month">
+                        <option value="">All months</option>
+                        <option v-for="m in monthOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
+                    </select>
+                    <button v-if="filterSchoolId || filterMonth"
+                        type="button"
+                        @click="filterSchoolId = ''; filterMonth = ''"
+                        class="btn btn-ghost btn-sm gap-1.5"
+                        title="Clear school + month filters">
+                        <XMarkIcon class="w-3.5 h-3.5" /> Clear
+                    </button>
                 </header>
 
                 <!-- ════════ MOBILE: tap-friendly exam cards ════════ -->
@@ -194,6 +244,11 @@ const statusColors = {
                                         <span :class="['badge badge-xs', statusColors[exam.status] || 'badge-ghost']">
                                             {{ formatStatus(exam.status) }}
                                         </span>
+                                    </div>
+                                    <div v-if="canFilterSchool && exam.schools?.length"
+                                        class="text-[10.5px] text-base-content/60 mt-1 truncate font-medium"
+                                        :title="exam.schools.map(s => s.name).join(', ')">
+                                        🏫 {{ exam.schools.slice(0, 2).map(s => s.name).join(' · ') }}<span v-if="exam.schools.length > 2"> · +{{ exam.schools.length - 2 }}</span>
                                     </div>
                                     <div class="text-[11px] text-base-content/55 mt-1 truncate">
                                         <span v-if="exam.exam_type?.name" class="font-semibold">{{ exam.exam_type.name }}</span>
@@ -254,6 +309,7 @@ const statusColors = {
                                 </th>
                                 <th class="w-12">#</th>
                                 <th>Exam</th>
+                                <th v-if="canFilterSchool">School</th>
                                 <th>Type</th>
                                 <th>Session</th>
                                 <th>Date Range</th>
@@ -290,6 +346,21 @@ const statusColors = {
                                         · Pass {{ formatNumber(exam.passing_marks) }}
                                         <span v-if="exam.exam_subjects_count">· {{ exam.exam_subjects_count }} subjects</span>
                                     </div>
+                                </td>
+                                <td v-if="canFilterSchool" class="text-[12px] text-base-content/75">
+                                    <div v-if="exam.schools?.length" class="flex flex-wrap gap-1 max-w-[220px]">
+                                        <span v-for="(sc, idx) in exam.schools.slice(0, 2)" :key="sc.id"
+                                            class="badge badge-ghost badge-sm truncate max-w-[180px]"
+                                            :title="sc.name">
+                                            {{ sc.name }}
+                                        </span>
+                                        <span v-if="exam.schools.length > 2"
+                                            class="badge badge-outline badge-sm"
+                                            :title="exam.schools.slice(2).map(s => s.name).join(', ')">
+                                            +{{ exam.schools.length - 2 }}
+                                        </span>
+                                    </div>
+                                    <span v-else class="text-base-content/40 italic">All schools</span>
                                 </td>
                                 <td>
                                     <span class="badge badge-outline badge-sm font-medium">{{ exam.exam_type?.name }}</span>

@@ -11,6 +11,9 @@ import {
     TrophyIcon, StarIcon, CheckBadgeIcon, AcademicCapIcon, Cog6ToothIcon,
 } from '@heroicons/vue/24/outline'
 import { formatDate } from '@/Utils/format'
+import { usePermissions } from '@/Composables/usePermissions'
+
+const { can } = usePermissions()
 
 defineProps({
     certificates: Object,
@@ -61,11 +64,13 @@ const typeLabel = {
                     </p>
                 </div>
                 <div class="flex gap-2">
-                    <Link :href="route('certificates.templates')" class="btn btn-ghost gap-2">
+                    <Link v-if="can('certificates.templates.view')"
+                        :href="route('certificates.templates')" class="btn btn-ghost gap-2">
                         <Cog6ToothIcon class="w-5 h-5" /> Templates
                         <span class="badge badge-sm">{{ templatesCount }}</span>
                     </Link>
-                    <Link :href="route('certificates.generate')" class="btn btn-primary gap-2">
+                    <Link v-if="can('certificates.generate')"
+                        :href="route('certificates.generate')" class="btn btn-primary gap-2">
                         <PlusIcon class="w-5 h-5" /> Generate
                     </Link>
                 </div>

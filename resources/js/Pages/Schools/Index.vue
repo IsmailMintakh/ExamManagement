@@ -21,7 +21,6 @@ const search = useDebouncedSearch({
     routeName: 'schools.index',
     initial: props.filters?.search || '',
     only: ['schools', 'filters'],
-    delay: 0,
 })
 const confirmDelete = ref(false)
 const schoolToDelete = ref(null)

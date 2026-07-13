@@ -19,7 +19,6 @@ const search = useDebouncedSearch({
     routeName: 'academic-sessions.index',
     initial: props.filters?.search || '',
     only: ['sessions', 'filters'],
-    delay: 0,
 })
 const confirmDelete = ref(false)
 const sessionToDelete = ref(null)

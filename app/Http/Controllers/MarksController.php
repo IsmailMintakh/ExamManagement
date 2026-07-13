@@ -127,6 +127,11 @@ class MarksController extends Controller
                 $sections = $allSections->get($es->school_class_id, collect());
 
                 foreach ($sections as $sec) {
+                    // Skip sections that were explicitly excluded from this
+                    // subject on the exam-edit page. No marks-entry cell,
+                    // no submission expectation.
+                    if (!$es->appliesToSection((int) $sec->id)) continue;
+
                     // Non-admins only see (subject, section) pairs they have
                     // an active SubjectTeacher row for. Class-teacher-of-
                     // section is not a marks-entry avenue — strictly
@@ -202,6 +207,13 @@ class MarksController extends Controller
             ->where('subject_id', $subject)
             ->where('school_class_id', $sectionModel->school_class_id)
             ->firstOrFail();
+
+        // Respect per-subject "excluded sections" — if this section was
+        // ticked off in the exam-subject picker, marks entry doesn't
+        // apply and we abort instead of showing a phantom paper.
+        if (!$examSubject->appliesToSection($section)) {
+            abort(404, 'This section does not take this subject in the current exam.');
+        }
 
         $students = Student::where('section_id', $section)
             ->active()

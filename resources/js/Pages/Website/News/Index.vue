@@ -11,6 +11,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { formatDate } from '@/Utils/format'
 import { confirmDelete } from '@/lib/swal'
+import { usePreservedFocus } from '@/Composables/usePreservedFocus'
 
 const props = defineProps({
     articles:   { type: Object, default: () => ({ data: [] }) },
@@ -19,6 +20,8 @@ const props = defineProps({
 })
 
 const search = ref(props.filters.search || '')
+const searchEl = ref(null)
+usePreservedFocus(searchEl)
 const category = ref(props.filters.category || '')
 
 let debounceTimer = null
@@ -58,7 +61,7 @@ async function destroy(id) {
                 <header class="surface-header">
                     <div class="relative flex-1 max-w-md">
                         <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/40" />
-                        <input v-model="search" type="text" placeholder="Search title or excerpt…"
+                        <input ref="searchEl" v-model="search" type="text" placeholder="Search title or excerpt…"
                             class="input input-bordered input-sm w-full pl-9 text-sm" />
                     </div>
                     <div class="min-w-[180px]">

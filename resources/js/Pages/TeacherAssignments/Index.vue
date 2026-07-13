@@ -25,7 +25,6 @@ const search = useDebouncedSearch({
     routeName: 'teacher-assignments.index',
     initial: props.filters?.search || '',
     only: ['assignments', 'filters'],
-    delay: 0,
 })
 const confirmDelete = ref(false)
 const assignmentToDelete = ref(null)

@@ -39,7 +39,6 @@ const search = useDebouncedSearch({
     routeName: 'sections.index',
     initial: props.filters?.search || '',
     only: ['sections', 'filters'],
-    delay: 0,
 })
 const confirmDelete = ref(false)
 const sectionToDelete = ref(null)

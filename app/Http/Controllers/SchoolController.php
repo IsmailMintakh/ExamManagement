@@ -114,6 +114,7 @@ class SchoolController extends Controller
 
             return $school;
         });
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         $msg = 'School created successfully.';
         if ($principalEmail) {

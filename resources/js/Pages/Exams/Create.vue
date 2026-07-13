@@ -66,6 +66,10 @@ const form = useForm({
     subjects: props.exam?.exam_subjects?.map(es => ({
         subject_id: es.subject_id,
         school_class_id: es.school_class_id,
+        // Per-subject "excluded sections" — sections of the mapped
+        // class that DO NOT take this paper. NULL/empty = every section
+        // takes it (default). Populated by the section-chip picker per row.
+        excluded_section_ids: Array.isArray(es.excluded_section_ids) ? es.excluded_section_ids : [],
         total_marks: es.total_marks,
         passing_marks: es.passing_marks,
         exam_date: es.exam_date || '',
@@ -397,6 +401,7 @@ function applyBulkSubjects() {
             form.subjects.push({
                 subject_id: subjectId,
                 school_class_id: classId,
+                excluded_section_ids: [],
                 total_marks: m.total,
                 passing_marks: m.passing,
                 exam_date: '',
@@ -489,8 +494,39 @@ function subjectsForClass(classId) {
     return (props.subjects || []).filter(s => allowedIds.has(s.id))
 }
 
+// ─── Per-subject section inclusion picker ───
+// Every mapped (subject, class) implicitly covers ALL sections of the
+// class. This helper set + toggle lets the admin tick off individual
+// sections that don't take the paper — stored inverted as
+// excluded_section_ids so an empty array means "everyone included",
+// matching the DB semantics.
+function sectionsForClass(classId) {
+    const cls = (props.classes || []).find(c => Number(c.id) === Number(classId))
+    return cls?.sections || []
+}
+function isSectionIncluded(row, sectionId) {
+    const excluded = row.excluded_section_ids || []
+    return !excluded.map(Number).includes(Number(sectionId))
+}
+function toggleSectionForRow(row, sectionId) {
+    const excluded = Array.isArray(row.excluded_section_ids) ? [...row.excluded_section_ids] : []
+    const idx = excluded.map(Number).indexOf(Number(sectionId))
+    if (idx >= 0) excluded.splice(idx, 1)
+    else excluded.push(Number(sectionId))
+    row.excluded_section_ids = excluded
+}
+function includedSectionsSummary(row) {
+    const all = sectionsForClass(row.school_class_id)
+    if (!all.length) return null
+    const excluded = new Set((row.excluded_section_ids || []).map(Number))
+    const included = all.filter(s => !excluded.has(Number(s.id)))
+    if (included.length === all.length) return { text: 'All sections', tone: 'ok' }
+    if (included.length === 0) return { text: '⚠ No sections included', tone: 'warn' }
+    return { text: `${included.length}/${all.length} sections`, tone: 'partial' }
+}
+
 function addSubjectRow() {
-    form.subjects.push({ subject_id: '', school_class_id: '', total_marks: form.total_marks || 100, passing_marks: form.passing_marks || 33, exam_date: '' })
+    form.subjects.push({ subject_id: '', school_class_id: '', excluded_section_ids: [], total_marks: form.total_marks || 100, passing_marks: form.passing_marks || 33, exam_date: '' })
 }
 
 // ─── Post-submission edit policy: (class, section) tuple picker ───
@@ -1598,7 +1634,8 @@ function submit() {
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-base-200">
-                                <tr v-for="(row, i) in form.subjects" :key="i"
+                                <template v-for="(row, i) in form.subjects" :key="i">
+                                <tr
                                     :class="[
                                         editSelected.has(i) ? 'bg-violet-500/10' : 'hover:bg-base-200/30',
                                         row.marks_count > 0 ? 'bg-amber-500/5' : '',
@@ -1671,6 +1708,46 @@ function submit() {
                                         </div>
                                     </td>
                                 </tr>
+                                <!-- Per-subject section chips row — only rendered
+                                     when the mapped class has ≥ 2 sections, since
+                                     a single-section class has nothing to exclude.
+                                     Ticked = section takes this paper; unticked =
+                                     excluded. Stored inverted on the row as
+                                     excluded_section_ids to keep "all sections"
+                                     the default (empty array). -->
+                                <tr v-if="sectionsForClass(row.school_class_id).length > 1"
+                                    :key="`sec-${i}`" class="bg-base-200/25">
+                                    <td class="px-3 py-2"></td>
+                                    <td colspan="5" class="px-3 py-2">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <span class="text-[10px] uppercase tracking-wider font-bold text-base-content/55 shrink-0">
+                                                Sections:
+                                            </span>
+                                            <label v-for="sec in sectionsForClass(row.school_class_id)"
+                                                :key="`${i}-sec-${sec.id}`"
+                                                class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border cursor-pointer transition-colors"
+                                                :class="isSectionIncluded(row, sec.id)
+                                                    ? 'border-primary/40 bg-primary/10 text-primary font-semibold'
+                                                    : 'border-base-300 bg-base-100 text-base-content/45 line-through'">
+                                                <input type="checkbox"
+                                                    :checked="isSectionIncluded(row, sec.id)"
+                                                    @change="toggleSectionForRow(row, sec.id)"
+                                                    class="checkbox checkbox-xs" />
+                                                <span class="text-xs">{{ sec.name }}</span>
+                                            </label>
+                                            <span v-if="includedSectionsSummary(row)"
+                                                class="text-[10px] ml-1 font-bold"
+                                                :class="{
+                                                    'text-emerald-700 dark:text-emerald-300': includedSectionsSummary(row).tone === 'ok',
+                                                    'text-amber-700 dark:text-amber-300': includedSectionsSummary(row).tone === 'partial',
+                                                    'text-rose-700 dark:text-rose-300': includedSectionsSummary(row).tone === 'warn',
+                                                }">
+                                                {{ includedSectionsSummary(row).text }}
+                                            </span>
+                                        </div>
+                                    </td>
+                                </tr>
+                                </template>
                             </tbody>
                         </table>
                     </div>

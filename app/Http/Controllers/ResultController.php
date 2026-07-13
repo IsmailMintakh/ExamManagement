@@ -398,17 +398,21 @@ class ResultController extends Controller
             'avgPercentage' => round((clone $resultsBase)->avg('percentage') ?? 0, 2),
         ];
 
-        // Get subjects for this exam/class
+        // Get subjects for this exam/class, respecting the per-subject
+        // "excluded sections" list — a subject explicitly excluded from
+        // this section shouldn't appear as a column in the results grid.
         $subjects = ExamSubject::where('exam_id', $exam->id)
             ->where('school_class_id', $section->school_class_id)
             ->with('subject')
             ->get()
+            ->filter(fn ($es) => $es->appliesToSection($section->id))
             ->map(fn ($es) => [
                 'id' => $es->subject_id,
                 'code' => $es->subject?->code,
                 'name' => $es->subject?->name,
                 'total' => $es->total_marks,
-            ]);
+            ])
+            ->values();
 
         // For primary sections, load every student's Assessment row in one
         // query so the Vue table can render the extra column without N+1.

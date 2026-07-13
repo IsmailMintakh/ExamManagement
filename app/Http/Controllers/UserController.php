@@ -108,6 +108,7 @@ class UserController extends Controller
 
         $user = User::create($data);
         $user->assignRole($role);
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         return redirect()->route('users.index')->with('success', 'User created successfully.');
     }
@@ -224,6 +225,7 @@ class UserController extends Controller
 
                 $user->delete();
             });
+            app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
             $detail = [];
             if ($sectionsFreed > 0) $detail[] = "{$sectionsFreed} section(s) had this user removed as class teacher";

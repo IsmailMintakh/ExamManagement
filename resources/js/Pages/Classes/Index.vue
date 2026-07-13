@@ -11,6 +11,7 @@ import {
     FunnelIcon, ChevronDownIcon, XMarkIcon,
 } from '@heroicons/vue/24/outline'
 import { usePermissions } from '@/Composables/usePermissions'
+import { usePreservedFocus } from '@/Composables/usePreservedFocus'
 
 const { can } = usePermissions()
 
@@ -22,6 +23,8 @@ const props = defineProps({
 })
 
 const search = ref(props.filters?.search || '')
+const searchEl = ref(null)
+usePreservedFocus(searchEl)
 const schoolId = ref(props.filters?.school_id || '')
 const stageFilter = ref(props.filters?.stage || '')
 
@@ -92,7 +95,7 @@ function deleteClass() {
                 <header class="surface-header">
                     <div class="relative flex-1 max-w-md">
                         <MagnifyingGlassIcon class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-base-content/40" />
-                        <input v-model="search" type="text"
+                        <input ref="searchEl" v-model="search" type="text"
                             placeholder="Search classes…"
                             class="input input-bordered input-sm w-full pl-9 text-sm" />
                     </div>

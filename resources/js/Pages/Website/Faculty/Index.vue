@@ -6,6 +6,7 @@ import Pagination from '@/Components/Pagination.vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import { ref, watch } from 'vue'
 import { confirmDelete } from '@/lib/swal'
+import { usePreservedFocus } from '@/Composables/usePreservedFocus'
 import {
     PlusIcon, UserGroupIcon, PencilSquareIcon, TrashIcon,
     StarIcon, MagnifyingGlassIcon, AcademicCapIcon,
@@ -18,6 +19,8 @@ const props = defineProps({
 })
 
 const search = ref(props.filters.search || '')
+const searchEl = ref(null)
+usePreservedFocus(searchEl)
 const department = ref(props.filters.department || '')
 
 let debounceTimer = null
@@ -60,7 +63,7 @@ function initials(name) {
             <div class="flex flex-wrap items-center gap-2">
                 <div class="relative flex-1 min-w-[220px] max-w-md">
                     <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/40" />
-                    <input v-model="search" type="text" placeholder="Search by name, designation…"
+                    <input ref="searchEl" v-model="search" type="text" placeholder="Search by name, designation…"
                         class="input input-bordered input-sm w-full pl-9 text-sm" />
                 </div>
                 <div class="min-w-[180px]">

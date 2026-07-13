@@ -18,7 +18,6 @@ const search = useDebouncedSearch({
     routeName: 'exam-types.index',
     initial: props.filters?.search || '',
     only: ['examTypes', 'filters'],
-    delay: 0,
 })
 const confirmDelete = ref(false)
 const typeToDelete = ref(null)

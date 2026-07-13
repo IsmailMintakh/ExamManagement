@@ -75,6 +75,11 @@ class StoreExamRequest extends FormRequest
             'subjects' => ['nullable', 'array'],
             'subjects.*.subject_id' => ['required_with:subjects', 'exists:subjects,id'],
             'subjects.*.school_class_id' => ['required_with:subjects', 'exists:school_classes,id'],
+            // Optional per-subject "excluded sections" — sections of the
+            // mapped class that DON'T take this paper. NULL/empty means
+            // every section takes it. Each entry must be a valid section.
+            'subjects.*.excluded_section_ids' => ['nullable', 'array'],
+            'subjects.*.excluded_section_ids.*' => ['integer', 'exists:sections,id'],
             'subjects.*.total_marks' => ['required_with:subjects', 'numeric', 'min:0'],
             'subjects.*.passing_marks' => ['required_with:subjects', 'numeric', 'min:0'],
             // Per-subject paper date must fall inside the exam window.

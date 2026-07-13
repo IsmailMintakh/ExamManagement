@@ -1,7 +1,7 @@
 <script setup>
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import { router } from '@inertiajs/vue3'
+import { ref, watch } from 'vue'
 import { MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
+import { usePreservedFocus } from '@/Composables/usePreservedFocus'
 
 const props = defineProps({
     modelValue: { type: String, default: '' },
@@ -18,15 +18,14 @@ const inputEl = ref(null)
 props.filters.forEach((f) => { activeFilters.value[f.key] = '' })
 
 // Sync incoming modelValue → local, only when genuinely different, to
-// avoid redundant reactive round-trips that used to nudge Vue into
-// blurring the input.
+// avoid redundant reactive round-trips that used to blur the input.
 watch(() => props.modelValue, (val) => {
     if (val !== search.value) search.value = val
 })
 
 // Emit on every keystroke — the parent's useDebouncedSearch handles
-// the debounce before firing the Inertia request. A second debounce
-// here caused 600ms lag AND double reactive round-trips.
+// the 300ms debounce. Double-debouncing here caused 600ms lag and
+// double reactive round-trips that fought focus preservation.
 function onSearchInput() {
     emit('update:modelValue', search.value)
 }
@@ -36,48 +35,8 @@ function onFilterChange(key, value) {
     emit('filter', { ...activeFilters.value })
 }
 
-// ─── Focus preservation across Inertia partial reloads ───
-// When the parent debounce fires and Inertia refetches, the DOM re-renders
-// and the input can lose focus. Hooking into the actual router lifecycle
-// (not the prop change) means we restore focus AFTER the DOM settles, which
-// is when the blur actually happens.
-let hadFocus = false
-let caretPos = 0
-let selectionEnd = 0
-let unsubStart = null
-let unsubFinish = null
-
-onMounted(() => {
-    unsubStart = router.on('start', () => {
-        // Snapshot focus + caret at the moment Inertia starts the request,
-        // BEFORE any DOM churn from the response can steal it.
-        hadFocus = document.activeElement === inputEl.value
-        if (hadFocus && inputEl.value) {
-            caretPos = inputEl.value.selectionStart ?? inputEl.value.value.length
-            selectionEnd = inputEl.value.selectionEnd ?? caretPos
-        }
-    })
-
-    unsubFinish = router.on('finish', async () => {
-        if (!hadFocus) return
-        await nextTick()
-        // Wait one more paint frame — the empty-state DOM tree can mount
-        // AFTER nextTick when the reload changes the visible block.
-        requestAnimationFrame(() => {
-            const el = inputEl.value
-            if (el && document.activeElement !== el) {
-                el.focus()
-                try { el.setSelectionRange(caretPos, selectionEnd) } catch (e) { /* ignore */ }
-            }
-            hadFocus = false
-        })
-    })
-})
-
-onBeforeUnmount(() => {
-    if (typeof unsubStart === 'function') unsubStart()
-    if (typeof unsubFinish === 'function') unsubFinish()
-})
+// Focus preservation across Inertia partial reloads — see composable.
+usePreservedFocus(inputEl)
 </script>
 
 <template>

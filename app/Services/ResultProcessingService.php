@@ -55,6 +55,10 @@ class ResultProcessingService
             ->where('school_class_id', $schoolClassId)
             ->with('subject')
             ->get()
+            // Filter out subjects excluded from THIS section — a subject
+            // mapped to Class 5 with section D on its excluded list
+            // shouldn't appear in section D's Result rows at all.
+            ->filter(fn ($es) => $es->appliesToSection($sectionId))
             ->keyBy('subject_id');
 
         if ($examSubjects->isEmpty()) {
