@@ -8,7 +8,7 @@ import {
     BuildingOfficeIcon, AcademicCapIcon, Cog6ToothIcon, EyeIcon,
     SparklesIcon, BoltIcon, PlusIcon, TrashIcon, ExclamationTriangleIcon,
     InformationCircleIcon, XCircleIcon, CheckIcon, BookmarkIcon, BeakerIcon,
-    LockClosedIcon,
+    LockClosedIcon, MagnifyingGlassIcon, XMarkIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -484,6 +484,63 @@ const distinctClassesInRows = computed(() => {
     }
     return [...seen.values()]
 })
+
+// ─── Subjects-table filter (Step 3) ───
+// Big exams have dozens of subject rows — filtering by class and searching
+// by subject name makes editing a single row painless. Uses computed
+// indices so v-for still walks the underlying form.subjects array,
+// keeping v-model bindings + row-level marks_count checks intact.
+const subjectsFilterClassId = ref('')  // '' = all classes
+const subjectsFilterSearch = ref('')
+const subjectsFilterMarked = ref('')   // '' = all, 'yes' = only rows with entered marks, 'no' = only without
+
+const filteredSubjectIndices = computed(() => {
+    const q = subjectsFilterSearch.value.trim().toLowerCase()
+    const cid = subjectsFilterClassId.value ? Number(subjectsFilterClassId.value) : null
+    const marked = subjectsFilterMarked.value
+    const out = []
+    form.subjects.forEach((row, idx) => {
+        if (cid && Number(row.school_class_id) !== cid) return
+        if (marked === 'yes' && !(row.marks_count > 0)) return
+        if (marked === 'no' && row.marks_count > 0) return
+        if (q) {
+            const sub = (props.subjects || []).find(s => Number(s.id) === Number(row.subject_id))
+            const cls = (props.classes || []).find(c => Number(c.id) === Number(row.school_class_id))
+            const hay = `${sub?.name || ''} ${sub?.code || ''} ${cls?.name || ''}`.toLowerCase()
+            if (!hay.includes(q)) return
+        }
+        out.push(idx)
+    })
+    return out
+})
+
+const subjectsFilterActive = computed(() =>
+    !!(subjectsFilterClassId.value || subjectsFilterSearch.value.trim() || subjectsFilterMarked.value)
+)
+
+function clearSubjectFilters() {
+    subjectsFilterClassId.value = ''
+    subjectsFilterSearch.value = ''
+    subjectsFilterMarked.value = ''
+}
+
+// Row counts per class — powers the chip-strip badges so admins see at
+// a glance how many rows each class has.
+const rowCountsByClass = computed(() => {
+    const m = new Map()
+    for (const r of form.subjects) {
+        const cid = Number(r.school_class_id)
+        m.set(cid, (m.get(cid) || 0) + 1)
+    }
+    return m
+})
+
+// { i, row } pairs the table iterates over — `i` is the REAL index into
+// form.subjects (used for v-model), `row` is the actual reactive object
+// (used for read-only bits like row.marks_count).
+const filteredSubjectRows = computed(() =>
+    filteredSubjectIndices.value.map(i => ({ i, row: form.subjects[i] }))
+)
 
 // For the per-row subject dropdown — only show subjects assigned to that row's class
 function subjectsForClass(classId) {
@@ -1527,6 +1584,65 @@ function submit() {
                         <p class="text-xs text-base-content/45 mt-1">Use the bulk apply above to map subjects to classes.</p>
                     </div>
 
+                    <!-- ─── Filter strip — search + class dropdown + class chips + marks toggle ───
+                         Only useful once there's more than a handful of rows to sift through.
+                         Filters ONLY the display; the underlying form.subjects array is unchanged
+                         so v-model bindings, marks_count checks and the Update Marks banner
+                         still key off the real indices. -->
+                    <div v-if="form.subjects.length > 5" class="mx-4 mt-3 mb-2 space-y-2">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <div class="relative flex-1 min-w-[180px] max-w-sm">
+                                <MagnifyingGlassIcon class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-base-content/40" />
+                                <input v-model="subjectsFilterSearch" type="text"
+                                    placeholder="Search subject or class…"
+                                    class="input input-bordered input-xs w-full pl-8 rounded-lg" />
+                            </div>
+                            <select v-model="subjectsFilterClassId"
+                                class="select select-bordered select-xs rounded-lg min-w-[140px]"
+                                title="Filter rows by class">
+                                <option value="">All classes ({{ distinctClassesInRows.length }})</option>
+                                <option v-for="c in distinctClassesInRows" :key="c.id" :value="c.id">
+                                    {{ c.name }} · {{ rowCountsByClass.get(Number(c.id)) || 0 }}
+                                </option>
+                            </select>
+                            <select v-model="subjectsFilterMarked"
+                                class="select select-bordered select-xs rounded-lg"
+                                title="Filter by whether marks have been entered">
+                                <option value="">Any status</option>
+                                <option value="yes">With marks</option>
+                                <option value="no">Without marks</option>
+                            </select>
+                            <span class="text-[11px] text-base-content/55 ml-auto">
+                                Showing <b class="tabular-nums">{{ filteredSubjectIndices.length }}</b>
+                                of <b class="tabular-nums">{{ form.subjects.length }}</b>
+                            </span>
+                            <button v-if="subjectsFilterActive" type="button" @click="clearSubjectFilters"
+                                class="btn btn-ghost btn-xs gap-1">
+                                <XMarkIcon class="w-3 h-3" /> Clear
+                            </button>
+                        </div>
+                        <!-- Class chip strip — one-tap filter for admins who
+                             prefer visual to a dropdown. Repeats info from the
+                             select but is far faster on tablet. -->
+                        <div v-if="distinctClassesInRows.length > 1" class="flex flex-wrap gap-1.5">
+                            <button type="button"
+                                @click="subjectsFilterClassId = ''"
+                                :class="['px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors',
+                                    subjectsFilterClassId === '' ? 'bg-violet-500 text-white' : 'bg-base-200 hover:bg-base-300 text-base-content/70']">
+                                All
+                            </button>
+                            <button v-for="c in distinctClassesInRows" :key="c.id" type="button"
+                                @click="subjectsFilterClassId = subjectsFilterClassId == c.id ? '' : c.id"
+                                :class="['px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors',
+                                    Number(subjectsFilterClassId) === Number(c.id)
+                                        ? 'bg-violet-500 text-white'
+                                        : 'bg-base-200 hover:bg-base-300 text-base-content/70']">
+                                {{ c.name }}
+                                <span class="ml-1 opacity-70 tabular-nums">{{ rowCountsByClass.get(Number(c.id)) || 0 }}</span>
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Edit-mode safety notice: surfaces when at least one row
                          has marks entered. Total / passing are editable so the
                          admin can correct mistakes, with results recalculating
@@ -1634,7 +1750,12 @@ function submit() {
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-base-200">
-                                <template v-for="(row, i) in form.subjects" :key="i">
+                                <!-- Iterate {i, row} pairs — filteredSubjectIndices
+                                     drives which real indices in form.subjects
+                                     survive the filters, so v-model bindings that
+                                     reference form.subjects[i] still write to the
+                                     correct row (never a display copy). -->
+                                <template v-for="{ i, row } in filteredSubjectRows" :key="i">
                                 <tr
                                     :class="[
                                         editSelected.has(i) ? 'bg-violet-500/10' : 'hover:bg-base-200/30',

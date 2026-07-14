@@ -25,6 +25,12 @@ class UpdateSchoolRequest extends FormRequest
             'principal_signature' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1024'],
             'school_stamp' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1024'],
             'exam_officer_signature' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1024'],
+            // UI-only "remove" flags: when true, the controller clears the
+            // matching stored file and nulls the column. Not DB columns.
+            'remove_logo' => ['nullable', 'boolean'],
+            'remove_principal_signature' => ['nullable', 'boolean'],
+            'remove_school_stamp' => ['nullable', 'boolean'],
+            'remove_exam_officer_signature' => ['nullable', 'boolean'],
             'exam_officer_name' => ['nullable', 'string', 'max:120'],
             'principal_name' => ['nullable', 'string', 'max:120'],
             'is_main' => ['boolean'],

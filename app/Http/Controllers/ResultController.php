@@ -219,44 +219,10 @@ class ResultController extends Controller
             })->values();
         }
 
-        // Coverage gap — per class, which subjects in the curriculum
-        // (class_subjects pivot OR active subject_teachers) are NOT on
-        // this exam? Empty for fully-covered classes. Surfaced in the UI
-        // so admins notice before generating ("Class 8 has 8 subjects but
-        // this exam covers only 5") and can use Add Missing Subject.
-        $missingSubjectsPerClass = collect();
-        foreach ($classIds as $classId) {
-            $onExamSubjectIds = $exam->examSubjects
-                ->where('school_class_id', $classId)
-                ->pluck('subject_id')
-                ->all();
-            $curriculumSubjectIds = collect()
-                ->merge(\DB::table('class_subjects')
-                    ->where('school_class_id', $classId)
-                    ->where('is_active', true)
-                    ->pluck('subject_id'))
-                ->merge(\DB::table('subject_teachers')
-                    ->where('school_class_id', $classId)
-                    ->where('is_active', true)
-                    ->pluck('subject_id'))
-                ->unique()
-                ->values()
-                ->all();
-            $missingIds = array_values(array_diff($curriculumSubjectIds, $onExamSubjectIds));
-            if (empty($missingIds)) continue;
-
-            $missingSubjects = \App\Models\Subject::whereIn('id', $missingIds)
-                ->orderBy('name')
-                ->get(['id', 'name', 'code']);
-            $clsRow = $classes->firstWhere('id', $classId);
-            $missingSubjectsPerClass->push([
-                'class_id' => $classId,
-                'class_name' => $clsRow?->name,
-                'on_exam' => count($onExamSubjectIds),
-                'total_curriculum' => count($curriculumSubjectIds),
-                'missing' => $missingSubjects,
-            ]);
-        }
+        // Missing-subject coverage warning removed per user request —
+        // "Add Missing Subject" already lives in Exam Edit → Subjects,
+        // so surfacing the gap again on the Results page was redundant
+        // and produced false positives from stale curriculum rows.
 
         return Inertia::render('Results/Generate', [
             'exam' => array_merge($exam->toArray(), [
@@ -271,7 +237,6 @@ class ResultController extends Controller
             'existingResults' => $existingResults,
             'totalGeneratedResults' => Result::where('exam_id', $exam->id)->count(),
             'assessmentReadiness' => $assessmentReadiness,
-            'missingSubjectsPerClass' => $missingSubjectsPerClass,
             // Soft-deleted marks recovery — surfaces a banner that lets the
             // admin one-click restore any marks that were accidentally
             // deleted via remove-subject / remove-class. NEVER touches

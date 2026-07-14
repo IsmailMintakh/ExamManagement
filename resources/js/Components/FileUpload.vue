@@ -34,13 +34,20 @@ const props = defineProps({
         type: String,
         default: '',
     },
+    // Show a "Remove current file" button on the existing-image preview.
+    // Emits `remove-existing` to the parent, which typically flips a
+    // `remove_<field>` flag in the form so the backend clears the stored file.
+    allowRemoveExisting: {
+        type: Boolean,
+        default: false,
+    },
     helpText: {
         type: String,
         default: '',
     },
 });
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'remove-existing']);
 
 const isDragging = ref(false);
 const sizeError = ref('');
@@ -138,7 +145,12 @@ function openPicker() {
             </template>
             <template v-else-if="existingUrl && preview && !fileName">
                 <img :src="existingUrl" class="mb-2 max-h-32 rounded border border-base-200" alt="Current" />
-                <p class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Current — replace?</p>
+                <p class="text-[10px] uppercase tracking-wider text-base-content/55 font-bold">Current — click to replace</p>
+                <button v-if="allowRemoveExisting" type="button"
+                    class="mt-2 btn btn-ghost btn-xs text-error"
+                    @click.stop="$emit('remove-existing')">
+                    <XMarkIcon class="h-3.5 w-3.5" /> Remove current file
+                </button>
             </template>
             <template v-if="!fileName && !existingUrl">
                 <CloudArrowUpIcon class="mb-2 h-10 w-10 text-base-content/40" />

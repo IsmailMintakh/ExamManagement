@@ -26,6 +26,15 @@ const form = useForm({
     school_stamp: null,
     principal_signature: null,
     exam_officer_signature: null,
+    // remove_* flags — set to true when the user clicks the trash button
+    // on an existing image. On submit the controller clears the file
+    // AND nulls the DB column. Without these flags, an empty file input
+    // would just leave the existing image intact (per the SchoolController
+    // update fix). This is the explicit "remove" path.
+    remove_logo: false,
+    remove_school_stamp: false,
+    remove_principal_signature: false,
+    remove_exam_officer_signature: false,
     is_active: props.school?.is_active ?? true,
     // Principal login fields — only sent on create. On edit, the Principal
     // user already exists; password resets happen via the User edit page.
@@ -87,22 +96,30 @@ function submit() {
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <FileUpload v-model="form.logo" label="School Logo"
                                 accept="image/*" :preview="true" :error="form.errors.logo"
-                                :existing-url="existingUrl(props.school?.logo)"
+                                :existing-url="form.remove_logo ? '' : existingUrl(props.school?.logo)"
+                                :allow-remove-existing="isEdit && !!props.school?.logo && !form.remove_logo"
+                                @remove-existing="form.remove_logo = true"
                                 help-text="Square is best. Shown on PDFs &amp; ID cards." />
                             <FileUpload v-model="form.school_stamp" label="School Stamp"
                                 accept="image/png,image/webp,image/svg+xml" :preview="true"
                                 :error="form.errors.school_stamp"
-                                :existing-url="existingUrl(props.school?.school_stamp)"
+                                :existing-url="form.remove_school_stamp ? '' : existingUrl(props.school?.school_stamp)"
+                                :allow-remove-existing="isEdit && !!props.school?.school_stamp && !form.remove_school_stamp"
+                                @remove-existing="form.remove_school_stamp = true"
                                 help-text="Round/oval stamp. Transparent PNG looks best." />
                             <FileUpload v-model="form.principal_signature" label="Principal Signature"
                                 accept="image/png,image/webp,image/svg+xml" :preview="true"
                                 :error="form.errors.principal_signature"
-                                :existing-url="existingUrl(props.school?.principal_signature)"
+                                :existing-url="form.remove_principal_signature ? '' : existingUrl(props.school?.principal_signature)"
+                                :allow-remove-existing="isEdit && !!props.school?.principal_signature && !form.remove_principal_signature"
+                                @remove-existing="form.remove_principal_signature = true"
                                 help-text="Black ink on white. Transparent PNG ideal." />
                             <FileUpload v-model="form.exam_officer_signature" label="Exam Officer Signature"
                                 accept="image/png,image/webp,image/svg+xml" :preview="true"
                                 :error="form.errors.exam_officer_signature"
-                                :existing-url="existingUrl(props.school?.exam_officer_signature)"
+                                :existing-url="form.remove_exam_officer_signature ? '' : existingUrl(props.school?.exam_officer_signature)"
+                                :allow-remove-existing="isEdit && !!props.school?.exam_officer_signature && !form.remove_exam_officer_signature"
+                                @remove-existing="form.remove_exam_officer_signature = true"
                                 help-text="Used on date sheets &amp; admit cards." />
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">

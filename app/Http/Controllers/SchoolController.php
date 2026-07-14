@@ -162,32 +162,43 @@ class SchoolController extends Controller
     {
         $data = $request->validated();
 
-        if ($request->hasFile('logo')) {
-            if ($school->logo) {
-                Storage::disk('public')->delete($school->logo);
+        // File-upload columns get special handling. Each block below
+        //   - overwrites $data[col] with the newly-stored path when a
+        //     file WAS uploaded,
+        //   - clears the existing file + nulls the column when the user
+        //     explicitly ticked "remove" (remove_<col> flag), OR
+        //   - unset()s the key entirely so $school->update($data) doesn't
+        //     touch the DB value.
+        // Without the unset, an empty file input on subsequent edits
+        // silently wiped every other uploaded image — reason: validated()
+        // returns null for the empty file, which then propagated into
+        // update() and set the column to null. The user had to re-upload
+        // every image on every edit; now only the field they touch changes.
+        $fileFields = [
+            'logo'                    => 'schools/logos',
+            'principal_signature'     => 'schools/signatures',
+            'school_stamp'            => 'schools/stamps',
+            'exam_officer_signature'  => 'schools/signatures',
+        ];
+        foreach ($fileFields as $col => $dir) {
+            if ($request->hasFile($col)) {
+                if ($school->{$col}) {
+                    Storage::disk('public')->delete($school->{$col});
+                }
+                $data[$col] = $request->file($col)->store($dir, 'public');
+            } elseif ($request->boolean("remove_{$col}")) {
+                if ($school->{$col}) {
+                    Storage::disk('public')->delete($school->{$col});
+                }
+                $data[$col] = null;
+            } else {
+                // No new upload AND no explicit remove — keep whatever
+                // is already in the DB. Removing the key prevents Eloquent
+                // from writing a null over the existing path.
+                unset($data[$col]);
             }
-            $data['logo'] = $request->file('logo')->store('schools/logos', 'public');
-        }
-
-        if ($request->hasFile('principal_signature')) {
-            if ($school->principal_signature) {
-                Storage::disk('public')->delete($school->principal_signature);
-            }
-            $data['principal_signature'] = $request->file('principal_signature')->store('schools/signatures', 'public');
-        }
-
-        if ($request->hasFile('school_stamp')) {
-            if ($school->school_stamp) {
-                Storage::disk('public')->delete($school->school_stamp);
-            }
-            $data['school_stamp'] = $request->file('school_stamp')->store('schools/stamps', 'public');
-        }
-
-        if ($request->hasFile('exam_officer_signature')) {
-            if ($school->exam_officer_signature) {
-                Storage::disk('public')->delete($school->exam_officer_signature);
-            }
-            $data['exam_officer_signature'] = $request->file('exam_officer_signature')->store('schools/signatures', 'public');
+            // remove_<col> is a UI-only intent flag, never a DB column.
+            unset($data["remove_{$col}"]);
         }
 
         $school->update($data);

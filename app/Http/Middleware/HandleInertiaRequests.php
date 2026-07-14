@@ -31,6 +31,12 @@ class HandleInertiaRequests extends Middleware
                     'email' => $user->email,
                     'phone' => $user->phone,
                     'avatar' => $user->avatar_url,
+                    // Signature preview on the Profile → Signature form
+                    // reads user.signature_url. Without this, the preview
+                    // block stays blank after upload — the file WAS saved,
+                    // there was just no URL exposed for the Vue side.
+                    'signature_url' => $user->signature_url,
+                    'signature_image' => $user->signature_image,
                     'school_id' => $user->school_id,
                     'school' => $user->school ? [
                         'id' => $user->school->id,
