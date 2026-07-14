@@ -264,7 +264,12 @@ class SupplementaryController extends Controller
             ->where('school_class_id', $result->school_class_id)
             ->whereIn('subject_id', $subjectIds)
             ->with('subject')
-            ->get();
+            ->get()
+            // Skip papers this section doesn't take — supplementary
+            // should never surface a subject that was excluded at exam
+            // setup time.
+            ->filter(fn ($es) => $es->appliesToSection((int) $result->section_id))
+            ->values();
 
         $existingMarks = Mark::where('exam_id', $result->exam_id)
             ->where('student_id', $result->student_id)
@@ -357,6 +362,12 @@ class SupplementaryController extends Controller
                     ->where('school_class_id', $result->school_class_id)
                     ->where('subject_id', $subjectId)
                     ->first();
+                // Refuse supplementary marks for a subject not applicable
+                // to this student's section — defense in depth even though
+                // the form-side list should already have filtered it out.
+                if ($examSubject && !$examSubject->appliesToSection((int) $result->section_id)) {
+                    continue;
+                }
 
                 if (!$examSubject) {
                     continue;

@@ -122,10 +122,15 @@ class ResultController extends Controller
 
         // Marks submission status — include class/section ids so the
         // frontend can group by class and check "all subjects submitted".
+        // Respect per-subject "excluded sections" — a section that
+        // doesn't take this paper shouldn't appear as a pending marks
+        // entry (that's why Civics showed up on 9-A/9-B even though it
+        // was only mapped to 9-C/9-D).
         $marksStatus = [];
         foreach ($exam->examSubjects as $es) {
             $secs = Section::where('school_class_id', $es->school_class_id)->active()->get();
             foreach ($secs as $sec) {
+                if (!$es->appliesToSection((int) $sec->id)) continue;
                 $submission = MarksSubmission::where('exam_id', $exam->id)
                     ->where('subject_id', $es->subject_id)
                     ->where('section_id', $sec->id)
@@ -292,10 +297,15 @@ class ResultController extends Controller
         $examSubjects = ExamSubject::where('exam_id', $exam->id)
             ->where('school_class_id', $validated['school_class_id'])
             ->with('subject:id,name')
-            ->get();
+            ->get()
+            // Only require submissions for subjects the target section
+            // actually takes. Excluded subjects would otherwise block
+            // generation with a phantom "pending marks" error.
+            ->filter(fn ($es) => $es->appliesToSection((int) $validated['section_id']))
+            ->values();
 
         if ($examSubjects->isEmpty()) {
-            return redirect()->back()->with('error', 'No subjects are set up for this class in this exam.');
+            return redirect()->back()->with('error', 'No subjects are set up for this section in this exam.');
         }
 
         $pending = [];
