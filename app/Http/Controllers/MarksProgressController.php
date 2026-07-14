@@ -102,6 +102,10 @@ class MarksProgressController extends Controller
         foreach ($examSubjects as $es) {
             $secsForClass = $sections->where('school_class_id', $es->school_class_id);
             foreach ($secsForClass as $sec) {
+                // Respect per-subject "excluded sections" — a section
+                // that doesn't take this paper shouldn't appear as a
+                // pending marks cell to teachers or admins.
+                if (!$es->appliesToSection((int) $sec->id)) continue;
                 $key = "{$es->subject_id}|{$sec->id}";
                 $sub = $submissions->get($key);
                 $hasMarks = isset($marksCount[$key]);

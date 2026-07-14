@@ -308,13 +308,18 @@ class ReportController extends Controller
         $school = $schoolClassModel->school;
         $academicSession = $examModel->academicSession;
 
-        // Build subjects list for table header
-        $subjects = $examModel->examSubjects->map(fn ($es) => [
-            'id' => $es->subject_id,
-            'code' => $es->subject?->code ?? $es->subject?->name,
-            'name' => $es->subject?->name,
-            'total' => $es->total_marks,
-        ])->toArray();
+        // Build subjects list for table header — respect per-subject
+        // excluded_section_ids so section-specific carve-outs (e.g. 9-A
+        // takes Computer, 9-B takes Biology) don't produce empty columns.
+        // When the sheet is class-scoped (no section), keep every subject.
+        $subjects = $examModel->examSubjects
+            ->when($sectionId, fn ($col) => $col->filter(fn ($es) => $es->appliesToSection((int) $sectionId)))
+            ->map(fn ($es) => [
+                'id' => $es->subject_id,
+                'code' => $es->subject?->code ?? $es->subject?->name,
+                'name' => $es->subject?->name,
+                'total' => $es->total_marks,
+            ])->values()->toArray();
 
         // Per-subject cells come from the AUTHORITATIVE result snapshot
         // (same source as report cards / mark sheets) so grace marks and
