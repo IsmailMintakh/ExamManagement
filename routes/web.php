@@ -688,6 +688,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('result-sheet/{exam}/{schoolClass}', [ReportController::class, 'resultSheet'])->name('result-sheet');
         Route::get('report-card/{exam}/{student}', [ReportController::class, 'reportCard'])->name('report-card');
         Route::get('section-mark-sheets/{exam}/{section}', [ReportController::class, 'sectionMarkSheets'])->name('section-mark-sheets');
+        // Board-pattern term-wise result for primary classes (ECD → 5).
+        // PDF by default, ?format=xlsx for Excel. Non-primary sections 404.
+        Route::get('board-primary/{exam}/{section}', [ReportController::class, 'boardPrimaryResult'])->name('board-primary');
         // Bulk: every student in the exam (or one class via ?school_class_id) in one stacked PDF.
         Route::get('bulk-mark-sheets/{exam}', [ReportController::class, 'bulkMarkSheets'])->name('bulk-mark-sheets');
         // Bulk: result sheet for every class in one PDF, page-break between classes.

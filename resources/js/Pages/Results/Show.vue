@@ -10,7 +10,7 @@ import {
     XCircleIcon, AcademicCapIcon,
     ChartBarIcon, IdentificationIcon,
     DocumentDuplicateIcon, PencilSquareIcon,
-    ArrowPathIcon, ClockIcon, XMarkIcon, ArrowDownTrayIcon,
+    ArrowPathIcon, ClockIcon, XMarkIcon, ArrowDownTrayIcon, DocumentTextIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -99,6 +99,21 @@ function downloadAllMarkSheetsPdf(examId, sectionId) {
     a.click()
     a.remove()
 }
+
+// Board-pattern term-wise result — primary classes only. Two formats:
+// pdf opens in a new tab (preview), xlsx downloads the workbook.
+function openBoardPrimaryPdf(examId, sectionId) {
+    window.open(route('reports.board-primary', [examId, sectionId]), '_blank')
+}
+function downloadBoardPrimaryXlsx(examId, sectionId) {
+    const url = route('reports.board-primary', [examId, sectionId]) + '?format=xlsx'
+    const a = document.createElement('a')
+    a.href = url
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+}
 </script>
 
 <template>
@@ -118,6 +133,21 @@ function downloadAllMarkSheetsPdf(examId, sectionId) {
                     </p>
                 </div>
                 <div class="flex flex-wrap gap-2">
+                    <!-- Board-pattern term-wise PDF + Excel — primary only.
+                         Single-page landscape sheet in the government format
+                         combining T-I, T-II and T-III side-by-side. -->
+                    <template v-if="isPrimary">
+                        <button @click="openBoardPrimaryPdf(exam?.id, section?.id)"
+                            class="btn btn-info btn-sm gap-1.5"
+                            title="Board-pattern term-wise result sheet (T-I, T-II, T-III combined) — PDF.">
+                            <DocumentTextIcon class="w-4 h-4" /> Board Result (PDF)
+                        </button>
+                        <button @click="downloadBoardPrimaryXlsx(exam?.id, section?.id)"
+                            class="btn btn-info btn-sm btn-outline gap-1.5"
+                            title="Same board-pattern sheet as an Excel workbook.">
+                            <ArrowDownTrayIcon class="w-4 h-4" /> Board Result (Excel)
+                        </button>
+                    </template>
                     <button @click="downloadAllMarkSheetsPdf(exam?.id, section?.id)"
                         class="btn btn-success btn-sm gap-1.5"
                         title="Download all students' mark sheets for this section as a single PDF file.">
