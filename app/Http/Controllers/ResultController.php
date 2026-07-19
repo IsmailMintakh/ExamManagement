@@ -244,6 +244,21 @@ class ResultController extends Controller
             'deletedMarksCount' => \App\Models\Mark::onlyTrashed()
                 ->where('exam_id', $exam->id)
                 ->count(),
+            // Primary sections that qualify for the board-pattern multi-sheet
+            // Excel — used by the "Board — Primary Bulk (Excel)" card on the
+            // Generate page. Every entry: {id, name, class_name, class_id}.
+            'primarySectionsForBoard' => $sections
+                ->filter(fn ($s) => $primarySectionIds->contains($s->id))
+                ->map(function ($s) use ($classes) {
+                    $cls = $classes->firstWhere('id', $s->school_class_id);
+                    return [
+                        'id'         => (int) $s->id,
+                        'name'       => $s->name,
+                        'class_id'   => (int) $s->school_class_id,
+                        'class_name' => $cls?->name,
+                    ];
+                })
+                ->values(),
         ]);
     }
 

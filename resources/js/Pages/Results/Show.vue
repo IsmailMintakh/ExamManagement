@@ -114,6 +114,18 @@ function downloadBoardPrimaryXlsx(examId, sectionId) {
     a.click()
     a.remove()
 }
+
+// Every primary section, one workbook — one sheet per section. Same
+// per-section layout as the single-section export, just batched.
+function downloadBoardPrimaryAllSectionsXlsx(examId) {
+    const url = route('reports.board-primary-all', [examId])
+    const a = document.createElement('a')
+    a.href = url
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+}
 </script>
 
 <template>
@@ -124,44 +136,68 @@ function downloadBoardPrimaryXlsx(examId, sectionId) {
         { label: `${schoolClass?.name} - ${section?.name}` }
     ]">
         <div class="space-y-6">
-            <!-- Header -->
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                    <h1 class="text-xl font-bold">{{ exam?.name }}</h1>
-                    <p class="text-sm text-base-content/60 mt-0.5">
+            <!-- Header — title stacks above the action grid on mobile,
+                 sits inline on lg+. Overflow-safe truncation on the title
+                 line so long exam names don't push buttons off-screen. -->
+            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                <div class="min-w-0 flex-1">
+                    <h1 class="text-lg sm:text-xl font-bold truncate">{{ exam?.name }}</h1>
+                    <p class="text-xs sm:text-sm text-base-content/60 mt-0.5 truncate">
                         {{ schoolClass?.name }} - {{ section?.name }} &middot; Result Sheet
                     </p>
                 </div>
-                <div class="flex flex-wrap gap-2">
-                    <!-- Board-pattern term-wise PDF + Excel — primary only.
-                         Single-page landscape sheet in the government format
-                         combining T-I, T-II and T-III side-by-side. -->
+                <!--
+                    Action buttons — uniform sizing across breakpoints.
+                      · mobile (default): full-width, 2-column grid
+                      · sm+: 3 columns
+                      · lg+: horizontal row, min-width so widths look aligned
+                    Every button carries the same base class list so heights,
+                    padding and gap match regardless of colour variant.
+                -->
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:flex lg:flex-wrap gap-2 sm:w-auto">
                     <template v-if="isPrimary">
                         <button @click="openBoardPrimaryPdf(exam?.id, section?.id)"
-                            class="btn btn-info btn-sm gap-1.5"
+                            class="btn btn-info btn-sm gap-1.5 justify-center lg:min-w-[164px] normal-case"
                             title="Board-pattern term-wise result sheet (T-I, T-II, T-III combined) — PDF.">
-                            <DocumentTextIcon class="w-4 h-4" /> Board Result (PDF)
+                            <DocumentTextIcon class="w-4 h-4 shrink-0" />
+                            <span class="truncate">Board (PDF)</span>
                         </button>
                         <button @click="downloadBoardPrimaryXlsx(exam?.id, section?.id)"
-                            class="btn btn-info btn-sm btn-outline gap-1.5"
+                            class="btn btn-info btn-sm btn-outline gap-1.5 justify-center lg:min-w-[164px] normal-case"
                             title="Same board-pattern sheet as an Excel workbook.">
-                            <ArrowDownTrayIcon class="w-4 h-4" /> Board Result (Excel)
+                            <ArrowDownTrayIcon class="w-4 h-4 shrink-0" />
+                            <span class="truncate">Board (Excel)</span>
+                        </button>
+                        <button @click="downloadBoardPrimaryAllSectionsXlsx(exam?.id)"
+                            class="btn btn-primary btn-sm gap-1.5 justify-center lg:min-w-[164px] normal-case"
+                            title="Every primary section for this exam in ONE Excel workbook — one tab per section, same board format.">
+                            <ArrowDownTrayIcon class="w-4 h-4 shrink-0" />
+                            <span class="truncate">Board — All Sections</span>
                         </button>
                     </template>
                     <button @click="downloadAllMarkSheetsPdf(exam?.id, section?.id)"
-                        class="btn btn-success btn-sm gap-1.5"
+                        class="btn btn-success btn-sm gap-1.5 justify-center lg:min-w-[164px] normal-case"
                         title="Download all students' mark sheets for this section as a single PDF file.">
-                        <ArrowDownTrayIcon class="w-4 h-4" /> Download Mark Sheets
+                        <ArrowDownTrayIcon class="w-4 h-4 shrink-0" />
+                        <span class="truncate">Mark Sheets</span>
                     </button>
-                    <button @click="downloadAllMarkSheets(exam?.id, section?.id)" class="btn btn-primary btn-sm gap-1.5"
+                    <button @click="downloadAllMarkSheets(exam?.id, section?.id)"
+                        class="btn btn-primary btn-sm gap-1.5 justify-center lg:min-w-[164px] normal-case"
                         title="Open all mark sheets in a new tab (preview only).">
-                        <IdentificationIcon class="w-4 h-4" /> All Mark Sheets
+                        <IdentificationIcon class="w-4 h-4 shrink-0" />
+                        <span class="truncate">Preview Sheets</span>
                     </button>
-                    <button @click="printResultSheet(exam?.id, schoolClass?.id, section?.id)" class="btn btn-outline btn-sm gap-1.5">
-                        <PrinterIcon class="w-4 h-4" /> Result Sheet
+                    <button @click="printResultSheet(exam?.id, schoolClass?.id, section?.id)"
+                        class="btn btn-outline btn-sm gap-1.5 justify-center lg:min-w-[164px] normal-case"
+                        title="Class result sheet PDF.">
+                        <PrinterIcon class="w-4 h-4 shrink-0" />
+                        <span class="truncate">Result Sheet</span>
                     </button>
-                    <button @click="exportResults(exam?.id)" class="btn btn-outline btn-sm gap-1.5">
-                        <DocumentArrowDownIcon class="w-4 h-4" /> Export CSV
+                    <button @click="exportResults(exam?.id)"
+                        class="btn btn-outline btn-sm gap-1.5 justify-center lg:min-w-[164px] normal-case"
+                        title="Export the whole result set as a CSV file.">
+                        <DocumentArrowDownIcon class="w-4 h-4 shrink-0" />
+                        <span class="truncate">Export CSV</span>
                     </button>
                 </div>
             </div>

@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class ExamSubject extends Model
 {
     protected $fillable = [
-        'exam_id', 'subject_id', 'school_class_id',
+        'exam_id', 'subject_id', 'teacher_id', 'school_class_id',
         'total_marks', 'passing_marks', 'exam_date', 'start_time', 'end_time',
         'excluded_section_ids',
     ];
@@ -58,5 +58,15 @@ class ExamSubject extends Model
     public function marks()
     {
         return $this->hasMany(Mark::class);
+    }
+
+    /**
+     * Teacher assigned to this subject FOR this specific exam. NULL when
+     * the school hasn't overridden the section-level SubjectTeacher for
+     * this exam — the report layer falls back to that assignment.
+     */
+    public function teacher()
+    {
+        return $this->belongsTo(User::class, 'teacher_id');
     }
 }

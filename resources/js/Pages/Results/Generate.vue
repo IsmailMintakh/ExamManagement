@@ -9,6 +9,7 @@ import {
     MagnifyingGlassIcon, AcademicCapIcon, BoltIcon,
     ArrowPathIcon, ClockIcon, PrinterIcon, DocumentDuplicateIcon,
     IdentificationIcon, XCircleIcon, PencilSquareIcon,
+    ArrowDownTrayIcon, TableCellsIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -25,7 +26,61 @@ const props = defineProps({
     // Count of soft-deleted Mark rows for this exam. > 0 means recovery
     // is available — admin clicks the banner and we restore them all.
     deletedMarksCount: { type: Number, default: 0 },
+    // Primary sections eligible for the board-pattern multi-sheet export.
+    // Each entry: { id, name, class_id, class_name }. Empty = no primary
+    // sections, in which case the "Board — Bulk (Excel)" card is hidden.
+    primarySectionsForBoard: { type: Array, default: () => [] },
 })
+
+// ── Board-pattern multi-sheet Excel export ──
+// User ticks the sections they want, hits Download, and the backend
+// returns ONE workbook with one sheet per selected section.
+const boardPickerOpen = ref(false)
+const boardPicked = ref({})   // section_id (string) → boolean
+const boardIsDownloading = ref(false)
+
+// Group the flat section list by class so the picker reads
+// "Class One → A, B, C  |  Class Two → A, B ...".
+const boardSectionsByClass = computed(() => {
+    const groups = new Map()
+    for (const s of props.primarySectionsForBoard) {
+        const key = s.class_id
+        if (!groups.has(key)) groups.set(key, { class_id: key, class_name: s.class_name, sections: [] })
+        groups.get(key).sections.push(s)
+    }
+    return Array.from(groups.values())
+})
+const boardPickedCount = computed(
+    () => Object.values(boardPicked.value).filter(Boolean).length
+)
+const boardTotalCount = computed(() => props.primarySectionsForBoard.length)
+
+function boardToggleClass(classGroup, on) {
+    for (const s of classGroup.sections) boardPicked.value[String(s.id)] = on
+}
+function boardSelectAll(on) {
+    for (const s of props.primarySectionsForBoard) boardPicked.value[String(s.id)] = on
+}
+function boardIsClassAllOn(classGroup) {
+    return classGroup.sections.every(s => boardPicked.value[String(s.id)])
+}
+function boardDownload() {
+    const ids = Object.entries(boardPicked.value).filter(([_, v]) => v).map(([k]) => k)
+    if (ids.length === 0) { alert('Pick at least one section first.'); return }
+    boardIsDownloading.value = true
+    // Query-string with sections[]=… so the backend filter picks it up.
+    const base = route('reports.board-primary-all', [props.exam.id])
+    const qs = ids.map(id => 'sections%5B%5D=' + encodeURIComponent(id)).join('&')
+    const a = document.createElement('a')
+    a.href = base + '?' + qs
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    // Reset the loading state on a short timer — the download starts in
+    // another tab-like context, so we don't get a completion event.
+    setTimeout(() => { boardIsDownloading.value = false }, 1500)
+}
 
 const restoringMarks = ref(false)
 function restoreDeletedMarks() {
@@ -597,6 +652,99 @@ async function generateAllReady() {
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- ═══════════ BOARD PATTERN — MULTI-SHEET EXCEL ═══════════
+                 Only appears when this exam has at least one primary
+                 section. Lets an admin pick any subset of primary sections
+                 and download a single Excel workbook with one tab per
+                 selected section, all in the board format. -->
+            <div v-if="boardTotalCount > 0"
+                 class="rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 to-teal-500/5 p-4">
+                <div class="flex items-start justify-between gap-3 flex-wrap">
+                    <div class="flex items-start gap-3 min-w-0">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white
+                                    flex items-center justify-center shadow-md shadow-emerald-500/25 shrink-0">
+                            <TableCellsIcon class="w-5 h-5" />
+                        </div>
+                        <div class="min-w-0">
+                            <h3 class="text-sm font-bold">Board Pattern — All / Selected Primary Sections</h3>
+                            <p class="text-xs text-base-content/60 mt-0.5">
+                                One Excel workbook, one tab per section — same board format as the single-section download.
+                                Pick which sections to include, or grab them all.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button @click="boardPickerOpen = !boardPickerOpen"
+                            class="btn btn-outline btn-sm gap-1.5">
+                            <ChevronDownIcon class="w-4 h-4 transition-transform"
+                                :class="boardPickerOpen ? 'rotate-180' : ''" />
+                            {{ boardPickerOpen ? 'Hide picker' : 'Pick sections' }}
+                        </button>
+                        <button @click="boardSelectAll(true); boardDownload()"
+                            :disabled="boardIsDownloading"
+                            class="btn btn-primary btn-sm gap-1.5">
+                            <ArrowDownTrayIcon v-if="!boardIsDownloading" class="w-4 h-4" />
+                            <span v-else class="loading loading-spinner loading-xs"></span>
+                            Download all ({{ boardTotalCount }})
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Picker — checkbox tree grouped by class -->
+                <Transition
+                    enter-active-class="transition duration-200 ease-out"
+                    enter-from-class="opacity-0 -translate-y-1"
+                    enter-to-class="opacity-100 translate-y-0"
+                    leave-active-class="transition duration-150 ease-in"
+                    leave-from-class="opacity-100 translate-y-0"
+                    leave-to-class="opacity-0 -translate-y-1"
+                >
+                    <div v-if="boardPickerOpen" class="mt-4 space-y-3">
+                        <div class="flex items-center justify-between gap-2 flex-wrap">
+                            <div class="text-xs text-base-content/60">
+                                <b class="text-base-content">{{ boardPickedCount }}</b> of
+                                {{ boardTotalCount }} section{{ boardTotalCount === 1 ? '' : 's' }} selected
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <button @click="boardSelectAll(true)"  class="btn btn-ghost btn-xs">Select all</button>
+                                <button @click="boardSelectAll(false)" class="btn btn-ghost btn-xs">Clear</button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div v-for="grp in boardSectionsByClass" :key="grp.class_id"
+                                 class="rounded-xl border border-base-300 bg-base-100 p-3">
+                                <label class="flex items-center gap-2 cursor-pointer border-b border-base-200 pb-2 mb-2">
+                                    <input type="checkbox" class="checkbox checkbox-sm checkbox-primary"
+                                        :checked="boardIsClassAllOn(grp)"
+                                        @change="e => boardToggleClass(grp, e.target.checked)" />
+                                    <span class="font-semibold text-sm">Class {{ grp.class_name }}</span>
+                                    <span class="text-[10px] text-base-content/50 ml-auto">{{ grp.sections.length }}</span>
+                                </label>
+                                <div class="space-y-1">
+                                    <label v-for="s in grp.sections" :key="s.id"
+                                        class="flex items-center gap-2 cursor-pointer px-1 py-1 rounded hover:bg-base-200/60">
+                                        <input type="checkbox" class="checkbox checkbox-xs"
+                                            v-model="boardPicked[String(s.id)]" />
+                                        <span class="text-xs">{{ s.name }}</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end pt-1">
+                            <button @click="boardDownload"
+                                :disabled="boardPickedCount === 0 || boardIsDownloading"
+                                class="btn btn-primary btn-sm gap-1.5">
+                                <ArrowDownTrayIcon v-if="!boardIsDownloading" class="w-4 h-4" />
+                                <span v-else class="loading loading-spinner loading-xs"></span>
+                                Download selected ({{ boardPickedCount }})
+                            </button>
+                        </div>
+                    </div>
+                </Transition>
             </div>
 
             <!-- ───── Help note ───── -->

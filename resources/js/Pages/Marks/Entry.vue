@@ -9,8 +9,9 @@ import {
     InformationCircleIcon, KeyIcon, ClipboardDocumentIcon,
     MagnifyingGlassIcon, ChatBubbleLeftEllipsisIcon, ChevronDownIcon,
     PencilSquareIcon, ArrowPathIcon, PaperAirplaneIcon,
-    ArchiveBoxIcon, ClockIcon,
+    ArchiveBoxIcon, ClockIcon, CameraIcon,
 } from '@heroicons/vue/24/outline'
+import MarksOcrModal from '@/Components/MarksOcrModal.vue'
 
 const props = defineProps({
     exam: Object,
@@ -36,6 +37,41 @@ const props = defineProps({
     // their previously-submitted data came back automatically — no clicks.
     autoRestoredCount: { type: Number, default: 0 },
 })
+
+const showOcrModal = ref(false)
+// Ingest the { roll_no, marks } pairs the OCR modal emits: match each
+// pair to a real student row by roll_no, write marks_obtained, mark it
+// dirty so autosave picks it up. Tracks how many were applied vs skipped
+// (skipped = roll_no didn't match any student in this section).
+//
+// Matching is loose on leading zeros — DB stores roll as "02" but OCR
+// gives plain "2"; both point at the same student.
+function applyOcrPairs(pairs) {
+    const normalizeRoll = (s) => String(s ?? '').trim().replace(/^0+(?=\d)/, '')
+    const byRoll = new Map()
+    rows.value.forEach(r => { if (r.roll_no != null) byRoll.set(normalizeRoll(r.roll_no), r) })
+
+    let applied = 0, skipped = 0
+    for (const { roll_no, marks } of pairs) {
+        const row = byRoll.get(normalizeRoll(roll_no))
+        if (!row) { skipped++; continue }
+        // Clear absent so the marks value actually persists on save.
+        row.is_absent = false
+        row.marks_obtained = String(marks)
+        markDirty(row)
+        applied++
+    }
+    // Fire autosave straight away — teacher intent is "commit this".
+    if (applied > 0) autosave()
+
+    const parts = [`Applied ${applied} mark${applied === 1 ? '' : 's'}`]
+    if (skipped > 0) parts.push(`${skipped} skipped (roll # not found)`)
+    // Toast if available, otherwise alert.
+    try {
+        // eslint-disable-next-line no-undef
+        (window.$toast?.success || window.toast?.success || alert)(parts.join(' · '))
+    } catch (_) { alert(parts.join(' · ')) }
+}
 
 const restoringMarks = ref(false)
 function restoreDeletedMarks() {
@@ -775,6 +811,22 @@ const absentStudents = computed(() =>
                             <div class="text-base sm:text-lg font-extrabold tabular-nums leading-tight">{{ stats.total }}</div>
                             <div class="text-[9px] uppercase tracking-widest text-base-content/55 font-semibold">Students</div>
                         </div>
+                        <!-- OCR — upload a handwritten "roll marks" photo and
+                             auto-fill the form. Hidden when the form is locked
+                             (submitted, no edit permission) since there's nothing
+                             it could write to. -->
+                        <button v-if="!editLocked" type="button" @click="showOcrModal = true"
+                            title="Upload a photo of handwritten roll numbers + marks. Reads them and fills the form (review before applying)."
+                            class="flex-1 lg:flex-none px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300 hover:bg-fuchsia-500/25 text-center lg:min-w-[76px] transition-colors">
+                            <div class="flex items-center justify-center gap-1">
+                                <CameraIcon class="w-4 h-4" />
+                                <div>
+                                    <div class="text-[9px] uppercase tracking-widest font-semibold leading-tight">Photo</div>
+                                    <div class="text-[9px] uppercase tracking-widest font-semibold leading-tight">OCR</div>
+                                </div>
+                            </div>
+                        </button>
+
                         <!-- Marks Backup / History — always visible so
                              teachers can see and restore snapshots even if
                              the current page is empty (that's the whole
@@ -1583,5 +1635,15 @@ const absentStudents = computed(() =>
                 </div>
             </div>
         </Transition>
+
+        <!-- Photo OCR modal — appears on demand; lazy-loads tesseract.js only
+             when opened, so the base page bundle stays lean. -->
+        <MarksOcrModal
+            :show="showOcrModal"
+            :total-marks="totalMarks"
+            :valid-roll-numbers="rows.map(r => r.roll_no).filter(v => v !== null && v !== '')"
+            @close="showOcrModal = false"
+            @apply="applyOcrPairs"
+        />
     </AppLayout>
 </template>

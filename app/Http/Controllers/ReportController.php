@@ -1432,225 +1432,26 @@ class ReportController extends Controller
      * come from Mark rows already in the DB; nothing is generated or
      * deleted.
      */
-    public function boardPrimaryResult(Request $request, int $exam, int $section)
-    {
-        $examModel = \App\Models\Exam::with(['academicSession'])->findOrFail($exam);
-        $sectionModel = \App\Models\Section::with(['schoolClass.school', 'classTeacher:id,name'])->findOrFail($section);
+    public function boardPrimaryResult(
+        Request $request,
+        int $exam,
+        int $section,
+        \App\Services\BoardPrimaryReportService $service
+    ) {
+        $examModel = \App\Models\Exam::with(['academicSession', 'examController:id,name,signature_image'])->findOrFail($exam);
+        $sectionModel = \App\Models\Section::with(['schoolClass.school', 'classTeacher:id,name,signature_image'])->findOrFail($section);
 
         $user = $request->user();
         if (!$user->isSuperAdmin() && $sectionModel->schoolClass->school_id !== $user->school_id) {
             abort(403, 'You can only download reports for your school.');
         }
-
         if (!$sectionModel->schoolClass?->isPrimaryStage()) {
             abort(404, 'The board-pattern term-wise report is only available for primary classes (ECD to 5).');
         }
 
-        // Resolve T-I / T-II / T-III exam ids for the session. Rules:
-        //   1. The exam the user is currently viewing ANCHORS its own term
-        //      slot — even if multiple exams in this session share the
-        //      same `term` value (e.g. three "first term" exams), the
-        //      viewed one wins for that slot so its marks are the ones
-        //      that render.
-        //   2. Remaining term slots are filled by the most-recent exam
-        //      of that term in the session (excluding the anchored one).
-        //   3. Any slot that stays null just leaves those columns blank.
-        $sessionId = $examModel->academic_session_id;
-        $termIdsMap = [];
-        if (in_array($examModel->term, ['first', 'second', 'final'], true)) {
-            $termIdsMap[$examModel->term] = $examModel->id;
-        }
-        foreach (['first', 'second', 'final'] as $t) {
-            if (isset($termIdsMap[$t])) continue;
-            $other = \App\Models\Exam::where('academic_session_id', $sessionId)
-                ->where('term', $t)
-                ->where('id', '!=', $examModel->id)
-                ->orderByDesc('start_date')
-                ->orderByDesc('id')
-                ->first(['id']);
-            if ($other) $termIdsMap[$t] = $other->id;
-        }
-        $t1Id = $termIdsMap['first']  ?? null;
-        $t2Id = $termIdsMap['second'] ?? null;
-        $t3Id = $termIdsMap['final']  ?? null;
-        $termIds = array_values(array_filter([$t1Id, $t2Id, $t3Id]));
-
-        // Subjects the exam covers for THIS class. Excluded subjects for
-        // this section are honoured per the section-exclusion feature.
-        $examSubjects = \App\Models\ExamSubject::where('exam_id', $exam)
-            ->where('school_class_id', $sectionModel->school_class_id)
-            ->with('subject:id,name,code')
-            ->get()
-            ->filter(fn ($es) => $es->appliesToSection((int) $section, (int) $sectionModel->school_class_id))
-            ->values();
-
-        // Every student in the section, regardless of status. Status was
-        // filtering out anyone marked promoted/graduated/transferred, so
-        // the sheet came up empty when the section had no student in
-        // exactly 'active'. Term-wise reports look BACK across the year
-        // so all students who sat any of the three terms belong on the sheet.
-        $students = \App\Models\Student::where('section_id', $section)
-            ->orderBy('roll_no')->orderBy('name')
-            ->get(['id', 'roll_no', 'admission_no', 'name', 'father_name', 'date_of_birth', 'status']);
-
-        // Bulk-load every relevant Mark row in one query, keyed for O(1)
-        // lookup in the per-student × per-subject × per-term loop.
-        //
-        // Deliberately NOT filtering by section_id — a student may have sat
-        // T-I in a different section (mid-year transfer, section rename)
-        // and the section_id column on Mark is a snapshot of where they
-        // were AT THAT TIME. The tuple (exam_id, student_id, subject_id)
-        // is already unique (marks_unique index), so we get exactly one
-        // row per term-paper per student without the section filter.
-        $allMarks = \App\Models\Mark::whereIn('exam_id', $termIds ?: [0])
-            ->whereIn('student_id', $students->pluck('id'))
-            ->get(['exam_id', 'student_id', 'subject_id', 'marks_obtained', 'is_absent'])
-            ->groupBy(fn ($m) => $m->student_id.'|'.$m->subject_id.'|'.$m->exam_id);
-
-        // Assessment marks (10-mark Co-Curricular column). Session-level.
-        $assessmentByStudent = \App\Models\AssessmentMark::whereIn('student_id', $students->pluck('id'))
-            ->where('academic_session_id', $sessionId)
-            ->get()
-            ->keyBy('student_id');
-
-        // Subject teacher per exam subject — scoped to THIS class + section
-        // + session. Falls back to a class-wide assignment (no section)
-        // when no section-specific teacher exists. Powers the
-        // "Name of Sub. Teacher" row at the bottom of the board sheet.
-        $subjectTeachers = \App\Models\SubjectTeacher::query()
-            ->whereIn('subject_id', $examSubjects->pluck('subject_id'))
-            ->where('school_class_id', $sectionModel->school_class_id)
-            ->where('is_active', true)
-            ->where(function ($q) use ($section) {
-                $q->where('section_id', $section)->orWhereNull('section_id');
-            })
-            ->when($sessionId, fn ($q) => $q->where('academic_session_id', $sessionId))
-            ->with('user:id,name')
-            ->get();
-        // Prefer the section-specific row over the class-wide fallback.
-        $teacherBySubject = [];
-        foreach ($subjectTeachers as $st) {
-            $key = (int) $st->subject_id;
-            $isSectionMatch = (int) $st->section_id === (int) $section;
-            if (!isset($teacherBySubject[$key]) || $isSectionMatch) {
-                $teacherBySubject[$key] = $st->user?->name;
-            }
-        }
-
-        // Board 10-tier grade scale — fixed for this format, independent of
-        // whatever grading scale the exam has attached.
-        $gradeBands = [
-            ['grade' => 'A++', 'min' => 95, 'max' => 100, 'label' => '95% To 100%'],
-            ['grade' => 'A+',  'min' => 90, 'max' => 94,  'label' => '90% To 94%'],
-            ['grade' => 'A',   'min' => 85, 'max' => 89,  'label' => '85% To 89%'],
-            ['grade' => 'B++', 'min' => 80, 'max' => 84,  'label' => '80% To 84%'],
-            ['grade' => 'B+',  'min' => 75, 'max' => 79,  'label' => '75% To 79%'],
-            ['grade' => 'B',   'min' => 70, 'max' => 74,  'label' => '70% To 74%'],
-            ['grade' => 'C',   'min' => 60, 'max' => 69,  'label' => '60% To 69%'],
-            ['grade' => 'D',   'min' => 50, 'max' => 59,  'label' => '50% To 59%'],
-            ['grade' => 'E',   'min' => 40, 'max' => 49,  'label' => '40% To 49%'],
-            ['grade' => 'U',   'min' => 0,  'max' => 39,  'label' => 'Less than 40%'],
-        ];
-        $gradeFor = function ($pct) use ($gradeBands) {
-            foreach ($gradeBands as $b) {
-                if ($pct >= $b['min'] && $pct <= $b['max']) return $b['grade'];
-            }
-            return 'U';
-        };
-
-        // Build the per-student row payload.
-        $termsUsed = ['t1' => $t1Id, 't2' => $t2Id, 't3' => $t3Id];
-        $termColTotal = 30; // per subject per term — the reference sheet
-        $rows = $students->map(function ($stu) use ($examSubjects, $allMarks, $termsUsed, $termColTotal, $assessmentByStudent, $gradeFor) {
-            $subjects = [];
-            $grandObtained = 0;
-            $grandMax = 0;
-            $appeared = false;
-            foreach ($examSubjects as $es) {
-                $sid = $es->subject_id;
-                $t1 = $t2 = $t3 = null;
-                foreach (['t1' => $termsUsed['t1'], 't2' => $termsUsed['t2'], 't3' => $termsUsed['t3']] as $slot => $eid) {
-                    if (!$eid) continue;
-                    $m = $allMarks->get($stu->id.'|'.$sid.'|'.$eid)?->first();
-                    if ($m && !$m->is_absent) {
-                        ${$slot} = (float) $m->marks_obtained;
-                        $appeared = true;
-                    }
-                }
-                $subTotal = ($t1 ?? 0) + ($t2 ?? 0) + ($t3 ?? 0);
-                $subMax = $termColTotal * count(array_filter($termsUsed));
-                $subjects[] = [
-                    'subject_id' => $sid,
-                    'code' => $es->subject?->code,
-                    'name' => $es->subject?->name,
-                    't1' => $t1,
-                    't2' => $t2,
-                    't3' => $t3,
-                    'total' => $subTotal,
-                ];
-                $grandObtained += $subTotal;
-                $grandMax += $subMax;
-            }
-            // Co-Curricular = AssessmentMark (10-mark session-level).
-            $am = $assessmentByStudent->get($stu->id);
-            $coCurr = $am ? (float) $am->marks_obtained : null;
-            $coMax = $am ? (float) $am->marks_total : 10;
-            $totalWithCoCurr = $grandObtained + ($coCurr ?? 0);
-            $maxWithCoCurr = $grandMax + $coMax;
-            $pct = $maxWithCoCurr > 0 ? round(($totalWithCoCurr / $maxWithCoCurr) * 100, 2) : 0;
-            return [
-                'student_id' => $stu->id,
-                'roll_no' => $stu->roll_no,
-                'admission_no' => $stu->admission_no,
-                'name' => $stu->name,
-                'father_name' => $stu->father_name,
-                'dob' => $stu->date_of_birth ? \Carbon\Carbon::parse($stu->date_of_birth)->format('d-M-Y') : '',
-                'subjects' => $subjects,
-                'co_curr' => $coCurr,
-                'grand_obtained' => $totalWithCoCurr,
-                'grand_max' => $maxWithCoCurr,
-                'percentage' => $pct,
-                'grade' => $appeared ? $gradeFor($pct) : 'U',
-                'appeared' => $appeared,
-                'remarks' => $appeared && $pct >= 40 ? 'Successful' : 'Un-Successful',
-            ];
-        })->values();
-
-        // Grade-distribution + summary counts for the bottom block.
-        $gradeCounts = array_fill_keys(array_column($gradeBands, 'grade'), 0);
-        foreach ($rows as $r) { $gradeCounts[$r['grade']]++; }
-        $appearedCount = $rows->where('appeared', true)->count();
-        $passedCount = $rows->filter(fn ($r) => $r['appeared'] && $r['percentage'] >= 40)->count();
-        $failedCount = $rows->count() - $passedCount;
-        $avgPct = $rows->count() > 0 ? round($rows->avg('percentage'), 2) : 0;
-
-        $payload = [
-            'exam' => $examModel,
-            'school' => $sectionModel->schoolClass->school,
-            'schoolClass' => $sectionModel->schoolClass,
-            'section' => $sectionModel,
-            'academicSession' => $examModel->academicSession,
-            'subjects' => $examSubjects->map(fn ($es) => [
-                'id' => $es->subject_id,
-                'name' => $es->subject?->name,
-                'code' => $es->subject?->code,
-                'teacher' => $teacherBySubject[(int) $es->subject_id] ?? '',
-            ])->values(),
-            'rows' => $rows,
-            'gradeBands' => $gradeBands,
-            'gradeCounts' => $gradeCounts,
-            'termCount' => count(array_filter($termsUsed)),
-            'termColTotal' => $termColTotal,
-            'summary' => [
-                'total_students' => $rows->count(),
-                'appeared' => $appearedCount,
-                'passed' => $passedCount,
-                'failed' => $failedCount,
-                'pass_percentage' => $appearedCount > 0 ? round($passedCount / $appearedCount * 100, 2) : 0,
-                'average_percentage' => $avgPct,
-            ],
-            'classTeacher' => $sectionModel->classTeacher?->name,
-        ];
+        // Delegate payload construction to the shared service — same code
+        // path the multi-sheet "all primary sections" export uses.
+        $payload = $service->buildPayload($examModel, $sectionModel, $user);
 
         $slug = "board-primary-{$sectionModel->schoolClass->name}-{$sectionModel->name}-{$examModel->academicSession?->name}";
         $slug = str_replace([' ', '/'], '-', $slug);
@@ -1665,4 +1466,50 @@ class ReportController extends Controller
         $pdf = Pdf::loadView('reports.board-primary', $payload)->setPaper('a3', 'landscape');
         return $pdf->stream("{$slug}.pdf");
     }
+
+    /**
+     * All-primary-sections Excel export — one workbook, one sheet per
+     * section, same board format as the single-section download.
+     * Tabs at the bottom of the workbook read left-to-right in class
+     * sort_order then section name.
+     */
+    public function boardPrimaryResultAllSections(
+        Request $request,
+        int $exam,
+        \App\Services\BoardPrimaryReportService $service
+    ) {
+        $examModel = \App\Models\Exam::with(['academicSession', 'examController:id,name,signature_image'])->findOrFail($exam);
+
+        $user = $request->user();
+        $sections = $service->primarySectionsForExam($examModel);
+
+        // If the user isn't a super-admin, keep only sections in their school.
+        if (!$user->isSuperAdmin()) {
+            $sections = $sections->filter(
+                fn ($s) => (int) $s->schoolClass->school_id === (int) $user->school_id
+            )->values();
+        }
+
+        // Optional `sections[]=A&sections[]=B` filter — when the user picked a
+        // subset in the UI, keep only those. Empty / missing = all sections.
+        $picked = collect($request->query('sections', []))
+            ->flatten()
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->values();
+        if ($picked->isNotEmpty()) {
+            $sections = $sections->whereIn('id', $picked->all())->values();
+        }
+
+        abort_if($sections->isEmpty(), 404, 'No primary sections found for this exam.');
+
+        $slug = "board-primary-all-sections-{$examModel->academicSession?->name}-exam-{$examModel->id}";
+        $slug = str_replace([' ', '/'], '-', $slug);
+
+        return \Maatwebsite\Excel\Facades\Excel::download(
+            new \App\Exports\BoardPrimaryAllSectionsExport($examModel, $sections, $user),
+            "{$slug}.xlsx"
+        );
+    }
+
 }

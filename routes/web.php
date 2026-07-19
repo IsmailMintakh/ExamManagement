@@ -253,6 +253,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('marks/{exam}/entry/{subject}/{section}', [MarksController::class, 'entry'])->name('marks.entry');
     Route::post('marks/{exam}/store', [MarksController::class, 'store'])->name('marks.store');
     Route::post('marks/{exam}/autosave', [MarksController::class, 'autosave'])->name('marks.autosave');
+
+    // Marks photo OCR — accepts an image, returns extracted (roll_no, marks) pairs.
+    Route::post('marks/ocr', [\App\Http\Controllers\MarksOcrController::class, 'extract'])->name('marks.ocr');
     Route::post('marks/{exam}/submit/{subject}/{section}', [MarksController::class, 'submit'])->name('marks.submit');
     // Partial submit — flips just the draft rows to submitted, no
     // "all students required" gate. Powers the "Submit drafts" button.
@@ -690,7 +693,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('section-mark-sheets/{exam}/{section}', [ReportController::class, 'sectionMarkSheets'])->name('section-mark-sheets');
         // Board-pattern term-wise result for primary classes (ECD → 5).
         // PDF by default, ?format=xlsx for Excel. Non-primary sections 404.
-        Route::get('board-primary/{exam}/{section}', [ReportController::class, 'boardPrimaryResult'])->name('board-primary');
+        // Order matters: `all` must come BEFORE the {section} wildcard so
+        // it doesn't get swallowed as a section id.
+        Route::get('board-primary/{exam}/all', [ReportController::class, 'boardPrimaryResultAllSections'])->name('board-primary-all');
+        Route::get('board-primary/{exam}/{section}', [ReportController::class, 'boardPrimaryResult'])->where('section', '[0-9]+')->name('board-primary');
         // Bulk: every student in the exam (or one class via ?school_class_id) in one stacked PDF.
         Route::get('bulk-mark-sheets/{exam}', [ReportController::class, 'bulkMarkSheets'])->name('bulk-mark-sheets');
         // Bulk: result sheet for every class in one PDF, page-break between classes.

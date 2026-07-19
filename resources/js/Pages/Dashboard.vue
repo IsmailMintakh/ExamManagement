@@ -287,42 +287,120 @@ const statusLabel = (s) => s?.replace(/_/g, ' ') || '—'
     <AppLayout :breadcrumbs="[{ label: 'Dashboard' }]">
         <div class="space-y-4 sm:space-y-5 max-w-7xl mx-auto">
 
-            <!-- ════════ WELCOME (first-run mode only) ════════ -->
-            <div v-if="isFreshStart" class="rounded-2xl p-6 sm:p-8 text-center"
-                 style="background: linear-gradient(135deg, oklch(var(--p) / 0.08), oklch(var(--p) / 0.02));
-                        border: 1px solid oklch(var(--p) / 0.2);">
-                <div class="w-14 h-14 mx-auto rounded-2xl bg-primary text-primary-content flex items-center justify-center shadow-lg shadow-primary/30 mb-3">
-                    <SparklesIcon class="w-7 h-7" />
-                </div>
-                <h2 class="text-xl sm:text-2xl font-extrabold tracking-tight">Welcome, {{ userName }}!</h2>
-                <p class="text-sm text-base-content/65 mt-1.5 max-w-md mx-auto">
-                    Let's get you set up. The dashboard will fill with charts and insights once you add some data.
-                </p>
-                <div class="mt-4 flex items-center justify-center gap-2 flex-wrap">
-                    <Link v-if="hasPerm('schools.create')" href="/schools/create" class="btn btn-primary btn-sm rounded-xl gap-1.5">
-                        <BuildingOfficeIcon class="w-4 h-4" /> Add school
-                    </Link>
-                    <Link v-if="hasPerm('students.create')" href="/students/create" class="btn btn-outline btn-sm rounded-xl gap-1.5">
-                        <UserGroupIcon class="w-4 h-4" /> Add student
-                    </Link>
-                    <Link href="/dashboard" v-if="setupStatus" class="btn btn-ghost btn-sm rounded-xl">
-                        Setup checklist →
-                    </Link>
+            <!-- ════════ WELCOME (first-run only) ════════ -->
+            <div v-if="isFreshStart"
+                 class="relative overflow-hidden rounded-3xl p-6 sm:p-10 text-center border border-primary/20
+                        bg-gradient-to-br from-primary/[0.12] via-primary/[0.05] to-transparent">
+                <div class="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-primary/15 blur-3xl"></div>
+                <div class="absolute -bottom-20 -left-20 w-56 h-56 rounded-full bg-emerald-500/10 blur-3xl"></div>
+                <div class="relative">
+                    <div class="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-primary to-teal-600
+                                text-primary-content flex items-center justify-center shadow-xl shadow-primary/30 mb-4">
+                        <SparklesIcon class="w-8 h-8" />
+                    </div>
+                    <h2 class="text-2xl sm:text-3xl font-extrabold tracking-tight">Welcome, {{ userName }}!</h2>
+                    <p class="text-sm sm:text-base text-base-content/65 mt-2 max-w-md mx-auto">
+                        Let's get you set up. Your dashboard will fill with charts and insights once you add some data.
+                    </p>
+                    <div class="mt-5 flex items-center justify-center gap-2 flex-wrap">
+                        <Link v-if="hasPerm('schools.create')" href="/schools/create" class="btn btn-primary rounded-xl gap-1.5 shadow-md shadow-primary/25">
+                            <BuildingOfficeIcon class="w-4 h-4" /> Add school
+                        </Link>
+                        <Link v-if="hasPerm('students.create')" href="/students/create" class="btn btn-outline rounded-xl gap-1.5">
+                            <UserGroupIcon class="w-4 h-4" /> Add student
+                        </Link>
+                    </div>
                 </div>
             </div>
 
-            <!-- ════════ HEADER (compact, professional) ════════ -->
-            <!-- Tone shifts per role so a class teacher's dashboard reads
-                 visually distinct from a principal's at a single glance. -->
-            <PageHeader
-                :title="`${greeting}, ${userName}`"
-                :subtitle="`${roleLabels[role] || role} · ${currentSession?.name || 'No active session'} · ${todayLabel}`"
-                :icon="AcademicCapIcon" :tone="roleTone" />
+            <!-- ════════ HERO GREETING ════════
+                 Bigger, more welcoming than the plain PageHeader. Combines
+                 greeting, role/session/date context, and the top 3 quick
+                 actions into one card that OWNS the mobile viewport top. -->
+            <section
+                class="relative overflow-hidden rounded-3xl border p-5 sm:p-7"
+                :class="{
+                    'border-primary/20 bg-gradient-to-br from-primary/[0.10] via-primary/[0.03] to-transparent': roleTone === 'primary',
+                    'border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.10] via-emerald-500/[0.03] to-transparent': roleTone === 'emerald',
+                    'border-sky-500/20 bg-gradient-to-br from-sky-500/[0.10] via-sky-500/[0.03] to-transparent': roleTone === 'sky',
+                    'border-violet-500/20 bg-gradient-to-br from-violet-500/[0.10] via-violet-500/[0.03] to-transparent': roleTone === 'violet',
+                }">
+                <!-- Soft blurred accent — cheap depth cue, no images needed. -->
+                <div class="pointer-events-none absolute -top-24 -right-24 w-64 h-64 rounded-full blur-3xl opacity-60"
+                     :class="{
+                        'bg-primary/20': roleTone === 'primary',
+                        'bg-emerald-500/20': roleTone === 'emerald',
+                        'bg-sky-500/20': roleTone === 'sky',
+                        'bg-violet-500/20': roleTone === 'violet',
+                     }"></div>
+
+                <div class="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-center gap-3 sm:gap-4 min-w-0">
+                        <div class="relative shrink-0">
+                            <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden ring-2 ring-white/70 dark:ring-white/10 shadow-lg"
+                                 :class="{
+                                    'shadow-primary/25': roleTone === 'primary',
+                                    'shadow-emerald-500/25': roleTone === 'emerald',
+                                    'shadow-sky-500/25': roleTone === 'sky',
+                                    'shadow-violet-500/25': roleTone === 'violet',
+                                 }">
+                                <img v-if="userPhoto" :src="userPhoto" :alt="userName"
+                                     class="w-full h-full object-cover" />
+                                <div v-else
+                                    class="w-full h-full flex items-center justify-center font-extrabold text-lg sm:text-xl text-white"
+                                    :class="{
+                                        'bg-gradient-to-br from-primary to-teal-600': roleTone === 'primary',
+                                        'bg-gradient-to-br from-emerald-500 to-teal-600': roleTone === 'emerald',
+                                        'bg-gradient-to-br from-sky-500 to-indigo-600': roleTone === 'sky',
+                                        'bg-gradient-to-br from-violet-500 to-fuchsia-600': roleTone === 'violet',
+                                    }">
+                                    {{ (userName?.[0] || '?').toUpperCase() }}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-[10px] uppercase tracking-[0.2em] font-bold text-base-content/55">
+                                {{ todayLabel }}
+                            </p>
+                            <h1 class="text-xl sm:text-3xl font-extrabold tracking-tight leading-tight truncate">
+                                {{ greeting }},
+                                <span class="bg-gradient-to-r bg-clip-text text-transparent"
+                                      :class="{
+                                        'from-primary to-teal-600': roleTone === 'primary',
+                                        'from-emerald-500 to-teal-600': roleTone === 'emerald',
+                                        'from-sky-500 to-indigo-600': roleTone === 'sky',
+                                        'from-violet-500 to-fuchsia-600': roleTone === 'violet',
+                                      }">{{ userName }}</span>
+                            </h1>
+                            <p class="text-[13px] sm:text-sm text-base-content/60 mt-0.5 truncate">
+                                {{ roleLabels[role] || role }}
+                                <span v-if="currentSession?.name" class="text-base-content/40 mx-1.5">·</span>
+                                <span v-if="currentSession?.name">{{ currentSession.name }}</span>
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Quick actions — right-aligned on desktop, wrap on mobile. -->
+                    <div v-if="quickActions.length" class="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
+                        <Link v-for="a in quickActions" :key="a.href" :href="a.href"
+                            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-base-100/80 backdrop-blur
+                                   border border-base-300/50 shadow-sm hover:shadow-md hover:-translate-y-0.5
+                                   text-xs sm:text-sm font-semibold transition-all">
+                            <component :is="a.icon" class="w-4 h-4 opacity-70" />
+                            {{ a.label }}
+                        </Link>
+                    </div>
+                </div>
+            </section>
 
             <!-- ════════ INSIGHT BANNER (auto-summary) ════════ -->
-            <div v-if="insight" class="rounded-2xl bg-gradient-to-r from-primary/[0.08] to-emerald-500/[0.06] border border-primary/15 px-4 py-3 flex items-center gap-3">
-                <LightBulbIcon class="w-5 h-5 text-primary shrink-0" />
-                <p class="text-sm text-base-content/85 font-medium flex-1">{{ insight }}</p>
+            <div v-if="insight"
+                 class="rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/[0.08] via-primary/[0.04] to-transparent
+                        px-4 py-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-primary/15 text-primary flex items-center justify-center shrink-0">
+                    <LightBulbIcon class="w-4 h-4" />
+                </div>
+                <p class="text-[13px] sm:text-sm text-base-content/85 font-medium flex-1">{{ insight }}</p>
             </div>
 
             <!-- ════════ ACTION PILL (setup + attention, demoted) ════════ -->

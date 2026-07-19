@@ -54,4 +54,21 @@ return [
         'model' => env('ANTHROPIC_MODEL', 'claude-sonnet-4-6'),
     ],
 
+    // Groq — free-tier LLM (currently text-only on the free tier).
+    // Kept as a fallback for the marks-photo OCR in case Groq restores
+    // vision to the free tier later.
+    'groq' => [
+        'key'   => env('GROQ_API_KEY'),
+        'model' => env('GROQ_MODEL', 'meta-llama/llama-4-scout-17b-16e-instruct'),
+    ],
+
+    // Google Gemini — PRIMARY provider for the marks-photo OCR feature.
+    // Free tier: 1,500 requests/day, no credit card required. Best-in-
+    // class handwriting accuracy for regional digit styles.
+    // Get a key at https://aistudio.google.com.
+    'gemini' => [
+        'key'   => env('GEMINI_API_KEY'),
+        'model' => env('GEMINI_MODEL', 'gemini-2.0-flash'),
+    ],
+
 ];
