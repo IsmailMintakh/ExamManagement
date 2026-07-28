@@ -712,6 +712,55 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('progress-booklet-bulk/{section}', [ReportController::class, 'progressBookletBulk'])->name('progress-booklet-bulk');
     });
 
+    // ─── FBISE Board Results (9th / 10th) ─────────────────────────────
+    // Container → student list → per-student entry. Grid batch, Excel
+    // import and photo-OCR modes ship in follow-up commits.
+    Route::prefix('board-results')->name('board-results.')->group(function () {
+        Route::get('/',                                    [\App\Http\Controllers\BoardResultController::class, 'index'])->name('index');
+        Route::get('/create',                              [\App\Http\Controllers\BoardResultController::class, 'create'])->name('create');
+        Route::post('/',                                   [\App\Http\Controllers\BoardResultController::class, 'store'])->name('store');
+        Route::get('/{boardExam}',                         [\App\Http\Controllers\BoardResultController::class, 'show'])->name('show')->where('boardExam', '[0-9]+');
+        Route::get('/{boardExam}/students/{student}',      [\App\Http\Controllers\BoardResultController::class, 'enterStudent'])->name('enter-student')->where(['boardExam' => '[0-9]+', 'student' => '[0-9]+']);
+        Route::post('/{boardExam}/students/{student}',     [\App\Http\Controllers\BoardResultController::class, 'storeStudent'])->name('store-student')->where(['boardExam' => '[0-9]+', 'student' => '[0-9]+']);
+        // Grid batch entry — all students × all subjects in one page.
+        Route::get('/{boardExam}/batch',                   [\App\Http\Controllers\BoardResultController::class, 'batchEntry'])->name('batch')->where('boardExam', '[0-9]+');
+        Route::post('/{boardExam}/batch',                  [\App\Http\Controllers\BoardResultController::class, 'batchStore'])->name('batch-store')->where('boardExam', '[0-9]+');
+        // Excel template download + upload (preview → commit).
+        Route::get('/{boardExam}/template.xlsx',           [\App\Http\Controllers\BoardResultController::class, 'template'])->name('template')->where('boardExam', '[0-9]+');
+        Route::post('/{boardExam}/import',                 [\App\Http\Controllers\BoardResultController::class, 'import'])->name('import')->where('boardExam', '[0-9]+');
+
+        // Reports — analytics dashboard + downloadable PDFs / Excel.
+        Route::get('/{boardExam}/analytics',               [\App\Http\Controllers\BoardResultController::class, 'analytics'])->name('analytics')->where('boardExam', '[0-9]+');
+        Route::get('/{boardExam}/summary.pdf',             [\App\Http\Controllers\BoardResultController::class, 'classSummaryPdf'])->name('summary-pdf')->where('boardExam', '[0-9]+');
+        Route::get('/{boardExam}/export.xlsx',             [\App\Http\Controllers\BoardResultController::class, 'classExcel'])->name('export-xlsx')->where('boardExam', '[0-9]+');
+        Route::get('/{boardExam}/students/{student}/card.pdf', [\App\Http\Controllers\BoardResultController::class, 'studentCardPdf'])->name('student-card-pdf')->where(['boardExam' => '[0-9]+', 'student' => '[0-9]+']);
+        // Bulk cards + lock/unlock (Phase 4).
+        Route::get('/{boardExam}/all-cards.pdf',           [\App\Http\Controllers\BoardResultController::class, 'bulkCardsPdf'])->name('bulk-cards-pdf')->where('boardExam', '[0-9]+');
+        Route::post('/{boardExam}/toggle-lock',            [\App\Http\Controllers\BoardResultController::class, 'toggleLock'])->name('toggle-lock')->where('boardExam', '[0-9]+');
+        // Phase 5 — FBISE gazette photo OCR + year-over-year comparison.
+        Route::post('/{boardExam}/students/{student}/ocr', [\App\Http\Controllers\BoardResultController::class, 'ocrGazette'])->name('ocr-gazette')->where(['boardExam' => '[0-9]+', 'student' => '[0-9]+']);
+        Route::get('/{boardExam}/year-over-year',          [\App\Http\Controllers\BoardResultController::class, 'yearOverYear'])->name('year-over-year')->where('boardExam', '[0-9]+');
+        // Phase 6 — per-subject max-marks / passing template.
+        Route::get('/{boardExam}/subjects',                [\App\Http\Controllers\BoardResultController::class, 'subjectsIndex'])->name('subjects')->where('boardExam', '[0-9]+');
+        Route::post('/{boardExam}/subjects',               [\App\Http\Controllers\BoardResultController::class, 'subjectsUpdate'])->name('subjects-update')->where('boardExam', '[0-9]+');
+    });
+});
+
+// ─── Public FBISE result search — NO auth required ────────────────
+// Rate-limited: 10 lookups per minute per IP so bots can't scrape.
+// Only exams flagged is_locked (finalised by admin) are exposed here.
+// Names distinct from the existing public.result-lookup (which is for
+// internal in-school results, not FBISE) to avoid route-name collision.
+Route::middleware('throttle:10,1')->group(function () {
+    Route::get('/board-result-search',  [\App\Http\Controllers\PublicBoardResultController::class, 'search'])->name('public.board-result-search');
+    Route::post('/board-result-search', [\App\Http\Controllers\PublicBoardResultController::class, 'lookup'])->name('public.board-result-lookup');
+});
+
+// Prevent the closing '});' from breaking on the auth-group tail below —
+// nothing after this comment, it's just a marker.
+Route::middleware(['auth', 'verified'])->group(function () {
+    // (no additional routes; the closer above completes the file cleanly)
+
     // Users
     Route::resource('users', UserController::class);
 

@@ -333,6 +333,14 @@ class DashboardController extends Controller
                 ->withCount([
                     'students' => fn ($q) => $q->active()
                         ->when($currentSession, fn ($q2) => $q2->where('academic_session_id', $currentSession->id)),
+                    // Teacher count = active users on this school with any
+                    // teaching role (class or subject teacher). Powers the
+                    // per-school student:teacher ratio on the dashboard.
+                    'users as teachers_count' => function ($q) {
+                        $q->whereHas('roles', function ($rq) {
+                            $rq->whereIn('name', ['class-teacher', 'subject-teacher']);
+                        });
+                    },
                 ])
                 ->get()
                 ->map(function ($school) use ($passRateBySchool) {

@@ -213,6 +213,10 @@ const menuGroups = computed(() => {
     if (hasPerm('marks.view') || hasPerm('marks.enter')) workflowItems.push({ label: 'Marks Entry', href: '/marks', icon: DocumentTextIcon })
     if (hasRole('super-admin') || hasRole('school-admin')) workflowItems.push({ label: 'Marks Progress', href: '/marks/progress', icon: ClipboardDocumentCheckIcon })
     if (hasPerm('results.view')) workflowItems.push({ label: 'Results', href: '/results', icon: ChartBarIcon })
+    // FBISE Board Results (9th / 10th) — visible alongside internal results.
+    if (hasPerm('results.view') || hasRole('super-admin') || hasRole('school-admin')) {
+        workflowItems.push({ label: 'Board Results', href: '/board-results', icon: AcademicCapIcon })
+    }
     if (hasPerm('results.review')) workflowItems.push({ label: 'Result Review', href: '/result-review', icon: CheckBadgeIcon })
     if (hasPerm('supplementary.view')) workflowItems.push({ label: 'Supplementary', href: '/supplementary', icon: ArrowPathIcon })
     if (hasPerm('scheduling.view')) workflowItems.push({ label: 'Exam Scheduling', href: '/scheduling', icon: CalendarIcon })
