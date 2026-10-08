@@ -550,11 +550,11 @@ class ExamController extends Controller
         // and auto-derived from name) — surface as a field error, not a 500.
         $incomingName = (string) $request->input('name', '');
         if ($incomingName !== '') {
-            $incomingSlug = \Illuminate\Support\Str::slug($incomingName);
+            $incomingSlug = Str::slug($incomingName);
             $clash = Exam::where('slug', $incomingSlug)->where('id', '!=', $exam->id)->exists();
             if ($clash) {
                 return back()->withErrors([
-                    'name' => "An exam named \"{$incomingName}\" already exists (slug \"{$incomingSlug}\"). Pick a different name — e.g. append the year or term.",
+                    'name' => "You cannot rename to \"{$incomingName}\" — another exam already uses this name. Try a different name (e.g. \"{$incomingName} 2026\").",
                 ])->withInput();
             }
         }

@@ -81,10 +81,14 @@ router.on('success', (event) => {
     }
 });
 
-router.on('error', (errors) => {
-    // `errors` here is the validation-error map. Show the first message so
-    // the user knows what failed.
-    const first = errors && typeof errors === 'object' ? Object.values(errors)[0] : null;
+router.on('error', (event) => {
+    // Inertia 2.x fires this as a CustomEvent — the validation-error map
+    // lives on event.detail.errors. Pick the first field message so the
+    // user sees the exact reason, not a generic fallback.
+    const errors = event?.detail?.errors || {};
+    const values = Object.values(errors);
+    const first = values.find(v => typeof v === 'string' && v)
+        || (Array.isArray(values[0]) ? values[0][0] : null);
     toast.error(typeof first === 'string' && first ? first : 'Please fix the errors and try again.', 6000);
 });
 

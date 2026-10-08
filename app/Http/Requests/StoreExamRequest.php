@@ -113,14 +113,15 @@ class StoreExamRequest extends FormRequest
         $validator->after(function ($v) {
             // Exam names auto-generate a slug (Str::slug); exams.slug is UNIQUE,
             // so a second "First Term" would raise SQL 23000. Catch it here and
-            // surface as a field error on `name` instead of a 500.
+            // surface as a field error on `name` so the toast shows the exact
+            // reason, not a 500.
             $name = (string) $this->input('name', '');
             if ($name !== '') {
                 $slug = Str::slug($name);
                 $exists = \App\Models\Exam::where('slug', $slug)->exists();
                 if ($exists) {
                     $v->errors()->add('name',
-                        "An exam named \"{$name}\" already exists (slug \"{$slug}\"). Pick a different name — e.g. append the year or term.");
+                        "You cannot create \"{$name}\" twice — an exam with this name already exists. Try a different name (e.g. \"{$name} 2026\").");
                 }
             }
 
