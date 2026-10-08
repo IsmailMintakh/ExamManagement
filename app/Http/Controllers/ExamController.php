@@ -546,6 +546,19 @@ class ExamController extends Controller
             ])->withInput();
         }
 
+        // Guard against renaming into another exam's slug (exams.slug is UNIQUE
+        // and auto-derived from name) — surface as a field error, not a 500.
+        $incomingName = (string) $request->input('name', '');
+        if ($incomingName !== '') {
+            $incomingSlug = \Illuminate\Support\Str::slug($incomingName);
+            $clash = Exam::where('slug', $incomingSlug)->where('id', '!=', $exam->id)->exists();
+            if ($clash) {
+                return back()->withErrors([
+                    'name' => "An exam named \"{$incomingName}\" already exists (slug \"{$incomingSlug}\"). Pick a different name — e.g. append the year or term.",
+                ])->withInput();
+            }
+        }
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'exam_type_id' => ['required', 'exists:exam_types,id'],
